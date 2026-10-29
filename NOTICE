@@ -1,0 +1,29 @@
+Final Effect 3D — notice of modification
+=========================================
+
+Final Effect 3D is a modified version of Blender.
+
+  * Original work: Blender, © Blender Authors, licensed under the GNU General
+    Public License version 2 or later (GPL-2.0-or-later).
+  * This product: Final Effect 3D, © Final Alpha / the Final Effect 3D Authors,
+    distributed under the GNU General Public License version 3 (GPL-3.0).
+
+Modifications, in accordance with GPLv3 section 5(a):
+
+  * user-visible product identity, splash artwork, icons and packaging metadata
+    were changed to Final Effect 3D;
+  * platform packaging (WIx installer, macOS application bundle, Linux desktop
+    entry and AppStream metadata) was rebranded;
+  * additional presets, templates and effect assets were added;
+  * see the fork's 'final-effect-3d' branch history for the exact set of changes
+    and their dates.
+
+Notices and licence texts preserved from the original work: COPYING, AUTHORS,
+doc/license/*, and release/license/licenses.json for bundled third-party code.
+
+Final Effect 3D is an independent project. It is not affiliated with, sponsored
+by, or endorsed by the Blender Foundation. "Blender" is a trademark of the
+Blender Foundation.
+
+This is a template: fill in the release version, date and the accurate list of
+modifications before publishing any binary release.
