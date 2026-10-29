@@ -5,6 +5,8 @@
 
 #include "finaleffect/platform/window.hpp"
 
+#include <vector>
+
 struct GLFWwindow;
 
 namespace finaleffect::platform {
@@ -23,6 +25,8 @@ public:
     void shutdown() noexcept override;
 
     void pollEvents() override;
+    [[nodiscard]] std::vector<InputEvent> consumeInputEvents() override;
+
     [[nodiscard]] bool shouldClose() const noexcept override;
     void requestClose() noexcept override;
 
@@ -33,10 +37,17 @@ public:
 
 private:
     static void onFramebufferResize(GLFWwindow* handle, int width, int height) noexcept;
+    static void onKey(GLFWwindow* handle, int key, int scancode, int action, int mods) noexcept;
+    static void onMouseButton(GLFWwindow* handle, int button, int action, int mods) noexcept;
+    static void onCursorPos(GLFWwindow* handle, double xpos, double ypos) noexcept;
+    static void onScroll(GLFWwindow* handle, double xoffset, double yoffset) noexcept;
+
+    void scaleCursorToFramebuffer(double& x, double& y) const noexcept;
 
     GLFWwindow* window_{nullptr};
     FramebufferSize fb_size_{0, 0};
     bool glfw_initialized_{false};
+    std::vector<InputEvent> pending_events_;
 };
 
 } // namespace finaleffect::platform

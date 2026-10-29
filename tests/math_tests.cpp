@@ -3,9 +3,11 @@
 
 #include "test_harness.hpp"
 
+#include "finaleffect/math/aabb.hpp"
 #include "finaleffect/math/constants.hpp"
 #include "finaleffect/math/mat4.hpp"
 #include "finaleffect/math/quat.hpp"
+#include "finaleffect/math/ray.hpp"
 #include "finaleffect/math/transform.hpp"
 #include "finaleffect/math/vec2.hpp"
 #include "finaleffect/math/vec3.hpp"
@@ -161,6 +163,34 @@ FE_TEST(Math, TransformHierarchyEquivalence) {
     FE_EXPECT_TRUE(
         combined.transformPoint(local_pt).approxEqual(expected_matrix.transformPoint(local_pt), 1e-4f));
     FE_EXPECT_TRUE(parent.forward().approxEqual(Vec3{-1.0f, 0.0f, 0.0f}, 1e-5f));
+}
+
+FE_TEST(Math, RayAabbAndRayTriangleIntersections) {
+    const AABB box = AABB::fromMinMax(Vec3{-1.0f, -2.0f, -3.0f}, Vec3{1.0f, 2.0f, 3.0f});
+    FE_EXPECT_TRUE(box.isValid());
+
+    const Ray hit_ray(Vec3{0.0f, 0.0f, 10.0f}, Vec3{0.0f, 0.0f, -1.0f});
+    const auto hit_t = intersectRayAabb(hit_ray, box);
+    FE_REQUIRE_TRUE(hit_t.has_value());
+    FE_EXPECT_NEAR(hit_t.value(), 7.0f, 1e-5f);
+
+    // Axis-parallel miss must return nullopt without division by zero.
+    const Ray parallel_miss(Vec3{5.0f, 0.0f, 10.0f}, Vec3{0.0f, 0.0f, -1.0f});
+    FE_EXPECT_FALSE(intersectRayAabb(parallel_miss, box).has_value());
+
+    // Moller-Trumbore triangle intersection.
+    const Vec3 v0{-1.0f, -1.0f, -4.0f};
+    const Vec3 v1{1.0f, -1.0f, -4.0f};
+    const Vec3 v2{0.0f, 1.0f, -4.0f};
+    const Ray tri_ray(Vec3{0.0f, -0.25f, 0.0f}, Vec3{0.0f, 0.0f, -1.0f});
+    const auto tri_t = intersectRayTriangle(tri_ray, v0, v1, v2, true);
+    FE_REQUIRE_TRUE(tri_t.has_value());
+    FE_EXPECT_NEAR(tri_t.value(), 4.0f, 1e-5f);
+
+    // Backface-culled ray from behind must miss when backface_cull = true.
+    const Ray behind_ray(Vec3{0.0f, -0.25f, -8.0f}, Vec3{0.0f, 0.0f, 1.0f});
+    FE_EXPECT_FALSE(intersectRayTriangle(behind_ray, v0, v1, v2, true).has_value());
+    FE_EXPECT_TRUE(intersectRayTriangle(behind_ray, v0, v1, v2, false).has_value());
 }
 
 } // namespace

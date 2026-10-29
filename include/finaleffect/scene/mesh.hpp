@@ -4,6 +4,7 @@
 #pragma once
 
 #include "finaleffect/core/result.hpp"
+#include "finaleffect/math/aabb.hpp"
 #include "finaleffect/math/vec2.hpp"
 #include "finaleffect/math/vec3.hpp"
 #include "finaleffect/scene/object_id.hpp"
@@ -60,12 +61,21 @@ struct MeshData {
     [[nodiscard]] std::size_t byteSize() const noexcept {
         return vertices.size() * sizeof(Vertex) + indices.size() * sizeof(std::uint32_t);
     }
+
+    [[nodiscard]] math::AABB computeBounds() const noexcept {
+        math::AABB bounds = math::AABB::empty();
+        for (const auto& v : vertices) {
+            bounds.expand(v.position);
+        }
+        return bounds;
+    }
 };
 
 struct MeshAsset {
     MeshId id{MeshId::invalid()};
     std::string name;
     MeshData data;
+    math::AABB local_bounds{math::AABB::empty()};
     std::uint64_t revision{1};
 };
 

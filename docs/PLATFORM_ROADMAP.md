@@ -5,35 +5,31 @@
 Final Effect 3D targets three distinct execution models around a single portable C++20 engine core:
 
 1. **Native Desktop Applications** (Windows, Linux, macOS)
-2. **Browser Execution** (WebAssembly via Emscripten + browser graphics/DOM host)
+2. **Browser Execution** (WebAssembly via Emscripten + HTML5 Canvas / WebGL 2.0 host)
 3. **Native Mobile Applications** (iOS and Android native app bundles)
 
 > **Critical Architectural Rule**: Native desktop binaries (`.exe`, Linux ELF, macOS Mach-O) **cannot** execute directly inside desktop or mobile web browsers, nor does desktop OpenGL 3.3 code compile unchanged into a modern browser runtime without a WebGL2/WebGPU adaptation layer and an asynchronous browser event loop.
 
 ---
 
-## 2. Per-Platform Architecture & Current Status
+## 2. Per-Platform Architecture & Current Status (Stage 2)
 
-| Target Platform | Stage 1 Status | Host / Window Layer | Rendering Backend Strategy |
+| Target Platform | Stage 2 Status | Host / Window Layer | Rendering Backend Strategy |
 | :--- | :--- | :--- | :--- |
-| **Linux (x86_64 / arm64)** | Core + Tests **Verified**; OpenGL 3.3 + GLFW implemented | `platform/linux/` + `GlfwWindow` / `HeadlessWindow` | OpenGL 3.3 Core baseline + CPU `SoftwareRenderDevice`; future Vulkan |
-| **Windows (x64 / arm64)** | Core + OpenGL 3.3 + GLFW configured & CI-targeted | `platform/windows/` + `GlfwWindow` / `HeadlessWindow` | OpenGL 3.3 Core baseline + CPU `SoftwareRenderDevice`; future Vulkan / Direct3D 12 |
-| **macOS (Apple Silicon / Intel)** | Core + OpenGL 3.3 + GLFW configured & CI-targeted | `platform/macos/` + `GlfwWindow` / `HeadlessWindow` | OpenGL 3.3 Core forward-compatible prototype (deprecated by Apple); planned native **Metal** backend |
-| **Web Browser (Desktop & Mobile Web)** | Architecture prepared; **not yet built** | Planned Emscripten host (`apps/web/`, `web/`) using `emscripten_set_main_loop` | Planned **WebGL2** `IRenderDevice` baseline (`NegativeOneToOne` clip depth), followed by **WebGPU** (`ZeroToOne` clip depth) |
-| **iOS / iPadOS** | Architecture prepared; **not yet built** | Planned Objective-C++ / Swift host (`platform/ios/`) with `CAMetalLayer` & touch input | Planned native **Metal** `IRenderDevice` (`ZeroToOne` clip depth) |
-| **Android** | Architecture prepared; **not yet built** | Planned NDK `GameActivity` / `ANativeWindow` host (`platform/android/`) | Planned **Vulkan** primary `IRenderDevice` with **OpenGL ES 3.x** fallback for older GPUs |
+| **Linux (x86_64 / arm64)** | Core, Viewport, `.fe3dbin` & Tests **Verified locally**; OpenGL 3.3 + GLFW implemented & CI-tested | `platform/linux/` + `GlfwWindow` / `HeadlessWindow` | OpenGL 3.3 Core baseline + CPU `SoftwareRenderDevice`; future Vulkan |
+| **Windows (x64 / arm64)** | Core + OpenGL 3.3 + WebGL2 adapter tests configured & CI-targeted | `platform/windows/` + `GlfwWindow` / `HeadlessWindow` | OpenGL 3.3 Core baseline + CPU `SoftwareRenderDevice`; future Vulkan / Direct3D 12 |
+| **macOS (Apple Silicon / Intel)** | Core + OpenGL 3.3 + WebGL2 adapter tests configured & CI-targeted | `platform/macos/` + `GlfwWindow` / `HeadlessWindow` | OpenGL 3.3 Core forward-compatible prototype (deprecated by Apple); planned native **Metal** backend |
+| **Web Browser (Desktop & Mobile Web)** | `WebGL2RenderDevice` **Verified via unit tests**; `apps/web/` + `web/index.html` Emscripten target implemented & CI-targeted | `Html5CanvasWindow` (`apps/web/main.cpp`) using `emscripten_set_main_loop_arg` + DOM pointer/key input | **WebGL 2.0 (GLSL ES 3.00)** `IRenderDevice` baseline (`NegativeOneToOne` clip depth); planned **WebGPU** (`ZeroToOne` clip depth) |
+| **iOS / iPadOS** | Architecture prepared; **not yet built** | Planned Objective-C++ / Swift host (`platform/ios/`) with `CAMetalLayer` & touch gestures | Planned native **Metal** `IRenderDevice` (`ZeroToOne` clip depth) |
+| **Android** | Architecture prepared; **not yet built** | Planned NDK `GameActivity` / `ANativeWindow` host (`platform/android/`) | Planned **Vulkan** primary `IRenderDevice` with shared **OpenGL ES 3.0** (`WebGL2RenderDevice` lineage) fallback |
 
 ---
 
-## 3. How Stage 1 Prepares for WebAssembly, iOS, and Android
+## 3. Shared Portable Subsystems Across Desktop & WebAssembly
 
-Rather than creating empty stub folders and claiming cross-platform support prematurely, Stage 1 establishes the concrete technical prerequisites those targets require:
+Both `finaleffect_desktop` and `finaleffect_web` link the exact same unmodified portable libraries:
 
-1. **Frame-Driven Non-Blocking Update Loop**: `core::Engine::stepFrame()` executes one discrete frame tick rather than trapping execution inside an internal infinite `while (true)` loop. This maps directly onto:
-   * Browser `requestAnimationFrame` / `emscripten_set_main_loop_arg`
-   * iOS `CADisplayLink` / `MTKViewDelegate::drawInMTKView:`
-   * Android `Choreographer` / `GameActivity` render callbacks
-2. **Graphics-API-Free Core & Scene**: `finaleffect_core`, `finaleffect_math`, `finaleffect_scene`, `finaleffect_project`, and `finaleffect_rendering` have zero dependency on desktop windowing or OpenGL headers.
-3. **Dual Clip-Space Depth Convention**: `math::Mat4` and `scene::CameraComponent` natively compute projections for both `[-1, 1]` NDC depth (OpenGL 3.3, OpenGL ES, WebGL2) and `[0, 1]` NDC depth (Metal, Vulkan, WebGPU, Direct3D 12), queried per device via `IRenderDevice::capabilities().clip_space_depth`.
-4. **Abstracted File & Storage Services**: Project load/save operates through `platform::IFileSystem`, enabling virtualized Emscripten MEMFS/IDBFS/OPFS storage in browsers and sandboxed app-container storage on iOS and Android without rewriting `ProjectSerializer`.
-5. **No Global Singletons**: Multiple `Engine` or `Scene` instances can coexist or be cleanly torn down and recreated within mobile app lifecycle suspension/restoration events.
+1. **Frame-Driven Non-Blocking Update Loop**: `core::Engine::stepFrame()` executes one discrete frame tick inside desktop `while (!window->shouldClose())` loops AND inside browser `requestAnimationFrame` (`emscripten_set_main_loop_arg`) callbacks.
+2. **Unified Input & Viewport Controller**: `GlfwWindow`, `HeadlessWindow`, and `Html5CanvasWindow` emit identical `platform::InputEvent` structs consumed by `StudioSession` and `OrbitCameraController`.
+3. **Low-Memory Binary Assets (`.fe3dbin`)**: Content-addressed binary geometry chunks avoid heavy JSON text parsing and excess heap allocations on memory-constrained laptops, browsers (32 MiB initial WASM heap), and future mobile devices.
+4. **Dual Clip-Space Depth Convention**: `math::Mat4` and `scene::CameraComponent` natively support both `[-1, 1]` NDC depth (OpenGL 3.3, OpenGL ES 3.0, WebGL 2.0) and `[0, 1]` NDC depth (Metal, Vulkan, WebGPU, Direct3D 12).

@@ -4,7 +4,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 project(FinalEffect3D
-    VERSION 0.1.0
+    VERSION 0.2.0
     DESCRIPTION "Final Effect 3D - Open-Source Creative 3D Engine & Studio Foundation"
     LANGUAGES CXX
 )
@@ -24,6 +24,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # ------------------------------------------------------------------------------
 option(FINALEFFECT_BUILD_TESTS "Build Final Effect 3D automated unit and integration tests" ON)
 option(FINALEFFECT_BUILD_RENDERER_DESKTOP "Build desktop rendering backend and desktop host application" ON)
+option(FINALEFFECT_BUILD_RENDERER_WEBGL2 "Build WebGL 2.0 / OpenGL ES 3.0 render device adapter" ON)
 option(FINALEFFECT_FETCH_GLFW "Fetch pinned GLFW 3.4 from GitHub if system GLFW is not installed" OFF)
 option(FINALEFFECT_REQUIRE_GLFW "Fail configuration if GLFW + system OpenGL are unavailable when desktop renderer is enabled" OFF)
 
@@ -31,7 +32,9 @@ include(PlatformDetection)
 include(CompilerWarnings)
 include(Dependencies)
 
-find_package(Threads REQUIRED)
+if(NOT FINALEFFECT_PLATFORM_IS_WEB)
+    find_package(Threads REQUIRED)
+endif()
 
 # ------------------------------------------------------------------------------
 # Platform Abstraction Module (finaleffect_platform)
@@ -77,8 +80,10 @@ target_include_directories(finaleffect_core
 target_link_libraries(finaleffect_core
     PUBLIC
         finaleffect::platform
-        Threads::Threads
 )
+if(NOT FINALEFFECT_PLATFORM_IS_WEB)
+    target_link_libraries(finaleffect_core PUBLIC Threads::Threads)
+endif()
 finaleffect_apply_compiler_settings(finaleffect_core)
 
 # ------------------------------------------------------------------------------
@@ -88,6 +93,7 @@ add_library(finaleffect_math STATIC
     src/math/quat.cpp
     src/math/mat4.cpp
     src/math/transform.cpp
+    src/math/geometry.cpp
 )
 add_library(finaleffect::math ALIAS finaleffect_math)
 target_include_directories(finaleffect_math
@@ -103,6 +109,8 @@ finaleffect_apply_compiler_settings(finaleffect_math)
 add_library(finaleffect_scene STATIC
     src/scene/primitives.cpp
     src/scene/scene.cpp
+    src/scene/picking.cpp
+    src/scene/commands.cpp
 )
 add_library(finaleffect::scene ALIAS finaleffect_scene)
 target_include_directories(finaleffect_scene
@@ -122,6 +130,7 @@ finaleffect_apply_compiler_settings(finaleffect_scene)
 # ------------------------------------------------------------------------------
 add_library(finaleffect_project STATIC
     src/project/json.cpp
+    src/project/binary_asset.cpp
     src/project/project_serializer.cpp
 )
 add_library(finaleffect::project ALIAS finaleffect_project)
@@ -165,6 +174,7 @@ finaleffect_apply_compiler_settings(finaleffect_rendering)
 # Portable Application Session Module (finaleffect_app)
 # ------------------------------------------------------------------------------
 add_library(finaleffect_app STATIC
+    src/app/orbit_camera_controller.cpp
     src/app/starter_scene.cpp
     src/app/studio_session.cpp
 )
@@ -238,6 +248,53 @@ if(FINALEFFECT_BUILD_RENDERER_DESKTOP AND FINALEFFECT_PLATFORM_IS_DESKTOP)
 endif()
 
 # ------------------------------------------------------------------------------
+# WebGL 2.0 / OpenGL ES 3.0 Adapter & Emscripten Browser Prototype Target
+# ------------------------------------------------------------------------------
+if(FINALEFFECT_BUILD_RENDERER_WEBGL2 OR FINALEFFECT_PLATFORM_IS_WEB)
+    add_library(finaleffect_rendering_webgl2 STATIC
+        src/rendering/webgl2_render_device.cpp
+    )
+    add_library(finaleffect::rendering_webgl2 ALIAS finaleffect_rendering_webgl2)
+    target_include_directories(finaleffect_rendering_webgl2
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:include>
+    )
+    target_link_libraries(finaleffect_rendering_webgl2
+        PUBLIC
+            finaleffect::rendering
+            finaleffect::platform
+    )
+    finaleffect_apply_compiler_settings(finaleffect_rendering_webgl2)
+endif()
+
+if(FINALEFFECT_PLATFORM_IS_WEB)
+    add_executable(finaleffect_web
+        apps/web/main.cpp
+    )
+    target_link_libraries(finaleffect_web
+        PRIVATE
+            finaleffect::app
+            finaleffect::rendering_webgl2
+    )
+    finaleffect_apply_compiler_settings(finaleffect_web)
+    target_link_options(finaleffect_web
+        PRIVATE
+            "-sUSE_WEBGL2=1"
+            "-sMIN_WEBGL_VERSION=2"
+            "-sMAX_WEBGL_VERSION=2"
+            "-sALLOW_MEMORY_GROWTH=1"
+            "-sINITIAL_MEMORY=33554432"
+            "-sFILESYSTEM=1"
+    )
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/web/index.html"
+        "${CMAKE_CURRENT_BINARY_DIR}/index.html"
+        COPYONLY
+    )
+endif()
+
+# ------------------------------------------------------------------------------
 # Automated Tests
 # ------------------------------------------------------------------------------
 if(FINALEFFECT_BUILD_TESTS)
@@ -263,6 +320,11 @@ if(FINALEFFECT_BUILD_TESTS)
     finaleffect_apply_compiler_settings(finaleffect_scene_tests)
     add_test(NAME finaleffect.scene COMMAND finaleffect_scene_tests)
 
+    add_executable(finaleffect_command_tests tests/command_tests.cpp)
+    target_link_libraries(finaleffect_command_tests PRIVATE finaleffect::scene)
+    finaleffect_apply_compiler_settings(finaleffect_command_tests)
+    add_test(NAME finaleffect.commands COMMAND finaleffect_command_tests)
+
     add_executable(finaleffect_project_tests tests/project_tests.cpp)
     target_link_libraries(finaleffect_project_tests PRIVATE finaleffect::project)
     finaleffect_apply_compiler_settings(finaleffect_project_tests)
@@ -273,10 +335,22 @@ if(FINALEFFECT_BUILD_TESTS)
     finaleffect_apply_compiler_settings(finaleffect_rendering_tests)
     add_test(NAME finaleffect.rendering COMMAND finaleffect_rendering_tests)
 
+    add_executable(finaleffect_viewport_tests tests/viewport_tests.cpp)
+    target_link_libraries(finaleffect_viewport_tests PRIVATE finaleffect::app finaleffect::rendering)
+    finaleffect_apply_compiler_settings(finaleffect_viewport_tests)
+    add_test(NAME finaleffect.viewport COMMAND finaleffect_viewport_tests)
+
     if(FINALEFFECT_BUILD_RENDERER_DESKTOP AND FINALEFFECT_PLATFORM_IS_DESKTOP)
         add_executable(finaleffect_opengl33_tests tests/opengl33_device_tests.cpp)
         target_link_libraries(finaleffect_opengl33_tests PRIVATE finaleffect::rendering_opengl33)
         finaleffect_apply_compiler_settings(finaleffect_opengl33_tests)
         add_test(NAME finaleffect.rendering_opengl33 COMMAND finaleffect_opengl33_tests)
+    endif()
+
+    if(FINALEFFECT_BUILD_RENDERER_WEBGL2 AND NOT FINALEFFECT_PLATFORM_IS_WEB)
+        add_executable(finaleffect_webgl2_tests tests/webgl2_device_tests.cpp)
+        target_link_libraries(finaleffect_webgl2_tests PRIVATE finaleffect::rendering_webgl2)
+        finaleffect_apply_compiler_settings(finaleffect_webgl2_tests)
+        add_test(NAME finaleffect.rendering_webgl2 COMMAND finaleffect_webgl2_tests)
     endif()
 endif()

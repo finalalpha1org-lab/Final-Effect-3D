@@ -6,6 +6,7 @@
 #include "finaleffect/math/constants.hpp"
 #include "finaleffect/platform/file_system.hpp"
 #include "finaleffect/platform/paths.hpp"
+#include "finaleffect/project/binary_asset.hpp"
 #include "finaleffect/project/json.hpp"
 #include "finaleffect/project/project.hpp"
 #include "finaleffect/scene/primitives.hpp"
@@ -183,6 +184,97 @@ FE_TEST(Project, RejectsUnsupportedVersionsAndTamperedData) {
     FE_EXPECT_EQ(
         ProjectSerializer::deserializeFromString(dangling_mesh).error().code,
         core::ErrorCode::ValidationError);
+}
+
+FE_TEST(Project, BinaryAssetBundleDeduplicationCrcAndPathTraversalProtection) {
+    // 1. Content-addressed deduplication in BinaryAssetBuilder + CRC-32 tampering detection.
+    BinaryAssetBuilder builder;
+    const auto cube_a = scene::Primitives::createCube(1.0f);
+    const auto cube_b = scene::Primitives::createCube(1.0f); // identical geometry
+    const auto plane = scene::Primitives::createCheckerPlane(2.0f, 2);
+
+    const auto hash_a = builder.addMesh(cube_a).value();
+    const auto hash_b = builder.addMesh(cube_b).value();
+    const auto hash_plane = builder.addMesh(plane).value();
+
+    FE_EXPECT_EQ(hash_a, hash_b);
+    FE_EXPECT_TRUE(hash_a != hash_plane);
+    FE_EXPECT_EQ(builder.uniqueChunkCount(), std::size_t{2}); // deduplicated!
+
+    auto bytes = builder.encode();
+    const auto decoded = BinaryAssetArchive::decode(bytes);
+    FE_REQUIRE_TRUE(decoded.hasValue());
+    FE_EXPECT_EQ(decoded.value().chunkCount(), std::size_t{2});
+    FE_EXPECT_EQ(decoded.value().extractMesh(hash_a).value().vertices.size(), cube_a.vertices.size());
+
+    // Flipping a single payload bit triggers CRC-32 validation failure.
+    auto tampered = bytes;
+    tampered[40] ^= 0x01u;
+    FE_EXPECT_EQ(BinaryAssetArchive::decode(tampered).error().code, core::ErrorCode::ValidationError);
+
+    // 2. Full .fe3d + .fe3dbin bundle round-trip + smaller JSON metadata file.
+    ProjectDocument doc;
+    doc.metadata.project_name = "Binary Bundle Scene";
+    doc.scene.setName("Bundled");
+
+    const auto m1 = doc.scene.registerMesh("CubePrimary", cube_a).value();
+    const auto m2 = doc.scene.registerMesh("CubeDuplicateAsset", cube_b).value();
+    const auto o1 = doc.scene.createObject("Obj1").value();
+    const auto o2 = doc.scene.createObject("Obj2").value();
+    FE_REQUIRE_TRUE(doc.scene.assignMesh(o1, m1).hasValue());
+    FE_REQUIRE_TRUE(doc.scene.assignMesh(o2, m2).hasValue());
+
+    platform::LocalFileSystem fs;
+    const auto temp_dir = platform::queryAppPaths("finaleffect3d_bintest").value().temp_directory;
+    std::error_code ec;
+    std::filesystem::remove_all(temp_dir, ec);
+
+    const auto inline_path = temp_dir / "inline.fe3d";
+    const auto bundle_path = temp_dir / "bundle.fe3d";
+    const auto bin_path = temp_dir / "bundle.fe3dbin";
+
+    FE_REQUIRE_TRUE(ProjectSerializer::saveToFile(doc, inline_path, fs).hasValue());
+    FE_REQUIRE_TRUE(ProjectSerializer::saveBundleToFile(doc, bundle_path, fs).hasValue());
+    FE_EXPECT_TRUE(fs.exists(bin_path));
+
+    // Bundle .fe3d JSON text is dramatically smaller than inline JSON vertex arrays.
+    const auto inline_text = fs.readTextFile(inline_path).value();
+    const auto bundle_text = fs.readTextFile(bundle_path).value();
+    FE_EXPECT_TRUE(bundle_text.size() * 3 < inline_text.size());
+
+    const auto loaded_bundle = ProjectSerializer::loadFromFile(bundle_path, fs);
+    FE_REQUIRE_TRUE(loaded_bundle.hasValue());
+    FE_EXPECT_EQ(loaded_bundle.value().scene.meshCount(), std::size_t{2});
+    FE_EXPECT_EQ(loaded_bundle.value().scene.findMesh(m1)->data.indices.size(), cube_a.indices.size());
+    FE_EXPECT_EQ(loaded_bundle.value().scene.findMesh(m2)->data.vertices.size(), cube_b.vertices.size());
+
+    // 3. Path-traversal binary_chunk URI must be rejected.
+    const auto traversal_path = temp_dir / "traversal.fe3d";
+    const char* malicious_json = R"({
+        "format": "finaleffect.project",
+        "schema_version": { "major": 1, "minor": 1 },
+        "coordinate_system": "right-handed-y-up",
+        "scene": {
+            "name": "Malicious",
+            "meshes": [
+                {
+                    "id": 1,
+                    "name": "EvilMesh",
+                    "binary_chunk": {
+                        "uri": "../outside.fe3dbin",
+                        "content_hash": "0123456789abcdef"
+                    }
+                }
+            ],
+            "objects": []
+        }
+    })";
+    FE_REQUIRE_TRUE(fs.writeTextFile(traversal_path, malicious_json).hasValue());
+    FE_EXPECT_EQ(
+        ProjectSerializer::loadFromFile(traversal_path, fs).error().code,
+        core::ErrorCode::ValidationError);
+
+    std::filesystem::remove_all(temp_dir, ec);
 }
 
 } // namespace

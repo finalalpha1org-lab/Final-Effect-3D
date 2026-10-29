@@ -3,6 +3,8 @@
 
 #include "finaleffect/platform/window.hpp"
 
+#include <utility>
+
 namespace finaleffect::platform {
 
 core::Status HeadlessWindow::initialize(const WindowDesc& desc) {
@@ -14,6 +16,7 @@ core::Status HeadlessWindow::initialize(const WindowDesc& desc) {
     size_ = FramebufferSize{desc.width, desc.height};
     should_close_ = false;
     swapped_frames_ = 0;
+    pending_events_.clear();
     initialized_ = true;
     return core::Status::ok();
 }
@@ -21,9 +24,16 @@ core::Status HeadlessWindow::initialize(const WindowDesc& desc) {
 void HeadlessWindow::shutdown() noexcept {
     initialized_ = false;
     should_close_ = true;
+    pending_events_.clear();
 }
 
 void HeadlessWindow::pollEvents() {}
+
+std::vector<InputEvent> HeadlessWindow::consumeInputEvents() {
+    std::vector<InputEvent> events;
+    events.swap(pending_events_);
+    return events;
+}
 
 bool HeadlessWindow::shouldClose() const noexcept {
     return !initialized_ || should_close_;
@@ -45,6 +55,10 @@ void HeadlessWindow::swapBuffers() {
 
 void HeadlessWindow::resize(std::uint32_t width, std::uint32_t height) noexcept {
     size_ = FramebufferSize{width, height};
+}
+
+void HeadlessWindow::pushInputEvent(const InputEvent& event) {
+    pending_events_.push_back(event);
 }
 
 } // namespace finaleffect::platform

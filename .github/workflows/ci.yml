@@ -51,7 +51,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configure CMake (Core-Only)
+      - name: Configure CMake (Core + WebGL2 Adapter Tests)
         shell: bash
         run: |
           CC_ARGS=()
@@ -61,6 +61,7 @@ jobs:
           cmake -S . -B build/ci-core \
             -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
             -DFINALEFFECT_BUILD_RENDERER_DESKTOP=OFF \
+            -DFINALEFFECT_BUILD_RENDERER_WEBGL2=ON \
             -DFINALEFFECT_BUILD_TESTS=ON \
             -DFINALEFFECT_WARNINGS_AS_ERRORS=ON \
             "${CC_ARGS[@]}"
@@ -92,6 +93,7 @@ jobs:
           cmake -S . -B build/ci-desktop \
             -DCMAKE_BUILD_TYPE=Release \
             -DFINALEFFECT_BUILD_RENDERER_DESKTOP=ON \
+            -DFINALEFFECT_BUILD_RENDERER_WEBGL2=ON \
             -DFINALEFFECT_REQUIRE_GLFW=ON \
             -DFINALEFFECT_BUILD_TESTS=ON \
             -DFINALEFFECT_WARNINGS_AS_ERRORS=ON
@@ -102,8 +104,39 @@ jobs:
       - name: Execute All CTest Suites
         run: ctest --test-dir build/ci-desktop --build-config Release --output-on-failure --verbose
 
-      - name: Smoke-Test Windowed OpenGL 3.3 Renderer under Xvfb + Mesa llvmpipe
+      - name: Smoke-Test Windowed OpenGL 3.3 Renderer & Binary Bundle Export under Xvfb
         run: |
           xvfb-run -a -s "-screen 0 1280x720x24" \
-            ./build/ci-desktop/finaleffect_desktop --frames 5 --export-project build/ci-desktop/ci_roundtrip.fe3d
+            ./build/ci-desktop/finaleffect_desktop --frames 5 \
+            --export-project build/ci-desktop/ci_roundtrip.fe3d \
+            --export-bundle build/ci-desktop/ci_bundle.fe3d
           ./build/ci-desktop/finaleffect_desktop --headless --frames 2 --project build/ci-desktop/ci_roundtrip.fe3d
+          ./build/ci-desktop/finaleffect_desktop --headless --frames 2 --project build/ci-desktop/ci_bundle.fe3d
+
+  web-wasm-emscripten:
+    name: WebAssembly + WebGL2 Prototype (Emscripten)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Emscripten SDK
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.68
+
+      - name: Configure WebAssembly Build
+        run: |
+          emcmake cmake -S . -B build/ci-wasm \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DFINALEFFECT_BUILD_RENDERER_DESKTOP=OFF \
+            -DFINALEFFECT_BUILD_RENDERER_WEBGL2=ON \
+            -DFINALEFFECT_BUILD_TESTS=OFF \
+            -DFINALEFFECT_WARNINGS_AS_ERRORS=ON
+
+      - name: Compile WebAssembly Bundle
+        run: |
+          cmake --build build/ci-wasm --parallel
+          test -f build/ci-wasm/finaleffect_web.js
+          test -f build/ci-wasm/finaleffect_web.wasm
+          test -f build/ci-wasm/index.html

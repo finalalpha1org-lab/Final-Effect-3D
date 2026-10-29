@@ -4,9 +4,11 @@
 #pragma once
 
 #include "finaleffect/core/result.hpp"
+#include "finaleffect/platform/input.hpp"
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace finaleffect::platform {
 
@@ -34,6 +36,10 @@ public:
     virtual void shutdown() noexcept = 0;
 
     virtual void pollEvents() = 0;
+    [[nodiscard]] virtual std::vector<InputEvent> consumeInputEvents() {
+        return {};
+    }
+
     [[nodiscard]] virtual bool shouldClose() const noexcept = 0;
     virtual void requestClose() noexcept = 0;
 
@@ -52,6 +58,8 @@ public:
     void shutdown() noexcept override;
 
     void pollEvents() override;
+    [[nodiscard]] std::vector<InputEvent> consumeInputEvents() override;
+
     [[nodiscard]] bool shouldClose() const noexcept override;
     void requestClose() noexcept override;
 
@@ -59,6 +67,8 @@ public:
     void swapBuffers() override;
 
     void resize(std::uint32_t width, std::uint32_t height) noexcept;
+    void pushInputEvent(const InputEvent& event);
+
     [[nodiscard]] std::uint64_t swappedFrameCount() const noexcept {
         return swapped_frames_;
     }
@@ -68,6 +78,7 @@ private:
     bool should_close_{false};
     FramebufferSize size_{0, 0};
     std::uint64_t swapped_frames_{0};
+    std::vector<InputEvent> pending_events_;
 };
 
 } // namespace finaleffect::platform

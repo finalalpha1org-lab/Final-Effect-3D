@@ -79,6 +79,9 @@ public:
     // Evaluates exact hierarchical world matrix: Root * ... * Parent * Local.
     [[nodiscard]] core::Result<math::Mat4> computeWorldMatrix(ObjectId id) const;
 
+    // Computes conservative world-space AABB for an object (uses mesh bounds or a unit point AABB).
+    [[nodiscard]] core::Result<math::AABB> computeObjectWorldBounds(ObjectId id) const;
+
     // CPU-side resource and memory telemetry.
     [[nodiscard]] core::ResourceStats collectResourceStats() const noexcept;
 

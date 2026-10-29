@@ -26,7 +26,8 @@ struct GpuMeshHandle {
 enum class BackendType : std::uint8_t {
     Null = 0,
     Software = 1,
-    OpenGL33 = 2
+    OpenGL33 = 2,
+    WebGL2 = 3
 };
 
 struct DeviceCapabilities {

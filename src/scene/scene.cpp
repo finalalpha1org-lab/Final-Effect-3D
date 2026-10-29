@@ -55,11 +55,13 @@ core::Status Scene::registerMeshWithId(MeshId id, std::string mesh_name, MeshDat
         return valid;
     }
 
+    const math::AABB bounds = data.computeBounds();
     const std::size_t index = meshes_.size();
     meshes_.push_back(MeshAsset{
         .id = id,
         .name = std::move(mesh_name),
         .data = std::move(data),
+        .local_bounds = bounds,
         .revision = 1,
     });
     mesh_index_.emplace(id, index);
@@ -413,6 +415,27 @@ core::Result<math::Mat4> Scene::computeWorldMatrix(ObjectId id) const {
         world = world * (*it)->local_transform.toMatrix();
     }
     return core::Result<math::Mat4>::ok(world);
+}
+
+core::Result<math::AABB> Scene::computeObjectWorldBounds(ObjectId id) const {
+    const auto* obj = findObject(id);
+    if (obj == nullptr) {
+        return core::Result<math::AABB>::fail(core::ErrorCode::NotFound, "Scene object not found");
+    }
+    auto world_res = computeWorldMatrix(id);
+    if (!world_res) {
+        return world_res.error();
+    }
+
+    if (obj->mesh_id.has_value()) {
+        if (const auto* mesh = findMesh(obj->mesh_id.value()); mesh != nullptr && mesh->local_bounds.isValid()) {
+            return core::Result<math::AABB>::ok(mesh->local_bounds.transformed(world_res.value()));
+        }
+    }
+
+    const math::Vec3 origin = world_res.value().transformPoint(math::Vec3::zero());
+    const math::Vec3 half_pad{0.25f, 0.25f, 0.25f};
+    return core::Result<math::AABB>::ok(math::AABB::fromMinMax(origin - half_pad, origin + half_pad));
 }
 
 core::ResourceStats Scene::collectResourceStats() const noexcept {

@@ -4,6 +4,7 @@
 #include "test_harness.hpp"
 
 #include "finaleffect/math/constants.hpp"
+#include "finaleffect/scene/picking.hpp"
 #include "finaleffect/scene/primitives.hpp"
 #include "finaleffect/scene/scene.hpp"
 
@@ -126,6 +127,40 @@ FE_TEST(Scene, MeshValidationRejectsOutOfBoundsIndices) {
     const auto res = scene.registerMesh("Broken", std::move(invalid_mesh));
     FE_REQUIRE_TRUE(res.isError());
     FE_EXPECT_EQ(res.error().code, core::ErrorCode::ValidationError);
+}
+
+FE_TEST(Scene, RaycastPickingFindsClosestVisibleHierarchicalMesh) {
+    Scene scene;
+    const auto cube_mesh = scene.registerMesh("Cube", Primitives::createCube(2.0f)).value();
+
+    const auto pivot = scene.createObject("Pivot").value();
+    math::Transform pivot_tf;
+    pivot_tf.position = {0.0f, 0.0f, -5.0f};
+    FE_REQUIRE_TRUE(scene.setObjectTransform(pivot, pivot_tf).hasValue());
+
+    const auto far_cube = scene.createObject("FarCube", pivot).value();
+    FE_REQUIRE_TRUE(scene.assignMesh(far_cube, cube_mesh).hasValue());
+
+    const auto near_cube = scene.createObject("NearCube").value();
+    math::Transform near_tf;
+    near_tf.position = {0.0f, 0.0f, -2.0f};
+    near_tf.scale = {0.5f, 2.0f, 0.5f}; // Non-uniform scale: half-depth along Z is 0.5 -> front face at z = -1.5.
+    FE_REQUIRE_TRUE(scene.setObjectTransform(near_cube, near_tf).hasValue());
+    FE_REQUIRE_TRUE(scene.assignMesh(near_cube, cube_mesh).hasValue());
+
+    const math::Ray ray(math::Vec3{0.0f, 0.0f, 3.0f}, math::Vec3{0.0f, 0.0f, -1.0f});
+    const auto hit = raycastScene(scene, ray);
+    FE_REQUIRE_TRUE(hit.has_value());
+    FE_EXPECT_EQ(hit->object_id, near_cube);
+    FE_EXPECT_NEAR(hit->distance, 4.5f, 1e-4f); // From z=+3 to z=-1.5 is 4.5 units.
+    FE_EXPECT_TRUE(hit->world_normal.approxEqual(math::Vec3{0.0f, 0.0f, 1.0f}, 1e-4f));
+
+    // Hiding NearCube hits FarCube (center at z=-5, half-size=1 -> front face at z=-4, distance=7).
+    FE_REQUIRE_TRUE(scene.setObjectVisible(near_cube, false).hasValue());
+    const auto far_hit = raycastScene(scene, ray);
+    FE_REQUIRE_TRUE(far_hit.has_value());
+    FE_EXPECT_EQ(far_hit->object_id, far_cube);
+    FE_EXPECT_NEAR(far_hit->distance, 7.0f, 1e-4f);
 }
 
 } // namespace

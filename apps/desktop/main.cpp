@@ -32,6 +32,7 @@ struct CliOptions {
     std::optional<std::uint64_t> max_frames;
     std::filesystem::path input_project;
     std::filesystem::path export_project;
+    std::filesystem::path export_bundle;
     std::filesystem::path render_ppm;
 };
 
@@ -53,7 +54,8 @@ void printUsage() {
         << "  --width <px>             Initial framebuffer width (default: 1280)\n"
         << "  --height <px>            Initial framebuffer height (default: 720)\n"
         << "  --project <file.fe3d>    Load an existing Final Effect 3D project file\n"
-        << "  --export-project <path>  Save the active scene to a .fe3d project file before exit\n"
+        << "  --export-project <path>  Save the active scene to an inline .fe3d project file before exit\n"
+        << "  --export-bundle <path>   Save .fe3d metadata + deduplicated .fe3dbin binary mesh archive\n"
         << "  --render-ppm <path.ppm>  In --headless mode, save the final rendered frame as PPM\n";
 }
 
@@ -104,6 +106,10 @@ bool parseCli(int argc, char** argv, CliOptions& opts) {
             auto val = nextValue(arg);
             if (!val) return false;
             opts.export_project = std::filesystem::path(*val);
+        } else if (arg == "--export-bundle") {
+            auto val = nextValue(arg);
+            if (!val) return false;
+            opts.export_bundle = std::filesystem::path(*val);
         } else if (arg == "--render-ppm") {
             auto val = nextValue(arg);
             if (!val) return false;
@@ -133,7 +139,7 @@ int main(int argc, char** argv) {
     finaleffect::core::Engine engine(engine_cfg);
 
     finaleffect::platform::WindowDesc win_desc{
-        .title = "Final Effect 3D — Stage 1 Prototype",
+        .title = "Final Effect 3D — Stage 2 Interactive Viewport",
         .width = opts.width,
         .height = opts.height,
         .resizable = true,
@@ -216,6 +222,14 @@ int main(int argc, char** argv) {
         auto save_st = session.saveProjectToFile(opts.export_project, engine.fileSystem());
         if (!save_st) {
             std::cerr << "Failed to export project: " << save_st.error().format() << '\n';
+            exit_code = EXIT_FAILURE;
+        }
+    }
+
+    if (exit_code == EXIT_SUCCESS && !opts.export_bundle.empty()) {
+        auto bundle_st = session.saveProjectBundleToFile(opts.export_bundle, engine.fileSystem());
+        if (!bundle_st) {
+            std::cerr << "Failed to export project bundle: " << bundle_st.error().format() << '\n';
             exit_code = EXIT_FAILURE;
         }
     }

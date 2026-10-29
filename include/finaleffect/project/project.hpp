@@ -44,6 +44,12 @@ public:
         const std::filesystem::path& path,
         platform::IFileSystem& file_system);
 
+    // Saves .fe3d JSON metadata + content-addressed companion <stem>.fe3dbin geometry archive.
+    [[nodiscard]] static core::Status saveBundleToFile(
+        const ProjectDocument& document,
+        const std::filesystem::path& fe3d_path,
+        platform::IFileSystem& file_system);
+
     [[nodiscard]] static core::Result<ProjectDocument> loadFromFile(
         const std::filesystem::path& path,
         const platform::IFileSystem& file_system);

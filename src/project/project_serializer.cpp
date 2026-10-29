@@ -2,11 +2,13 @@
 // Copyright (C) 2026 Final Effect 3D Contributors
 
 #include "finaleffect/project/project.hpp"
+#include "finaleffect/project/binary_asset.hpp"
 #include "finaleffect/project/json.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <unordered_map>
 
 namespace finaleffect::project {
 
@@ -129,17 +131,32 @@ core::Result<math::Quat> decodeQuat(const JsonValue* val, std::string_view field
     return core::Result<math::Quat>::ok(q.normalized());
 }
 
-} // namespace
+bool isSafeCompanionFilename(std::string_view uri) noexcept {
+    if (uri.empty() || uri == "." || uri == "..") {
+        return false;
+    }
+    if (uri.find('/') != std::string_view::npos ||
+        uri.find('\\') != std::string_view::npos ||
+        uri.find(':') != std::string_view::npos ||
+        uri.find("..") != std::string_view::npos) {
+        return false;
+    }
+    return true;
+}
 
-core::Result<std::string> ProjectSerializer::serializeToString(const ProjectDocument& document, bool pretty) {
+core::Result<std::string> serializeDocumentImpl(
+    const ProjectDocument& document,
+    std::string_view binary_bundle_uri,
+    BinaryAssetBuilder* binary_builder,
+    bool pretty) {
     JsonValue root{JsonObject{}};
-    root.setKey("format", std::string(kFormatIdentifier));
+    root.setKey("format", std::string(ProjectSerializer::kFormatIdentifier));
 
     JsonValue schema_ver{JsonObject{}};
     schema_ver.setKey("major", static_cast<std::uint64_t>(core::kProjectSchemaMajor));
     schema_ver.setKey("minor", static_cast<std::uint64_t>(core::kProjectSchemaMinor));
     root.setKey("schema_version", std::move(schema_ver));
-    root.setKey("coordinate_system", std::string(kCoordinateSystem));
+    root.setKey("coordinate_system", std::string(ProjectSerializer::kCoordinateSystem));
 
     JsonValue meta{JsonObject{}};
     meta.setKey("project_name", document.metadata.project_name);
@@ -169,24 +186,36 @@ core::Result<std::string> ProjectSerializer::serializeToString(const ProjectDocu
         mesh_obj.setKey("id", mesh->id.value);
         mesh_obj.setKey("name", mesh->name);
 
-        JsonArray verts_arr;
-        verts_arr.reserve(mesh->data.vertices.size());
-        for (const auto& v : mesh->data.vertices) {
-            JsonValue v_obj{JsonObject{}};
-            v_obj.setKey("position", encodeVec3(v.position));
-            v_obj.setKey("normal", encodeVec3(v.normal));
-            v_obj.setKey("color", encodeVec3(v.color));
-            v_obj.setKey("uv", encodeVec2(v.uv));
-            verts_arr.push_back(std::move(v_obj));
-        }
-        mesh_obj.setKey("vertices", std::move(verts_arr));
+        if (binary_builder != nullptr) {
+            auto hash_res = binary_builder->addMesh(mesh->data);
+            if (!hash_res) {
+                return hash_res.error();
+            }
+            JsonValue chunk_ref{JsonObject{}};
+            chunk_ref.setKey("uri", std::string(binary_bundle_uri));
+            chunk_ref.setKey("content_hash", formatContentHashHex(hash_res.value()));
+            mesh_obj.setKey("binary_chunk", std::move(chunk_ref));
+        } else {
+            JsonArray verts_arr;
+            verts_arr.reserve(mesh->data.vertices.size());
+            for (const auto& v : mesh->data.vertices) {
+                JsonValue v_obj{JsonObject{}};
+                v_obj.setKey("position", encodeVec3(v.position));
+                v_obj.setKey("normal", encodeVec3(v.normal));
+                v_obj.setKey("color", encodeVec3(v.color));
+                v_obj.setKey("uv", encodeVec2(v.uv));
+                verts_arr.push_back(std::move(v_obj));
+            }
+            mesh_obj.setKey("vertices", std::move(verts_arr));
 
-        JsonArray idx_arr;
-        idx_arr.reserve(mesh->data.indices.size());
-        for (const std::uint32_t idx : mesh->data.indices) {
-            idx_arr.emplace_back(static_cast<std::uint64_t>(idx));
+            JsonArray idx_arr;
+            idx_arr.reserve(mesh->data.indices.size());
+            for (const std::uint32_t idx : mesh->data.indices) {
+                idx_arr.emplace_back(static_cast<std::uint64_t>(idx));
+            }
+            mesh_obj.setKey("indices", std::move(idx_arr));
         }
-        mesh_obj.setKey("indices", std::move(idx_arr));
+
         meshes_arr.push_back(std::move(mesh_obj));
     }
     scene_json.setKey("meshes", std::move(meshes_arr));
@@ -249,7 +278,10 @@ core::Result<std::string> ProjectSerializer::serializeToString(const ProjectDocu
     return writeJson(root, pretty);
 }
 
-core::Result<ProjectDocument> ProjectSerializer::deserializeFromString(std::string_view json_text) {
+core::Result<ProjectDocument> deserializeDocumentImpl(
+    std::string_view json_text,
+    const std::filesystem::path& base_dir,
+    const platform::IFileSystem* file_system) {
     auto parsed = parseJson(json_text);
     if (!parsed) {
         return parsed.error();
@@ -263,7 +295,8 @@ core::Result<ProjectDocument> ProjectSerializer::deserializeFromString(std::stri
     }
 
     const JsonValue* format_val = root.findKey("format");
-    if (format_val == nullptr || !format_val->isString() || format_val->asString() != kFormatIdentifier) {
+    if (format_val == nullptr || !format_val->isString() ||
+        format_val->asString() != ProjectSerializer::kFormatIdentifier) {
         return core::Result<ProjectDocument>::fail(
             core::ErrorCode::ValidationError,
             "Invalid or missing 'format' identifier; expected 'finaleffect.project'");
@@ -291,7 +324,8 @@ core::Result<ProjectDocument> ProjectSerializer::deserializeFromString(std::stri
     }
 
     const JsonValue* coord_val = root.findKey("coordinate_system");
-    if (coord_val == nullptr || !coord_val->isString() || coord_val->asString() != kCoordinateSystem) {
+    if (coord_val == nullptr || !coord_val->isString() ||
+        coord_val->asString() != ProjectSerializer::kCoordinateSystem) {
         return core::Result<ProjectDocument>::fail(
             core::ErrorCode::ValidationError,
             "Unsupported or missing 'coordinate_system'; expected 'right-handed-y-up'");
@@ -340,6 +374,9 @@ core::Result<ProjectDocument> ProjectSerializer::deserializeFromString(std::stri
         doc.scene.setName(sn->asString());
     }
 
+    // Cache decoded .fe3dbin archives per companion filename during load.
+    std::unordered_map<std::string, BinaryAssetArchive> archive_cache;
+
     // 1. Load and validate meshes.
     if (const JsonValue* meshes_val = scene_val->findKey("meshes"); meshes_val != nullptr) {
         if (!meshes_val->isArray()) {
@@ -363,48 +400,100 @@ core::Result<ProjectDocument> ProjectSerializer::deserializeFromString(std::stri
                     "Mesh 'name' must be a non-empty string");
             }
 
-            const auto* verts_val = m_json.findKey("vertices");
-            const auto* idx_val = m_json.findKey("indices");
-            if (verts_val == nullptr || !verts_val->isArray() || idx_val == nullptr || !idx_val->isArray()) {
-                return core::Result<ProjectDocument>::fail(
-                    core::ErrorCode::ValidationError,
-                    "Mesh requires 'vertices' and 'indices' arrays");
-            }
-
             scene::MeshData mesh_data;
-            mesh_data.vertices.reserve(verts_val->asArray().size());
-            for (const auto& v_json : verts_val->asArray()) {
-                if (!v_json.isObject()) {
+            if (const auto* chunk_val = m_json.findKey("binary_chunk");
+                chunk_val != nullptr && !chunk_val->isNull()) {
+                if (file_system == nullptr) {
                     return core::Result<ProjectDocument>::fail(
                         core::ErrorCode::ValidationError,
-                        "Mesh vertex entry must be an object");
+                        "Mesh references external 'binary_chunk' (.fe3dbin), which requires loadFromFile");
                 }
-                auto pos = decodeVec3(v_json.findKey("position"), "vertex.position");
-                auto nrm = decodeVec3(v_json.findKey("normal"), "vertex.normal");
-                auto col = decodeVec3(v_json.findKey("color"), "vertex.color");
-                auto uv = decodeVec2(v_json.findKey("uv"), "vertex.uv");
-                if (!pos) return pos.error();
-                if (!nrm) return nrm.error();
-                if (!col) return col.error();
-                if (!uv) return uv.error();
-                mesh_data.vertices.push_back(scene::Vertex{
-                    .position = pos.value(),
-                    .normal = nrm.value(),
-                    .color = col.value(),
-                    .uv = uv.value(),
-                });
-            }
+                if (!chunk_val->isObject()) {
+                    return core::Result<ProjectDocument>::fail(
+                        core::ErrorCode::ValidationError,
+                        "'mesh.binary_chunk' must be an object");
+                }
+                const auto* uri_val = chunk_val->findKey("uri");
+                const auto* hash_val = chunk_val->findKey("content_hash");
+                if (uri_val == nullptr || !uri_val->isString() ||
+                    hash_val == nullptr || !hash_val->isString()) {
+                    return core::Result<ProjectDocument>::fail(
+                        core::ErrorCode::ValidationError,
+                        "'mesh.binary_chunk' requires string 'uri' and 'content_hash'");
+                }
 
-            mesh_data.indices.reserve(idx_val->asArray().size());
-            for (const auto& idx_entry : idx_val->asArray()) {
-                auto i_res = decodeUint64(&idx_entry, "mesh.indices[]");
-                if (!i_res) return i_res.error();
-                if (i_res.value() > static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max())) {
+                const std::string& uri = uri_val->asString();
+                if (!isSafeCompanionFilename(uri)) {
                     return core::Result<ProjectDocument>::fail(
                         core::ErrorCode::ValidationError,
-                        "Mesh index exceeds uint32_t range");
+                        "Unsafe or non-local binary_chunk 'uri' rejected",
+                        uri);
                 }
-                mesh_data.indices.push_back(static_cast<std::uint32_t>(i_res.value()));
+
+                auto hash_res = parseContentHashHex(hash_val->asString());
+                if (!hash_res) {
+                    return hash_res.error();
+                }
+
+                auto cache_it = archive_cache.find(uri);
+                if (cache_it == archive_cache.end()) {
+                    const std::filesystem::path bin_path =
+                        base_dir.empty() ? std::filesystem::path(uri) : (base_dir / uri);
+                    auto archive_res = BinaryAssetArchive::loadFromFile(bin_path, *file_system);
+                    if (!archive_res) {
+                        return archive_res.error();
+                    }
+                    cache_it = archive_cache.emplace(uri, std::move(archive_res.value())).first;
+                }
+
+                auto extracted = cache_it->second.extractMesh(hash_res.value());
+                if (!extracted) {
+                    return extracted.error();
+                }
+                mesh_data = std::move(extracted.value());
+            } else {
+                const auto* verts_val = m_json.findKey("vertices");
+                const auto* idx_val = m_json.findKey("indices");
+                if (verts_val == nullptr || !verts_val->isArray() || idx_val == nullptr || !idx_val->isArray()) {
+                    return core::Result<ProjectDocument>::fail(
+                        core::ErrorCode::ValidationError,
+                        "Mesh requires 'vertices' and 'indices' arrays (or 'binary_chunk')");
+                }
+
+                mesh_data.vertices.reserve(verts_val->asArray().size());
+                for (const auto& v_json : verts_val->asArray()) {
+                    if (!v_json.isObject()) {
+                        return core::Result<ProjectDocument>::fail(
+                            core::ErrorCode::ValidationError,
+                            "Mesh vertex entry must be an object");
+                    }
+                    auto pos = decodeVec3(v_json.findKey("position"), "vertex.position");
+                    auto nrm = decodeVec3(v_json.findKey("normal"), "vertex.normal");
+                    auto col = decodeVec3(v_json.findKey("color"), "vertex.color");
+                    auto uv = decodeVec2(v_json.findKey("uv"), "vertex.uv");
+                    if (!pos) return pos.error();
+                    if (!nrm) return nrm.error();
+                    if (!col) return col.error();
+                    if (!uv) return uv.error();
+                    mesh_data.vertices.push_back(scene::Vertex{
+                        .position = pos.value(),
+                        .normal = nrm.value(),
+                        .color = col.value(),
+                        .uv = uv.value(),
+                    });
+                }
+
+                mesh_data.indices.reserve(idx_val->asArray().size());
+                for (const auto& idx_entry : idx_val->asArray()) {
+                    auto i_res = decodeUint64(&idx_entry, "mesh.indices[]");
+                    if (!i_res) return i_res.error();
+                    if (i_res.value() > static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max())) {
+                        return core::Result<ProjectDocument>::fail(
+                            core::ErrorCode::ValidationError,
+                            "Mesh index exceeds uint32_t range");
+                    }
+                    mesh_data.indices.push_back(static_cast<std::uint32_t>(i_res.value()));
+                }
             }
 
             auto reg_status = doc.scene.registerMeshWithId(
@@ -603,6 +692,16 @@ core::Result<ProjectDocument> ProjectSerializer::deserializeFromString(std::stri
     return core::Result<ProjectDocument>::ok(std::move(doc));
 }
 
+} // namespace
+
+core::Result<std::string> ProjectSerializer::serializeToString(const ProjectDocument& document, bool pretty) {
+    return serializeDocumentImpl(document, {}, nullptr, pretty);
+}
+
+core::Result<ProjectDocument> ProjectSerializer::deserializeFromString(std::string_view json_text) {
+    return deserializeDocumentImpl(json_text, {}, nullptr);
+}
+
 core::Status ProjectSerializer::saveToFile(
     const ProjectDocument& document,
     const std::filesystem::path& path,
@@ -614,6 +713,30 @@ core::Status ProjectSerializer::saveToFile(
     return file_system.writeTextFile(path, json_res.value());
 }
 
+core::Status ProjectSerializer::saveBundleToFile(
+    const ProjectDocument& document,
+    const std::filesystem::path& fe3d_path,
+    platform::IFileSystem& file_system) {
+    const std::string stem = fe3d_path.stem().string();
+    const std::string bin_filename = (stem.empty() ? std::string("project") : stem) + ".fe3dbin";
+    const std::filesystem::path bin_path = fe3d_path.parent_path().empty()
+                                               ? std::filesystem::path(bin_filename)
+                                               : (fe3d_path.parent_path() / bin_filename);
+
+    BinaryAssetBuilder builder;
+    auto json_res = serializeDocumentImpl(document, bin_filename, &builder, true);
+    if (!json_res) {
+        return json_res.error();
+    }
+
+    auto bin_status = builder.saveToFile(bin_path, file_system);
+    if (!bin_status) {
+        return bin_status.error();
+    }
+
+    return file_system.writeTextFile(fe3d_path, json_res.value());
+}
+
 core::Result<ProjectDocument> ProjectSerializer::loadFromFile(
     const std::filesystem::path& path,
     const platform::IFileSystem& file_system) {
@@ -621,7 +744,7 @@ core::Result<ProjectDocument> ProjectSerializer::loadFromFile(
     if (!text_res) {
         return text_res.error();
     }
-    return deserializeFromString(text_res.value());
+    return deserializeDocumentImpl(text_res.value(), path.parent_path(), &file_system);
 }
 
 } // namespace finaleffect::project
