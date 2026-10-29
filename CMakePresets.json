@@ -1,0 +1,128 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 22,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "core-debug",
+      "displayName": "Core Only (Debug)",
+      "description": "Portable C++20 engine core and unit tests without GPU rendering targets",
+      "binaryDir": "${sourceDir}/build/core-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "FINALEFFECT_BUILD_RENDERER_DESKTOP": "OFF",
+        "FINALEFFECT_BUILD_RENDERER_WEBGL2": "OFF",
+        "FINALEFFECT_BUILD_TESTS": "ON",
+        "FINALEFFECT_WARNINGS_AS_ERRORS": "ON"
+      }
+    },
+    {
+      "name": "core-release",
+      "displayName": "Core Only (Release)",
+      "description": "Optimized portable C++20 engine core and unit tests without GPU rendering targets",
+      "binaryDir": "${sourceDir}/build/core-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "FINALEFFECT_BUILD_RENDERER_DESKTOP": "OFF",
+        "FINALEFFECT_BUILD_RENDERER_WEBGL2": "OFF",
+        "FINALEFFECT_BUILD_TESTS": "ON",
+        "FINALEFFECT_WARNINGS_AS_ERRORS": "ON"
+      }
+    },
+    {
+      "name": "desktop-debug",
+      "displayName": "Desktop + GPU Adapters (Debug)",
+      "description": "Full desktop build including OpenGL 3.3 + WebGL 2.0 adapters, desktop host, core engine, and tests",
+      "binaryDir": "${sourceDir}/build/desktop-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "FINALEFFECT_BUILD_RENDERER_DESKTOP": "ON",
+        "FINALEFFECT_BUILD_RENDERER_WEBGL2": "ON",
+        "FINALEFFECT_BUILD_TESTS": "ON",
+        "FINALEFFECT_WARNINGS_AS_ERRORS": "ON"
+      }
+    },
+    {
+      "name": "desktop-release",
+      "displayName": "Desktop + GPU Adapters (Release)",
+      "description": "Optimized desktop build including OpenGL 3.3 + WebGL 2.0 adapters, desktop host, core engine, and tests",
+      "binaryDir": "${sourceDir}/build/desktop-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "FINALEFFECT_BUILD_RENDERER_DESKTOP": "ON",
+        "FINALEFFECT_BUILD_RENDERER_WEBGL2": "ON",
+        "FINALEFFECT_BUILD_TESTS": "ON",
+        "FINALEFFECT_WARNINGS_AS_ERRORS": "ON"
+      }
+    },
+    {
+      "name": "wasm-release",
+      "displayName": "WebAssembly + WebGL2 (Emscripten Release)",
+      "description": "Browser WebAssembly prototype target (requires EMSDK environment variable pointing to Emscripten SDK)",
+      "binaryDir": "${sourceDir}/build/wasm-release",
+      "toolchainFile": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "FINALEFFECT_BUILD_RENDERER_DESKTOP": "OFF",
+        "FINALEFFECT_BUILD_RENDERER_WEBGL2": "ON",
+        "FINALEFFECT_BUILD_TESTS": "OFF",
+        "FINALEFFECT_WARNINGS_AS_ERRORS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "core-debug",
+      "configurePreset": "core-debug"
+    },
+    {
+      "name": "core-release",
+      "configurePreset": "core-release"
+    },
+    {
+      "name": "desktop-debug",
+      "configurePreset": "desktop-debug"
+    },
+    {
+      "name": "desktop-release",
+      "configurePreset": "desktop-release"
+    },
+    {
+      "name": "wasm-release",
+      "configurePreset": "wasm-release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "core-debug",
+      "configurePreset": "core-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "core-release",
+      "configurePreset": "core-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "desktop-debug",
+      "configurePreset": "desktop-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "desktop-release",
+      "configurePreset": "desktop-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Final Effect 3D - Host and target platform detection.
+# Keeps platform selection inside CMake rather than scattering #ifdefs across engine code.
+
+include_guard(GLOBAL)
+
+set(FINALEFFECT_PLATFORM_NAME "Generic")
+set(FINALEFFECT_PLATFORM_IS_DESKTOP OFF)
+set(FINALEFFECT_PLATFORM_IS_WEB OFF)
+set(FINALEFFECT_PLATFORM_IS_MOBILE OFF)
+
+if(EMSCRIPTEN)
+    set(FINALEFFECT_PLATFORM_NAME "Web")
+    set(FINALEFFECT_PLATFORM_IS_WEB ON)
+elseif(ANDROID)
+    set(FINALEFFECT_PLATFORM_NAME "Android")
+    set(FINALEFFECT_PLATFORM_IS_MOBILE ON)
+elseif(IOS)
+    set(FINALEFFECT_PLATFORM_NAME "iOS")
+    set(FINALEFFECT_PLATFORM_IS_MOBILE ON)
+elseif(WIN32)
+    set(FINALEFFECT_PLATFORM_NAME "Windows")
+    set(FINALEFFECT_PLATFORM_IS_DESKTOP ON)
+elseif(APPLE)
+    set(FINALEFFECT_PLATFORM_NAME "macOS")
+    set(FINALEFFECT_PLATFORM_IS_DESKTOP ON)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(FINALEFFECT_PLATFORM_NAME "Linux")
+    set(FINALEFFECT_PLATFORM_IS_DESKTOP ON)
+endif()
+
+message(STATUS "Final Effect 3D target platform: ${FINALEFFECT_PLATFORM_NAME} (${CMAKE_SYSTEM_NAME} / ${CMAKE_SYSTEM_PROCESSOR})")
