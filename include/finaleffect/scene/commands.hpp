@@ -63,7 +63,9 @@ public:
         std::string object_name,
         ObjectId parent_id = ObjectId::invalid(),
         math::Transform initial_transform = math::Transform::identity(),
-        std::optional<MeshId> mesh_id = std::nullopt);
+        std::optional<MeshId> mesh_id = std::nullopt,
+        std::optional<CameraComponent> camera = std::nullopt,
+        std::optional<DirectionalLightComponent> directional_light = std::nullopt);
 
     [[nodiscard]] std::string_view description() const noexcept override { return "Create Object"; }
     [[nodiscard]] std::size_t estimatedBytes() const noexcept override;
@@ -78,6 +80,8 @@ private:
     ObjectId parent_id_;
     math::Transform initial_transform_;
     std::optional<MeshId> mesh_id_;
+    std::optional<CameraComponent> camera_;
+    std::optional<DirectionalLightComponent> directional_light_;
     ObjectId created_id_{ObjectId::invalid()};
 };
 
@@ -125,6 +129,80 @@ private:
     ObjectId new_parent_id_;
     ObjectId previous_parent_id_{ObjectId::invalid()};
     bool captured_previous_{false};
+};
+
+class RenameObjectCommand final : public ISceneCommand {
+public:
+    RenameObjectCommand(ObjectId object_id, std::string new_name);
+
+    [[nodiscard]] std::string_view description() const noexcept override { return "Rename Object"; }
+    [[nodiscard]] std::size_t estimatedBytes() const noexcept override;
+
+    [[nodiscard]] core::Status execute(Scene& scene) override;
+    [[nodiscard]] core::Status undo(Scene& scene) override;
+
+private:
+    ObjectId object_id_;
+    std::string new_name_;
+    std::string previous_name_;
+    bool captured_previous_{false};
+};
+
+class SetVisibilityCommand final : public ISceneCommand {
+public:
+    SetVisibilityCommand(ObjectId object_id, bool visible);
+
+    [[nodiscard]] std::string_view description() const noexcept override { return "Set Visibility"; }
+    [[nodiscard]] std::size_t estimatedBytes() const noexcept override { return sizeof(*this); }
+
+    [[nodiscard]] core::Status execute(Scene& scene) override;
+    [[nodiscard]] core::Status undo(Scene& scene) override;
+
+private:
+    ObjectId object_id_;
+    bool new_visible_{true};
+    bool previous_visible_{true};
+    bool captured_previous_{false};
+};
+
+class SetCameraComponentCommand final : public ISceneCommand {
+public:
+    SetCameraComponentCommand(ObjectId object_id, std::optional<CameraComponent> camera);
+
+    [[nodiscard]] std::string_view description() const noexcept override { return "Edit Camera"; }
+    [[nodiscard]] std::size_t estimatedBytes() const noexcept override { return sizeof(*this); }
+
+    [[nodiscard]] core::Status execute(Scene& scene) override;
+    [[nodiscard]] core::Status undo(Scene& scene) override;
+
+private:
+    ObjectId object_id_;
+    std::optional<CameraComponent> new_camera_;
+    std::optional<CameraComponent> previous_camera_;
+    ObjectId previous_active_camera_{ObjectId::invalid()};
+    bool captured_previous_{false};
+};
+
+class SetDirectionalLightCommand final : public ISceneCommand {
+public:
+    SetDirectionalLightCommand(
+        ObjectId object_id,
+        std::optional<DirectionalLightComponent> light,
+        bool allow_coalesce = false);
+
+    [[nodiscard]] std::string_view description() const noexcept override { return "Edit Light"; }
+    [[nodiscard]] std::size_t estimatedBytes() const noexcept override { return sizeof(*this); }
+
+    [[nodiscard]] core::Status execute(Scene& scene) override;
+    [[nodiscard]] core::Status undo(Scene& scene) override;
+    [[nodiscard]] bool tryCoalesceWith(const ISceneCommand& incoming) noexcept override;
+
+private:
+    ObjectId object_id_;
+    std::optional<DirectionalLightComponent> new_light_;
+    std::optional<DirectionalLightComponent> previous_light_;
+    bool captured_previous_{false};
+    bool allow_coalesce_{false};
 };
 
 // Atomic multi-step transaction; rolls back already-executed steps if any step fails.

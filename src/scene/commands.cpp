@@ -57,11 +57,15 @@ CreateObjectCommand::CreateObjectCommand(
     std::string object_name,
     ObjectId parent_id,
     math::Transform initial_transform,
-    std::optional<MeshId> mesh_id)
+    std::optional<MeshId> mesh_id,
+    std::optional<CameraComponent> camera,
+    std::optional<DirectionalLightComponent> directional_light)
     : object_name_(std::move(object_name)),
       parent_id_(parent_id),
       initial_transform_(initial_transform),
-      mesh_id_(mesh_id) {}
+      mesh_id_(mesh_id),
+      camera_(camera),
+      directional_light_(directional_light) {}
 
 std::size_t CreateObjectCommand::estimatedBytes() const noexcept {
     return sizeof(*this) + object_name_.capacity();
@@ -99,6 +103,25 @@ core::Status CreateObjectCommand::execute(Scene& scene) {
         if (!m_st) {
             (void)scene.removeObject(created_id_, RemovalMode::Recursive);
             return m_st;
+        }
+    }
+
+    if (camera_.has_value()) {
+        auto c_st = scene.assignCamera(created_id_, camera_);
+        if (!c_st) {
+            (void)scene.removeObject(created_id_, RemovalMode::Recursive);
+            return c_st;
+        }
+        if (!scene.activeCamera().isValid()) {
+            (void)scene.setActiveCamera(created_id_);
+        }
+    }
+
+    if (directional_light_.has_value()) {
+        auto l_st = scene.assignDirectionalLight(created_id_, directional_light_);
+        if (!l_st) {
+            (void)scene.removeObject(created_id_, RemovalMode::Recursive);
+            return l_st;
         }
     }
     return core::Status::ok();
@@ -233,6 +256,135 @@ core::Status ReparentObjectCommand::undo(Scene& scene) {
         return core::Status::fail(core::ErrorCode::InvalidState, "ReparentObjectCommand was never executed");
     }
     return scene.setParent(child_id_, previous_parent_id_);
+}
+
+// -----------------------------------------------------------------------------
+// RenameObjectCommand
+// -----------------------------------------------------------------------------
+RenameObjectCommand::RenameObjectCommand(ObjectId object_id, std::string new_name)
+    : object_id_(object_id), new_name_(std::move(new_name)) {}
+
+std::size_t RenameObjectCommand::estimatedBytes() const noexcept {
+    return sizeof(*this) + new_name_.capacity() + previous_name_.capacity();
+}
+
+core::Status RenameObjectCommand::execute(Scene& scene) {
+    const auto* obj = scene.findObject(object_id_);
+    if (obj == nullptr) {
+        return core::Status::fail(core::ErrorCode::NotFound, "RenameObjectCommand target object not found");
+    }
+    if (!captured_previous_) {
+        previous_name_ = obj->name;
+        captured_previous_ = true;
+    }
+    return scene.setObjectName(object_id_, new_name_);
+}
+
+core::Status RenameObjectCommand::undo(Scene& scene) {
+    if (!captured_previous_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "RenameObjectCommand was never executed");
+    }
+    return scene.setObjectName(object_id_, previous_name_);
+}
+
+// -----------------------------------------------------------------------------
+// SetVisibilityCommand
+// -----------------------------------------------------------------------------
+SetVisibilityCommand::SetVisibilityCommand(ObjectId object_id, bool visible)
+    : object_id_(object_id), new_visible_(visible) {}
+
+core::Status SetVisibilityCommand::execute(Scene& scene) {
+    const auto* obj = scene.findObject(object_id_);
+    if (obj == nullptr) {
+        return core::Status::fail(core::ErrorCode::NotFound, "SetVisibilityCommand target object not found");
+    }
+    if (!captured_previous_) {
+        previous_visible_ = obj->visible;
+        captured_previous_ = true;
+    }
+    return scene.setObjectVisible(object_id_, new_visible_);
+}
+
+core::Status SetVisibilityCommand::undo(Scene& scene) {
+    if (!captured_previous_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "SetVisibilityCommand was never executed");
+    }
+    return scene.setObjectVisible(object_id_, previous_visible_);
+}
+
+// -----------------------------------------------------------------------------
+// SetCameraComponentCommand
+// -----------------------------------------------------------------------------
+SetCameraComponentCommand::SetCameraComponentCommand(
+    ObjectId object_id,
+    std::optional<CameraComponent> camera)
+    : object_id_(object_id), new_camera_(camera) {}
+
+core::Status SetCameraComponentCommand::execute(Scene& scene) {
+    const auto* obj = scene.findObject(object_id_);
+    if (obj == nullptr) {
+        return core::Status::fail(core::ErrorCode::NotFound, "SetCameraComponentCommand target object not found");
+    }
+    if (!captured_previous_) {
+        previous_camera_ = obj->camera;
+        previous_active_camera_ = scene.activeCamera();
+        captured_previous_ = true;
+    }
+    return scene.assignCamera(object_id_, new_camera_);
+}
+
+core::Status SetCameraComponentCommand::undo(Scene& scene) {
+    if (!captured_previous_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "SetCameraComponentCommand was never executed");
+    }
+    auto st = scene.assignCamera(object_id_, previous_camera_);
+    if (!st) {
+        return st;
+    }
+    if (previous_active_camera_.isValid() && scene.findObject(previous_active_camera_) != nullptr) {
+        return scene.setActiveCamera(previous_active_camera_);
+    }
+    return core::Status::ok();
+}
+
+// -----------------------------------------------------------------------------
+// SetDirectionalLightCommand
+// -----------------------------------------------------------------------------
+SetDirectionalLightCommand::SetDirectionalLightCommand(
+    ObjectId object_id,
+    std::optional<DirectionalLightComponent> light,
+    bool allow_coalesce)
+    : object_id_(object_id), new_light_(light), allow_coalesce_(allow_coalesce) {}
+
+core::Status SetDirectionalLightCommand::execute(Scene& scene) {
+    const auto* obj = scene.findObject(object_id_);
+    if (obj == nullptr) {
+        return core::Status::fail(core::ErrorCode::NotFound, "SetDirectionalLightCommand target object not found");
+    }
+    if (!captured_previous_) {
+        previous_light_ = obj->directional_light;
+        captured_previous_ = true;
+    }
+    return scene.assignDirectionalLight(object_id_, new_light_);
+}
+
+core::Status SetDirectionalLightCommand::undo(Scene& scene) {
+    if (!captured_previous_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "SetDirectionalLightCommand was never executed");
+    }
+    return scene.assignDirectionalLight(object_id_, previous_light_);
+}
+
+bool SetDirectionalLightCommand::tryCoalesceWith(const ISceneCommand& incoming) noexcept {
+    if (!allow_coalesce_) {
+        return false;
+    }
+    const auto* next_light = dynamic_cast<const SetDirectionalLightCommand*>(&incoming);
+    if (next_light == nullptr || !next_light->allow_coalesce_ || next_light->object_id_ != object_id_) {
+        return false;
+    }
+    new_light_ = next_light->new_light_;
+    return true;
 }
 
 // -----------------------------------------------------------------------------

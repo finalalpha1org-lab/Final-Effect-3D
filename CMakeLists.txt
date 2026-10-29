@@ -4,7 +4,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 project(FinalEffect3D
-    VERSION 0.2.0
+    VERSION 0.3.0
     DESCRIPTION "Final Effect 3D - Open-Source Creative 3D Engine & Studio Foundation"
     LANGUAGES CXX
 )
@@ -177,6 +177,7 @@ add_library(finaleffect_app STATIC
     src/app/orbit_camera_controller.cpp
     src/app/starter_scene.cpp
     src/app/studio_session.cpp
+    src/app/editor_controller.cpp
 )
 add_library(finaleffect::app ALIAS finaleffect_app)
 target_include_directories(finaleffect_app
@@ -286,10 +287,22 @@ if(FINALEFFECT_PLATFORM_IS_WEB)
             "-sALLOW_MEMORY_GROWTH=1"
             "-sINITIAL_MEMORY=33554432"
             "-sFILESYSTEM=1"
+            "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_fe3d_is_ready','_fe3d_get_init_error','_fe3d_get_state_json','_fe3d_dispatch_action','_fe3d_export_inline_project','_fe3d_save_bundle_to_vfs','_fe3d_load_file_from_vfs']"
+            "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','stringToNewUTF8','FS']"
     )
     configure_file(
         "${CMAKE_CURRENT_SOURCE_DIR}/web/index.html"
         "${CMAKE_CURRENT_BINARY_DIR}/index.html"
+        COPYONLY
+    )
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/web/editor.css"
+        "${CMAKE_CURRENT_BINARY_DIR}/editor.css"
+        COPYONLY
+    )
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/web/editor.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/editor.js"
         COPYONLY
     )
 endif()
@@ -339,6 +352,11 @@ if(FINALEFFECT_BUILD_TESTS)
     target_link_libraries(finaleffect_viewport_tests PRIVATE finaleffect::app finaleffect::rendering)
     finaleffect_apply_compiler_settings(finaleffect_viewport_tests)
     add_test(NAME finaleffect.viewport COMMAND finaleffect_viewport_tests)
+
+    add_executable(finaleffect_editor_tests tests/editor_tests.cpp)
+    target_link_libraries(finaleffect_editor_tests PRIVATE finaleffect::app finaleffect::rendering)
+    finaleffect_apply_compiler_settings(finaleffect_editor_tests)
+    add_test(NAME finaleffect.editor COMMAND finaleffect_editor_tests)
 
     if(FINALEFFECT_BUILD_RENDERER_DESKTOP AND FINALEFFECT_PLATFORM_IS_DESKTOP)
         add_executable(finaleffect_opengl33_tests tests/opengl33_device_tests.cpp)

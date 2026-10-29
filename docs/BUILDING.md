@@ -82,7 +82,20 @@ cmake --build build/wasm-release --parallel
 python3 -m http.server 8080 --directory build/wasm-release
 ```
 
-Then open `http://localhost:8080/index.html` in a WebGL 2.0-capable desktop or mobile browser. Because the WebAssembly build runs single-threaded without `SharedArrayBuffer` requirements, it works on standard static HTTP hosts without special COOP/COEP headers.
+Then open `http://localhost:8080/index.html` in a WebGL 2.0-capable desktop or mobile browser to launch the connected 3-panel Final Effect 3D Studio UI (Scene Outliner, WebGL 2.0 3D Viewport, Property Inspector, Undo/Redo toolbar, and `.fe3d` / `.fe3dbin` project import/export). Because the WebAssembly build runs single-threaded without `SharedArrayBuffer` requirements, it works on standard static HTTP hosts without special COOP/COEP headers.
+
+### Automated Real-Browser Chromium E2E Verification (`web/e2e/`)
+
+After building `build/wasm-release` with Emscripten:
+
+```bash
+cd web/e2e
+npm install
+npx playwright install --with-deps chromium
+npx playwright test --reporter=list
+```
+
+This launches Headless Chromium with WebGL 2.0 (`--use-gl=angle --use-angle=swiftshader`) and verifies WebAssembly boot, real GPU 3D pixel rasterization, 3D raycast canvas picking + selection highlight pixels, camera orbit drag, Outliner/Inspector authoring, `<input>` keyboard focus guards, hierarchy cycle protection, Undo/Redo, and `.fe3d` + `.fe3dbin` download/upload round-trips.
 
 ---
 

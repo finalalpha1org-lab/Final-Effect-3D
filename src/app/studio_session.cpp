@@ -295,7 +295,7 @@ core::Status StudioSession::onUpdate(core::Engine&, const core::FrameTimings& ti
         }
     }
 
-    auto render_st = renderer_.renderScene(document_.scene);
+    auto render_st = renderer_.renderScene(document_.scene, {}, selected_object_);
     if (!render_st) {
         return render_st;
     }
@@ -313,6 +313,26 @@ void StudioSession::onShutdown(core::Engine& engine) noexcept {
             ", gpu_buffers=" + std::to_string(stats.gpu_mesh_buffer_count) +
             ", undo_cmds=" + std::to_string(stats.undo_command_count) + ")");
     renderer_.shutdown();
+}
+
+core::Status StudioSession::resetStarterProject() {
+    if (renderer_.isInitialized()) {
+        renderer_.releaseSceneResources();
+    }
+    document_ = project::ProjectDocument{};
+    document_.metadata.project_name = "Final Effect 3D Starter Project";
+    document_.metadata.author = "Final Effect 3D";
+    document_.metadata.description = "Interactive 3D studio showcase project";
+    auto starter_res = populateStarterScene(document_.scene);
+    if (!starter_res) {
+        return starter_res.error();
+    }
+    command_stack_.clear();
+    selected_object_ = {};
+    custom_project_loaded_ = false;
+    rig_angle_radians_ = 0.0f;
+    syncCameraControllerFromScene();
+    return core::Status::ok();
 }
 
 core::Status StudioSession::loadProjectFromFile(

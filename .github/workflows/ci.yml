@@ -114,7 +114,7 @@ jobs:
           ./build/ci-desktop/finaleffect_desktop --headless --frames 2 --project build/ci-desktop/ci_bundle.fe3d
 
   web-wasm-emscripten:
-    name: WebAssembly + WebGL2 Prototype (Emscripten)
+    name: WebAssembly + WebGL2 Studio & Chromium E2E
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
@@ -140,3 +140,18 @@ jobs:
           test -f build/ci-wasm/finaleffect_web.js
           test -f build/ci-wasm/finaleffect_web.wasm
           test -f build/ci-wasm/index.html
+          test -f build/ci-wasm/editor.css
+          test -f build/ci-wasm/editor.js
+
+      - name: Install Playwright & Headless Chromium
+        working-directory: web/e2e
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Verify Connected Studio UI in Real Chromium (WebAssembly + WebGL 2.0)
+        working-directory: web/e2e
+        env:
+          CI: "true"
+          FE3D_WEB_DIST_DIR: ../../build/ci-wasm
+        run: npx playwright test --reporter=list

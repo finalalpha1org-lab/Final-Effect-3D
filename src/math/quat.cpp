@@ -26,6 +26,29 @@ Quat Quat::fromEulerXYZ(const Vec3& euler_radians) noexcept {
     return (qz * qy * qx).normalized();
 }
 
+Vec3 Quat::toEulerXYZ() const noexcept {
+    const Quat q = normalized();
+    const float sin_y = std::clamp(2.0f * (q.w * q.y - q.x * q.z), -1.0f, 1.0f);
+
+    if (std::fabs(sin_y) >= 0.99999f) {
+        const float sign_y = (sin_y >= 0.0f) ? 1.0f : -1.0f;
+        const float ry = sign_y * (0.5f * kPi);
+        const float rx = std::atan2(
+            sign_y * 2.0f * (q.x * q.y - q.w * q.z),
+            1.0f - 2.0f * (q.x * q.x + q.z * q.z));
+        return Vec3{rx, ry, 0.0f};
+    }
+
+    const float rx = std::atan2(
+        2.0f * (q.w * q.x + q.y * q.z),
+        1.0f - 2.0f * (q.x * q.x + q.y * q.y));
+    const float ry = std::asin(sin_y);
+    const float rz = std::atan2(
+        2.0f * (q.w * q.z + q.x * q.y),
+        1.0f - 2.0f * (q.y * q.y + q.z * q.z));
+    return Vec3{rx, ry, rz};
+}
+
 float Quat::length() const noexcept {
     return std::sqrt(lengthSquared());
 }

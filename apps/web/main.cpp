@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Final Effect 3D Contributors
 //
-// Final Effect 3D — Browser / WebAssembly Host (Emscripten + WebGL 2.0)
+// Final Effect 3D — Browser / WebAssembly Studio Host (Emscripten + WebGL 2.0)
 // Shares finaleffect_core, finaleffect_math, finaleffect_scene, finaleffect_project,
-// finaleffect_rendering, and finaleffect_app unchanged with the desktop host.
+// finaleffect_rendering, and finaleffect_app (StudioSession + EditorController) unchanged
+// with the desktop host.
 
+#include "finaleffect/app/editor_controller.hpp"
 #include "finaleffect/app/studio_session.hpp"
 #include "finaleffect/core/engine.hpp"
 #include "finaleffect/core/version.hpp"
+#include "finaleffect/platform/file_system.hpp"
 #include "finaleffect/platform/window.hpp"
 #include "finaleffect/rendering/webgl2_render_device.hpp"
 
@@ -21,6 +24,7 @@
 #include <cstring>
 #include <iostream>
 #include <memory>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -28,6 +32,40 @@
 namespace {
 
 constexpr const char* kCanvasSelector = "#fe3d-canvas";
+
+EM_JS(int, fe3d_is_text_input_focused, (), {
+    const el = document.activeElement;
+    if (!el) return 0;
+    const tag = el.tagName ? el.tagName.toUpperCase() : "";
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable) {
+        return 1;
+    }
+    return 0;
+});
+
+EM_JS(void, fe3d_get_viewport_css_size, (double* out_w, double* out_h), {
+    const stage = document.getElementById("viewport-stage") || document.getElementById("fe3d-canvas");
+    if (!stage) {
+        HEAPF64[out_w >> 3] = 960.0;
+        HEAPF64[out_h >> 3] = 600.0;
+        return;
+    }
+    const rect = stage.getBoundingClientRect();
+    HEAPF64[out_w >> 3] = Math.max(1.0, rect.width);
+    HEAPF64[out_h >> 3] = Math.max(1.0, rect.height);
+});
+
+EM_JS(void, fe3d_client_to_canvas_css, (double client_x, double client_y, double* out_x, double* out_y), {
+    const canvas = document.getElementById("fe3d-canvas");
+    if (!canvas) {
+        HEAPF64[out_x >> 3] = client_x;
+        HEAPF64[out_y >> 3] = client_y;
+        return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    HEAPF64[out_x >> 3] = client_x - rect.left;
+    HEAPF64[out_y >> 3] = client_y - rect.top;
+});
 
 finaleffect::platform::GlProcAddressFn resolveEmscriptenWebGlProc(const char* symbol_name) {
     void* raw = emscripten_webgl_get_proc_address(symbol_name);
@@ -71,22 +109,7 @@ public:
     ~Html5CanvasWindow() override { shutdown(); }
 
     [[nodiscard]] finaleffect::core::Status initialize(const finaleffect::platform::WindowDesc& desc) override {
-        dpr_ = std::clamp(emscripten_get_device_pixel_ratio(), 1.0, 3.0);
-
-        double css_w = static_cast<double>(desc.width);
-        double css_h = static_cast<double>(desc.height);
-        if (emscripten_get_element_css_size(kCanvasSelector, &css_w, &css_h) != EMSCRIPTEN_RESULT_SUCCESS ||
-            css_w <= 1.0 || css_h <= 1.0) {
-            css_w = static_cast<double>(desc.width);
-            css_h = static_cast<double>(desc.height);
-        }
-
-        fb_size_.width = static_cast<std::uint32_t>(std::max(1.0, std::round(css_w * dpr_)));
-        fb_size_.height = static_cast<std::uint32_t>(std::max(1.0, std::round(css_h * dpr_)));
-        (void)emscripten_set_canvas_element_size(
-            kCanvasSelector,
-            static_cast<int>(fb_size_.width),
-            static_cast<int>(fb_size_.height));
+        syncCanvasSize(desc.width, desc.height);
 
         EmscriptenWebGLContextAttributes attrs{};
         emscripten_webgl_init_context_attributes(&attrs);
@@ -96,6 +119,7 @@ public:
         attrs.stencil = EM_FALSE;
         attrs.antialias = EM_TRUE;
         attrs.alpha = EM_FALSE;
+        attrs.preserveDrawingBuffer = EM_TRUE;
         attrs.enableExtensionsByDefault = EM_TRUE;
 
         webgl_ctx_ = emscripten_webgl_create_context(kCanvasSelector, &attrs);
@@ -112,16 +136,16 @@ public:
                 "Failed to activate HTML5 WebGL 2.0 context");
         }
 
-        (void)emscripten_set_mousedown_callback(kCanvasSelector, this, EM_TRUE, &Html5CanvasWindow::onMouseButton);
-        (void)emscripten_set_mouseup_callback(kCanvasSelector, this, EM_TRUE, &Html5CanvasWindow::onMouseButton);
-        (void)emscripten_set_mousemove_callback(kCanvasSelector, this, EM_TRUE, &Html5CanvasWindow::onMouseMove);
+        (void)emscripten_set_mousedown_callback(kCanvasSelector, this, EM_TRUE, &Html5CanvasWindow::onMouseDown);
+        (void)emscripten_set_mouseup_callback(
+            EMSCRIPTEN_EVENT_TARGET_WINDOW, this, EM_TRUE, &Html5CanvasWindow::onMouseUp);
+        (void)emscripten_set_mousemove_callback(
+            EMSCRIPTEN_EVENT_TARGET_WINDOW, this, EM_TRUE, &Html5CanvasWindow::onMouseMove);
         (void)emscripten_set_wheel_callback(kCanvasSelector, this, EM_TRUE, &Html5CanvasWindow::onWheel);
         (void)emscripten_set_keydown_callback(
             EMSCRIPTEN_EVENT_TARGET_WINDOW, this, EM_TRUE, &Html5CanvasWindow::onKey);
         (void)emscripten_set_keyup_callback(
             EMSCRIPTEN_EVENT_TARGET_WINDOW, this, EM_TRUE, &Html5CanvasWindow::onKey);
-        (void)emscripten_set_resize_callback(
-            EMSCRIPTEN_EVENT_TARGET_WINDOW, this, EM_FALSE, &Html5CanvasWindow::onResize);
 
         should_close_ = false;
         return finaleffect::core::Status::ok();
@@ -136,7 +160,9 @@ public:
         should_close_ = true;
     }
 
-    void pollEvents() override {}
+    void pollEvents() override {
+        syncCanvasSize(fb_size_.width, fb_size_.height);
+    }
 
     [[nodiscard]] std::vector<finaleffect::platform::InputEvent> consumeInputEvents() override {
         std::vector<finaleffect::platform::InputEvent> out;
@@ -160,45 +186,112 @@ public:
     }
 
 private:
-    static EM_BOOL onMouseButton(int event_type, const EmscriptenMouseEvent* ev, void* user_data) {
+    void syncCanvasSize(std::uint32_t fallback_w, std::uint32_t fallback_h) {
+        dpr_ = std::clamp(emscripten_get_device_pixel_ratio(), 1.0, 3.0);
+        double css_w = static_cast<double>(fallback_w);
+        double css_h = static_cast<double>(fallback_h);
+        fe3d_get_viewport_css_size(&css_w, &css_h);
+
+        const auto next_w = static_cast<std::uint32_t>(std::max(1.0, std::round(css_w * dpr_)));
+        const auto next_h = static_cast<std::uint32_t>(std::max(1.0, std::round(css_h * dpr_)));
+        if (next_w != fb_size_.width || next_h != fb_size_.height) {
+            fb_size_.width = next_w;
+            fb_size_.height = next_h;
+            (void)emscripten_set_canvas_element_size(
+                kCanvasSelector,
+                static_cast<int>(fb_size_.width),
+                static_cast<int>(fb_size_.height));
+        }
+    }
+
+    void mapClientToFramebuffer(long client_x, long client_y, double& out_fb_x, double& out_fb_y) const {
+        double css_x = 0.0;
+        double css_y = 0.0;
+        fe3d_client_to_canvas_css(
+            static_cast<double>(client_x),
+            static_cast<double>(client_y),
+            &css_x,
+            &css_y);
+        out_fb_x = css_x * dpr_;
+        out_fb_y = css_y * dpr_;
+    }
+
+    static bool mapMouseButton(unsigned short button, finaleffect::platform::MouseButton& out) noexcept {
+        if (button == 0) {
+            out = finaleffect::platform::MouseButton::Left;
+            return true;
+        }
+        if (button == 1) {
+            out = finaleffect::platform::MouseButton::Middle;
+            return true;
+        }
+        if (button == 2) {
+            out = finaleffect::platform::MouseButton::Right;
+            return true;
+        }
+        return false;
+    }
+
+    static EM_BOOL onMouseDown(int /*event_type*/, const EmscriptenMouseEvent* ev, void* user_data) {
         auto* self = static_cast<Html5CanvasWindow*>(user_data);
         if (self == nullptr || ev == nullptr) {
             return EM_FALSE;
         }
-        finaleffect::platform::MouseButton btn = finaleffect::platform::MouseButton::Left;
-        if (ev->button == 0) {
-            btn = finaleffect::platform::MouseButton::Left;
-        } else if (ev->button == 1) {
-            btn = finaleffect::platform::MouseButton::Middle;
-        } else if (ev->button == 2) {
-            btn = finaleffect::platform::MouseButton::Right;
-        } else {
+        finaleffect::platform::MouseButton btn{};
+        if (!mapMouseButton(ev->button, btn)) {
             return EM_FALSE;
         }
-
-        const auto action = (event_type == EMSCRIPTEN_EVENT_MOUSEDOWN)
-                                ? finaleffect::platform::KeyAction::Press
-                                : finaleffect::platform::KeyAction::Release;
+        self->pointer_captured_ = true;
+        double fb_x = 0.0;
+        double fb_y = 0.0;
+        self->mapClientToFramebuffer(ev->clientX, ev->clientY, fb_x, fb_y);
         self->pending_events_.emplace_back(finaleffect::platform::MouseButtonEvent{
             .button = btn,
-            .action = action,
-            .x = static_cast<double>(ev->targetX) * self->dpr_,
-            .y = static_cast<double>(ev->targetY) * self->dpr_,
+            .action = finaleffect::platform::KeyAction::Press,
+            .x = fb_x,
+            .y = fb_y,
             .mods = extractMouseMods(*ev),
         });
-        return EM_TRUE;
+        // Allow default browser focus transition onto #fe3d-canvas so active UI <input> blurs cleanly.
+        return EM_FALSE;
+    }
+
+    static EM_BOOL onMouseUp(int /*event_type*/, const EmscriptenMouseEvent* ev, void* user_data) {
+        auto* self = static_cast<Html5CanvasWindow*>(user_data);
+        if (self == nullptr || ev == nullptr || !self->pointer_captured_) {
+            return EM_FALSE;
+        }
+        finaleffect::platform::MouseButton btn{};
+        if (!mapMouseButton(ev->button, btn)) {
+            return EM_FALSE;
+        }
+        self->pointer_captured_ = false;
+        double fb_x = 0.0;
+        double fb_y = 0.0;
+        self->mapClientToFramebuffer(ev->clientX, ev->clientY, fb_x, fb_y);
+        self->pending_events_.emplace_back(finaleffect::platform::MouseButtonEvent{
+            .button = btn,
+            .action = finaleffect::platform::KeyAction::Release,
+            .x = fb_x,
+            .y = fb_y,
+            .mods = extractMouseMods(*ev),
+        });
+        return EM_FALSE;
     }
 
     static EM_BOOL onMouseMove(int /*event_type*/, const EmscriptenMouseEvent* ev, void* user_data) {
         auto* self = static_cast<Html5CanvasWindow*>(user_data);
-        if (self == nullptr || ev == nullptr) {
+        if (self == nullptr || ev == nullptr || !self->pointer_captured_) {
             return EM_FALSE;
         }
+        double fb_x = 0.0;
+        double fb_y = 0.0;
+        self->mapClientToFramebuffer(ev->clientX, ev->clientY, fb_x, fb_y);
         self->pending_events_.emplace_back(finaleffect::platform::CursorMoveEvent{
-            .x = static_cast<double>(ev->targetX) * self->dpr_,
-            .y = static_cast<double>(ev->targetY) * self->dpr_,
+            .x = fb_x,
+            .y = fb_y,
         });
-        return EM_TRUE;
+        return EM_FALSE;
     }
 
     static EM_BOOL onWheel(int /*event_type*/, const EmscriptenWheelEvent* ev, void* user_data) {
@@ -218,6 +311,10 @@ private:
     }
 
     static EM_BOOL onKey(int event_type, const EmscriptenKeyboardEvent* ev, void* user_data) {
+        // Do not intercept keyboard typing when an editor <input>, <select>, or <textarea> has focus.
+        if (fe3d_is_text_input_focused() != 0) {
+            return EM_FALSE;
+        }
         auto* self = static_cast<Html5CanvasWindow*>(user_data);
         if (self == nullptr || ev == nullptr) {
             return EM_FALSE;
@@ -245,44 +342,33 @@ private:
         return EM_TRUE;
     }
 
-    static EM_BOOL onResize(int /*event_type*/, const EmscriptenUiEvent* /*ev*/, void* user_data) {
-        auto* self = static_cast<Html5CanvasWindow*>(user_data);
-        if (self == nullptr) {
-            return EM_FALSE;
-        }
-        self->dpr_ = std::clamp(emscripten_get_device_pixel_ratio(), 1.0, 3.0);
-        double css_w = 0.0;
-        double css_h = 0.0;
-        if (emscripten_get_element_css_size(kCanvasSelector, &css_w, &css_h) == EMSCRIPTEN_RESULT_SUCCESS &&
-            css_w > 1.0 && css_h > 1.0) {
-            self->fb_size_.width = static_cast<std::uint32_t>(std::max(1.0, std::round(css_w * self->dpr_)));
-            self->fb_size_.height = static_cast<std::uint32_t>(std::max(1.0, std::round(css_h * self->dpr_)));
-            (void)emscripten_set_canvas_element_size(
-                kCanvasSelector,
-                static_cast<int>(self->fb_size_.width),
-                static_cast<int>(self->fb_size_.height));
-        }
-        return EM_FALSE;
-    }
-
     EMSCRIPTEN_WEBGL_CONTEXT_HANDLE webgl_ctx_{0};
-    finaleffect::platform::FramebufferSize fb_size_{1280, 720};
+    finaleffect::platform::FramebufferSize fb_size_{0, 0};
     double dpr_{1.0};
     bool should_close_{false};
+    bool pointer_captured_{false};
     std::vector<finaleffect::platform::InputEvent> pending_events_;
 };
 
 struct WebHostContext {
+    finaleffect::platform::LocalFileSystem fs;
     finaleffect::core::Engine engine;
     Html5CanvasWindow window;
     std::unique_ptr<finaleffect::app::StudioSession> session;
+    std::unique_ptr<finaleffect::app::EditorController> editor;
+    int ready_state{0}; // 0 = initializing, 1 = ready, -1 = error
+    std::string init_error;
+    std::string state_json_buffer{"{}"};
+    std::string export_json_buffer;
 
     explicit WebHostContext(const finaleffect::core::EngineConfig& cfg) : engine(cfg) {}
 };
 
+WebHostContext* g_web_ctx = nullptr;
+
 void onBrowserFrame(void* user_data) {
     auto* ctx = static_cast<WebHostContext*>(user_data);
-    if (ctx == nullptr) {
+    if (ctx == nullptr || ctx->ready_state != 1) {
         return;
     }
     if (ctx->window.shouldClose()) {
@@ -302,18 +388,80 @@ void onBrowserFrame(void* user_data) {
 
 } // namespace
 
+extern "C" {
+
+EMSCRIPTEN_KEEPALIVE int fe3d_is_ready() {
+    return g_web_ctx != nullptr ? g_web_ctx->ready_state : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE const char* fe3d_get_init_error() {
+    return g_web_ctx != nullptr ? g_web_ctx->init_error.c_str() : "";
+}
+
+EMSCRIPTEN_KEEPALIVE const char* fe3d_get_state_json() {
+    if (g_web_ctx == nullptr || g_web_ctx->editor == nullptr) {
+        return "{}";
+    }
+    g_web_ctx->state_json_buffer = g_web_ctx->editor->serializeStateJson();
+    return g_web_ctx->state_json_buffer.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE int fe3d_dispatch_action(const char* action_json) {
+    if (g_web_ctx == nullptr || g_web_ctx->editor == nullptr || action_json == nullptr) {
+        return 0;
+    }
+    const auto st = g_web_ctx->editor->executeActionJson(action_json);
+    return st.hasValue() ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE const char* fe3d_export_inline_project() {
+    if (g_web_ctx == nullptr || g_web_ctx->editor == nullptr) {
+        return "";
+    }
+    auto res = g_web_ctx->editor->exportInlineProjectJson();
+    if (!res) {
+        g_web_ctx->export_json_buffer.clear();
+        return "";
+    }
+    g_web_ctx->export_json_buffer = std::move(res).value();
+    return g_web_ctx->export_json_buffer.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE int fe3d_save_bundle_to_vfs(const char* fe3d_vfs_path) {
+    if (g_web_ctx == nullptr || g_web_ctx->editor == nullptr || fe3d_vfs_path == nullptr) {
+        return 0;
+    }
+    const auto st = g_web_ctx->editor->saveBundleProject(fe3d_vfs_path, g_web_ctx->fs);
+    return st.hasValue() ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int fe3d_load_file_from_vfs(const char* fe3d_vfs_path) {
+    if (g_web_ctx == nullptr || g_web_ctx->editor == nullptr || fe3d_vfs_path == nullptr) {
+        return 0;
+    }
+    const auto st = g_web_ctx->editor->loadProjectFile(fe3d_vfs_path, g_web_ctx->fs);
+    return st.hasValue() ? 1 : 0;
+}
+
+} // extern "C"
+
 int main() {
     finaleffect::core::EngineConfig cfg;
-    cfg.application_name = "Final Effect 3D Web Prototype";
+    cfg.application_name = "Final Effect 3D Studio Web";
 
     auto ctx = std::make_unique<WebHostContext>(cfg);
+    g_web_ctx = ctx.get();
+
     auto win_st = ctx->window.initialize({
-        .title = "Final Effect 3D — WebAssembly Viewport",
-        .width = 1280,
-        .height = 720,
+        .title = "Final Effect 3D — Studio WebAssembly",
+        .width = 960,
+        .height = 600,
     });
     if (!win_st) {
-        std::cerr << "[FinalEffect3D Web] Canvas init failed: " << win_st.error().format() << '\n';
+        ctx->ready_state = -1;
+        ctx->init_error = win_st.error().format();
+        std::cerr << "[FinalEffect3D Web] Canvas init failed: " << ctx->init_error << '\n';
+        ctx.release();
         return EXIT_FAILURE;
     }
 
@@ -324,10 +472,16 @@ int main() {
 
     auto init_st = ctx->engine.initialize(ctx->session.get());
     if (!init_st) {
-        std::cerr << "[FinalEffect3D Web] Engine init failed: " << init_st.error().format() << '\n';
+        ctx->ready_state = -1;
+        ctx->init_error = init_st.error().format();
+        std::cerr << "[FinalEffect3D Web] Engine init failed: " << ctx->init_error << '\n';
         ctx->window.shutdown();
+        ctx.release();
         return EXIT_FAILURE;
     }
+
+    ctx->editor = std::make_unique<finaleffect::app::EditorController>(*ctx->session);
+    ctx->ready_state = 1;
 
     // Release unique_ptr ownership into the Emscripten browser animation loop.
     emscripten_set_main_loop_arg(&onBrowserFrame, ctx.release(), 0, EM_TRUE);

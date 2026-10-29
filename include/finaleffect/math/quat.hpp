@@ -27,6 +27,7 @@ struct Quat {
 
     // Intrinsic XYZ / extrinsic ZYX Euler angles (rx, ry, rz in radians): Rz * Ry * Rx.
     [[nodiscard]] static Quat fromEulerXYZ(const Vec3& euler_radians) noexcept;
+    [[nodiscard]] Vec3 toEulerXYZ() const noexcept;
 
     // Shortest-path spherical linear interpolation.
     [[nodiscard]] static Quat slerp(const Quat& a, const Quat& b, float t) noexcept;

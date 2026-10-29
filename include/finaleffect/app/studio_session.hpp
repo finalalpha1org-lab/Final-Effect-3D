@@ -51,6 +51,9 @@ public:
         const std::filesystem::path& fe3d_path,
         platform::IFileSystem& file_system) const;
 
+    // Resets document to the starter 3D showcase project and clears command history.
+    [[nodiscard]] core::Status resetStarterProject();
+
     // Performs a raycast from framebuffer coordinates and updates selectedObject().
     [[nodiscard]] std::optional<scene::RaycastHit> pickAtScreenPosition(float screen_x, float screen_y);
 
@@ -59,6 +62,9 @@ public:
 
     [[nodiscard]] scene::ObjectId selectedObject() const noexcept { return selected_object_; }
     void setSelectedObject(scene::ObjectId id) noexcept { selected_object_ = id; }
+
+    [[nodiscard]] bool isRigAnimationEnabled() const noexcept { return config_.animate_showcase_rig; }
+    void setRigAnimationEnabled(bool enabled) noexcept { config_.animate_showcase_rig = enabled; }
 
     [[nodiscard]] project::ProjectDocument& document() noexcept { return document_; }
     [[nodiscard]] const project::ProjectDocument& document() const noexcept { return document_; }
