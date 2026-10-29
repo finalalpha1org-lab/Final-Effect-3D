@@ -1,0 +1,70 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 23, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": { "CMAKE_EXPORT_COMPILE_COMMANDS": "ON" }
+    },
+    {
+      "name": "core-debug",
+      "displayName": "Portable core (Debug) - no GPU, no window, no downloads",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "FE3D_BUILD_TESTS": "ON", "FE3D_BUILD_CLI": "ON" }
+    },
+    {
+      "name": "core-release",
+      "displayName": "Portable core (Release) - no GPU, no window, no downloads",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "FE3D_BUILD_TESTS": "ON", "FE3D_BUILD_CLI": "ON" }
+    },
+    {
+      "name": "core-ci",
+      "displayName": "Portable core + tests (CI)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "FE3D_BUILD_TESTS": "ON",
+        "FE3D_BUILD_CLI": "ON",
+        "FE3D_WARNINGS_AS_ERRORS": "ON"
+      }
+    },
+    {
+      "name": "desktop",
+      "displayName": "Desktop application with the OpenGL 3.3 renderer",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "FE3D_BUILD_TESTS": "ON",
+        "FE3D_BUILD_CLI": "ON",
+        "FE3D_BUILD_DESKTOP_APP": "ON",
+        "FE3D_ENABLE_OPENGL_RENDERER": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "core-debug", "configurePreset": "core-debug" },
+    { "name": "core-release", "configurePreset": "core-release" },
+    { "name": "core-ci", "configurePreset": "core-ci" },
+    { "name": "desktop", "configurePreset": "desktop" }
+  ],
+  "testPresets": [
+    {
+      "name": "core-debug",
+      "configurePreset": "core-debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "core-ci",
+      "configurePreset": "core-ci",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "desktop",
+      "configurePreset": "desktop",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}

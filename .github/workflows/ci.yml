@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  core:
+    name: ${{ matrix.os }} / portable core
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      # Ninja needs an MSVC environment on Windows.
+      - name: Prepare MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure (Release, warnings as errors)
+        run: cmake --preset core-ci
+
+      - name: Build
+        run: cmake --build --preset core-ci
+
+      - name: Test
+        run: ctest --preset core-ci --output-on-failure
+
+      # The tool renders without a GPU, so this exercises the rasteriser on every host.
+      - name: Render a frame with the CPU renderer
+        if: runner.os != 'Windows'
+        run: |
+          ./build/core-ci/bin/fe3d_tool demo-save ci-demo.fe3d
+          ./build/core-ci/bin/fe3d_tool inspect ci-demo.fe3d
+          ./build/core-ci/bin/fe3d_tool render ci-demo.fe3d --out ci-frame.ppm --width 320 --height 180
+
+      - name: Render a frame with the CPU renderer (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          build\core-ci\bin\fe3d_tool.exe demo-save ci-demo.fe3d
+          build\core-ci\bin\fe3d_tool.exe inspect ci-demo.fe3d
+          build\core-ci\bin\fe3d_tool.exe render ci-demo.fe3d --out ci-frame.ppm --width 320 --height 180
+
+      - name: Upload the rendered frame
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-frame-${{ matrix.os }}
+          path: ci-frame.ppm
+          if-no-files-found: warn
+
+  desktop-linux:
+    name: ubuntu-latest / desktop (OpenGL, optional)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GLFW and the X11 headers GLFW needs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglfw3-dev libgl1-mesa-dev xorg-dev xvfb
+
+      - name: Configure the desktop build (OpenGL renderer + windowed application)
+        run: cmake --preset desktop
+
+      - name: Build
+        run: cmake --build --preset desktop
+
+      - name: Headless windowed run on a virtual display
+        run: |
+          xvfb-run --auto-servernum ./build/desktop/bin/fe3d_desktop --headless --frames 2 \
+            --width 320 --height 180 --screenshot desktop-frame.ppm
+
+      - name: Upload the desktop frame
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-frame-linux
+          path: desktop-frame.ppm
+          if-no-files-found: warn
