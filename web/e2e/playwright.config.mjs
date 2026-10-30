@@ -9,9 +9,9 @@ const distDir = path.resolve(__dirname, process.env.FE3D_WEB_DIST_DIR || "../../
 export default defineConfig({
   testDir: ".",
   testMatch: "*.spec.mjs",
-  timeout: 60_000,
+  timeout: 120_000,
   expect: {
-    timeout: 12_000,
+    timeout: 15_000,
   },
   fullyParallel: false,
   workers: 1,

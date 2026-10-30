@@ -2229,6 +2229,16 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await setCheckedAndCommit(page.getByTestId("light-enabled"), false);
 
     await page.getByTestId("btn-add-plane").click();
+    const receiverPlaneId = await page.evaluate(() => window.__FE3D_STUDIO__.getState().inspector.id);
+    await page.evaluate((id) => {
+      window.__FE3D_STUDIO__.dispatch({
+        action: "set_transform",
+        id,
+        position: [0, 0, 0],
+        rotation_deg: [0, 0, 0],
+        scale: [6, 1, 6],
+      });
+    }, receiverPlaneId);
     await page.getByTestId("btn-mat-new").click();
     await setControlValueAndCommit(page.getByTestId("mat-base-color"), "#dcdce2");
     await setControlValueAndCommit(page.getByTestId("mat-metallic"), "0.25");
@@ -2265,7 +2275,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
       });
     }, testLightId);
 
-    await setControlValueAndCommit(page.getByTestId("light-color"), "#ff2211");
+    await setControlValueAndCommit(page.getByTestId("light-color"), "#ff0000");
     await setControlValueAndCommit(page.getByTestId("light-intensity"), "22");
     await setControlValueAndCommit(page.getByTestId("light-range"), "10");
     const [redCenter, redFar] = await sampleFinalPatches([
@@ -2273,12 +2283,12 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
       { nx: 0.18, ny: 0.5 },
     ]);
     expect(redCenter.luma).toBeGreaterThan(25.0);
-    expect(redCenter.r).toBeGreaterThan(redCenter.b * 2.5);
+    expect(redCenter.r).toBeGreaterThan(Math.max(15.0, redCenter.b * 3.0));
     expect(redCenter.luma).toBeGreaterThan(redFar.luma + 14.0); // Distance attenuation!
 
-    await setControlValueAndCommit(page.getByTestId("light-color"), "#1166ff");
+    await setControlValueAndCommit(page.getByTestId("light-color"), "#0044ff");
     const [blueCenter] = await sampleFinalPatches([{ nx: 0.5, ny: 0.5 }]);
-    expect(blueCenter.b).toBeGreaterThan(blueCenter.r * 2.5);
+    expect(blueCenter.b).toBeGreaterThan(Math.max(15.0, blueCenter.r * 3.0));
 
     // Shrink PointLight range to 1.1m (< 1.5m height above plane) -> strict range cutoff!
     await setControlValueAndCommit(page.getByTestId("light-range"), "1.1");
@@ -2737,7 +2747,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
             name: "MainCamera",
             visible: true,
             parent_id: 0,
-            transform: { position: [0, 2, 5], rotation: [0, 0, 0, 1], scale: [1, 1, 1] },
+            local_transform: { position: [0, 2, 5], rotation: [0, 0, 0, 1], scale: [1, 1, 1] },
             camera: {
               projection: "perspective",
               fov_y_radians: 0.85,
@@ -2751,7 +2761,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
             name: "LegacySun",
             visible: true,
             parent_id: 0,
-            transform: { position: [1, 3, 2], rotation: [-0.3, 0.2, 0, 0.93], scale: [1, 1, 1] },
+            local_transform: { position: [1, 3, 2], rotation: [-0.3, 0.2, 0, 0.93], scale: [1, 1, 1] },
             directional_light: { color: [1.0, 0.95, 0.88], intensity: 2.1 },
           },
         ],
@@ -2831,6 +2841,11 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await expect
       .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().inspector.position[0]))
       .toBeGreaterThan(spotXBefore + 0.15);
+
+    await page.waitForTimeout(60);
+    await page.screenshot({
+      path: path.join(outDir, "11-stage54-3d-light-helpers-and-gizmo-1920x1080.png"),
+    });
 
     // Item (20): Compare editor viewport framebuffer (with 3D helpers + gizmo + grid) vs renderFinalFrame()!
     const helperExclusionCheck = await page.evaluate(
