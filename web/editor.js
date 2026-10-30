@@ -2326,15 +2326,26 @@
       }
     });
 
-    document.addEventListener("keydown", (ev) => {
-      if (ev.key === "Escape") {
-        closeAllDropdownMenus();
-        closeViewportContextMenu();
-        if (els.settingsModal && !els.settingsModal.hidden) {
-          els.settingsModal.hidden = true;
+    window.addEventListener(
+      "keydown",
+      (ev) => {
+        if (ev.key === "Escape") {
+          const hadMenuOpen = Boolean(document.querySelector(".menu-item.is-open"));
+          const hadCtxOpen = Boolean(els.viewportContextMenu && !els.viewportContextMenu.hidden);
+          const hadModalOpen = Boolean(els.settingsModal && !els.settingsModal.hidden);
+          if (hadMenuOpen || hadCtxOpen || hadModalOpen) {
+            closeAllDropdownMenus();
+            closeViewportContextMenu();
+            if (hadModalOpen) {
+              els.settingsModal.hidden = true;
+            }
+            ev.preventDefault();
+            ev.stopImmediatePropagation();
+          }
         }
-      }
-    });
+      },
+      true
+    );
 
     function toggleRightDockVisibility() {
       const mode = document.body.dataset.layoutMode || "desktop";
