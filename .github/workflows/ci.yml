@@ -36,7 +36,7 @@ jobs:
             cxx: clang++
             build_type: Release
           - name: macOS AppleClang (Release)
-            os: macos-14
+            os: macos-15
             cc: clang
             cxx: clang++
             build_type: Release

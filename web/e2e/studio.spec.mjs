@@ -1878,7 +1878,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     // Switch to Empty Stage (MainCamera + SunLight, 0 meshes) and hide scene helpers so ONLY the procedural grid renders:
     await page.evaluate(() => {
       window.__FE3D_STUDIO__.dispatch({
-        action: "new_project",
+        action: "create_new_project",
         template: "empty_stage",
         project_name: "ProceduralGridOnly",
       });
@@ -1899,11 +1899,10 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
                 const h = c.height;
                 const buf = new Uint8Array(w * h * 4);
                 gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, buf);
-                // Top-left sky pixel (y = h - 4 in GL bottom-up coords) is pure clear background:
-                const bgOff = ((h - 4) * w + 4) * 4;
-                const bgR = buf[bgOff];
-                const bgG = buf[bgOff + 1];
-                const bgB = buf[bgOff + 2];
+                // FrameClearDesc default clear_color = (0.09, 0.11, 0.14) -> (23, 28, 36):
+                const bgR = 23;
+                const bgG = 28;
+                const bgB = 36;
                 let gridPx = 0;
                 let redAxisPx = 0;
                 let blueAxisPx = 0;

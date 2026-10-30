@@ -997,7 +997,7 @@
       renderFinalFrame: wasmApi.renderFinalFrame,
       exportInlineProject: wasmApi.exportInlineProject,
       importInlineProject: function (jsonText) {
-        return wasmApi.dispatchAction({ action: "import_inline_project", json: jsonText });
+        return wasmApi.dispatchAction({ action: "load_inline_json", json_text: jsonText });
       },
     };
 
