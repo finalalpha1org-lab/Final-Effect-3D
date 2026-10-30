@@ -1,196 +1,284 @@
-// SPDX-License-Identifier: GPL-3.0-only
-#include <string>
-#include <vector>
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Final Effect 3D Contributors
 
-#include "TestFramework.hpp"
-#include "finaleffect/platform/FileSystem.hpp"
-#include "finaleffect/platform/Paths.hpp"
-#include "finaleffect/project/ProjectFile.hpp"
-#include "finaleffect/scene/Scene.hpp"
+#include "test_harness.hpp"
+
+#include "finaleffect/math/constants.hpp"
+#include "finaleffect/platform/file_system.hpp"
+#include "finaleffect/platform/paths.hpp"
+#include "finaleffect/project/binary_asset.hpp"
+#include "finaleffect/project/json.hpp"
+#include "finaleffect/project/project.hpp"
+#include "finaleffect/scene/primitives.hpp"
+
+#include <filesystem>
 
 namespace {
-using fe::project::ProjectDocument;
 
-std::string sampleProjectJson() {
-    fe::scene::Scene scene;
-    const fe::scene::ObjectId parent = scene.createObject("Root").value();
-    (void)scene.createObject("Child", parent);
-    scene.find(parent)->mesh = "cube";
-    scene.find(parent)->localTransform.position = fe::math::Vec3(1.0F, 2.0F, 3.0F);
-    const ProjectDocument document = ProjectDocument::fromScene(scene);
-    const fe::core::Result<std::string> text = document.toJsonText();
-    return text.ok() ? text.value() : std::string();
-}
-}  // namespace
+using namespace finaleffect;
+using namespace finaleffect::project;
 
-FE3D_TEST(project, scene_round_trip_through_json) {
-    fe::scene::Scene scene;
-    const fe::scene::ObjectId ground = scene.createObject("Ground").value();
-    const fe::scene::ObjectId box = scene.createObject("Box", ground).value();
-    scene.find(ground)->mesh = "plane";
-    scene.find(ground)->color = fe::math::Vec3(0.1F, 0.2F, 0.3F);
-    scene.find(ground)->localTransform.scale = fe::math::Vec3(4.0F, 1.0F, 4.0F);
-    scene.find(box)->mesh = "cube";
-    scene.find(box)->visible = false;
-    scene.find(box)->localTransform.position = fe::math::Vec3(-1.0F, 0.5F, 2.0F);
-    scene.find(box)->localTransform.rotation = fe::math::Quat::fromEulerAngles(0.3F, -0.4F, 0.5F);
+FE_TEST(Project, JsonParserEscapesAndErrorReporting) {
+    const auto parsed = parseJson(R"({"title":"Final \"Effect\" \u0033D","ok":true,"nums":[-1, 2.5, 1e-3]})");
+    FE_REQUIRE_TRUE(parsed.hasValue());
+    FE_REQUIRE_TRUE(parsed.value().isObject());
+    FE_EXPECT_EQ(parsed.value().findKey("title")->asString(), std::string("Final \"Effect\" 3D"));
+    FE_EXPECT_EQ(parsed.value().findKey("ok")->asBool(), true);
 
-    const ProjectDocument document = ProjectDocument::fromScene(scene);
-    const fe::core::Result<std::string> text = document.toJsonText();
-    FE3D_REQUIRE(text.ok());
+    // Malformed syntax reports ParseError with line/column context.
+    const auto bad = parseJson("{\n  \"a\": [1, 2, ]\n}");
+    FE_REQUIRE_TRUE(bad.isError());
+    FE_EXPECT_EQ(bad.error().code, core::ErrorCode::ParseError);
+    FE_EXPECT_TRUE(bad.error().context.find("line 2") != std::string::npos);
 
-    const fe::core::Result<ProjectDocument> reparsed = ProjectDocument::fromJsonText(text.value());
-    FE3D_REQUIRE(reparsed.ok());
-    FE3D_CHECK_EQ(reparsed.value().formatVersion, fe::project::kProjectFormatVersion);
-    FE3D_CHECK_EQ(reparsed.value().objects.size(), std::size_t(2));
-
-    const fe::core::Result<fe::scene::Scene> rebuilt = reparsed.value().toScene();
-    FE3D_REQUIRE(rebuilt.ok());
-    FE3D_CHECK_EQ(rebuilt.value().objectCount(), std::size_t(2));
-
-    const fe::scene::SceneObject* rebuiltGround = rebuilt.value().find(ground);
-    const fe::scene::SceneObject* rebuiltBox = rebuilt.value().find(box);
-    FE3D_REQUIRE(rebuiltGround != nullptr);
-    FE3D_REQUIRE(rebuiltBox != nullptr);
-    FE3D_CHECK_EQ(rebuiltGround->name, std::string("Ground"));
-    FE3D_CHECK_EQ(rebuiltGround->mesh, std::string("plane"));
-    FE3D_CHECK(rebuiltGround->color.isApprox(fe::math::Vec3(0.1F, 0.2F, 0.3F), 1.0e-6F));
-    FE3D_CHECK(rebuiltGround->localTransform.scale.isApprox(fe::math::Vec3(4.0F, 1.0F, 4.0F), 1.0e-6F));
-    FE3D_CHECK_EQ(rebuiltBox->parent, ground);
-    FE3D_CHECK(!rebuiltBox->visible);
-    FE3D_CHECK(rebuiltBox->localTransform.isApprox(scene.find(box)->localTransform, 1.0e-5F));
-    FE3D_CHECK_EQ(rebuilt.value().find(ground)->children.size(), std::size_t(1));
-
-    // Serializing twice produces identical bytes (deterministic output).
-    const fe::core::Result<std::string> again = reparsed.value().toJsonText();
-    FE3D_REQUIRE(again.ok());
-    FE3D_CHECK_EQ(again.value(), reparsed.value().toJsonText().value());
+    // Deep nesting guard prevents stack overflow.
+    std::string nested(80, '[');
+    nested += std::string(80, ']');
+    FE_EXPECT_EQ(parseJson(nested, 32).error().code, core::ErrorCode::ParseError);
 }
 
-FE3D_TEST(project, rejects_malformed_and_unsupported_files) {
-    const auto expectCode = [](const std::string& text, fe::core::ErrorCode code, const char* label) {
-        const fe::core::Result<ProjectDocument> parsed = ProjectDocument::fromJsonText(text);
-        FE3D_CHECK_MSG(!parsed.ok(), std::string("should be rejected: ") + label);
-        if (parsed.ok()) {
-            return;
-        }
-        FE3D_CHECK_MSG(parsed.error().code() == code,
-                       std::string(label) + " -> " + parsed.error().toString());
-    };
+FE_TEST(Project, FullSceneRoundTripAndDeterministicOutput) {
+    ProjectDocument original;
+    original.metadata.project_name = "Stage 1 Showcase";
+    original.metadata.author = "Final Effect Engineering";
+    original.metadata.description = "Round-trip verification project";
+    original.scene.setName("Main Composition");
 
-    expectCode("", fe::core::ErrorCode::ParseError, "empty");
-    expectCode("{", fe::core::ErrorCode::ParseError, "truncated");
-    expectCode("[]", fe::core::ErrorCode::ValidationFailed, "array instead of object");
-    expectCode(R"({"formatVersion": 1})", fe::core::ErrorCode::ValidationFailed, "no format id");
-    expectCode(R"({"format": "blender-project", "formatVersion": 1})", fe::core::ErrorCode::ValidationFailed,
-               "foreign format");
-    expectCode(R"({"format": "finaleffect3d-project"})", fe::core::ErrorCode::ValidationFailed,
-               "missing version");
-    expectCode(R"({"format": "finaleffect3d-project", "formatVersion": 99})",
-               fe::core::ErrorCode::UnsupportedVersion, "newer format");
-    expectCode(R"({"format": "finaleffect3d-project", "formatVersion": 0})",
-               fe::core::ErrorCode::UnsupportedVersion, "too old format");
-    expectCode(R"({"format": "finaleffect3d-project", "formatVersion": 1})",
-               fe::core::ErrorCode::ValidationFailed, "no scene");
-    expectCode(R"({"format": "finaleffect3d-project", "formatVersion": 1, "scene": {}})",
-               fe::core::ErrorCode::ValidationFailed, "scene without objects");
-    expectCode(R"({"format": "finaleffect3d-project", "formatVersion": 1, "scene": {"objects": {}}})",
-               fe::core::ErrorCode::ValidationFailed, "objects not an array");
-    expectCode(R"({"format":"finaleffect3d-project","formatVersion":1,"scene":{"objects":[{"id":1}]}})",
-               fe::core::ErrorCode::ValidationFailed, "object without a name");
-    expectCode(
-        R"({"format":"finaleffect3d-project","formatVersion":1,"scene":{"objects":[{"id":1,"name":"A","parent":2}]}})",
-        fe::core::ErrorCode::ValidationFailed, "dangling parent");
-    expectCode(
-        R"({"format":"finaleffect3d-project","formatVersion":1,"scene":{"objects":[{"id":1,"name":"A"},{"id":1,"name":"B"}]}})",
-        fe::core::ErrorCode::ValidationFailed, "duplicate ids");
-    expectCode(
-        R"({"format":"finaleffect3d-project","formatVersion":1,"scene":{"objects":[{"id":1,"name":"A","parent":2},{"id":2,"name":"B","parent":1}]}})",
-        fe::core::ErrorCode::ValidationFailed, "cycle");
-    expectCode(
-        R"({"format":"finaleffect3d-project","formatVersion":1,"scene":{"objects":[{"id":1,"name":"A","transform":{"position":[0,null,0]}}]}})",
-        fe::core::ErrorCode::ValidationFailed, "non-finite transform component");
-    expectCode(
-        R"({"format":"finaleffect3d-project","formatVersion":1,"scene":{"objects":[{"id":1,"name":"A","transform":{"rotation":[0,0,1]}}]}})",
-        fe::core::ErrorCode::ValidationFailed, "rotation with three components");
+    const auto cube_mesh = original.scene.registerMesh("HeroCubeMesh", scene::Primitives::createCube(1.5f)).value();
+    const auto pivot = original.scene.createObject("Pivot").value();
+    const auto cube = original.scene.createObject("HeroCube", pivot).value();
+    const auto cam_obj = original.scene.createObject("RenderCamera").value();
+    const auto light_obj = original.scene.createObject("KeyLight").value();
+
+    math::Transform pivot_tf;
+    pivot_tf.position = {1.0f, 2.0f, -3.5f};
+    pivot_tf.rotation = math::Quat::fromAxisAngle(math::Vec3::unitY(), math::degToRad(30.0f));
+    FE_REQUIRE_TRUE(original.scene.setObjectTransform(pivot, pivot_tf).hasValue());
+
+    math::Transform cube_tf;
+    cube_tf.position = {0.0f, 0.75f, 0.0f};
+    cube_tf.scale = {1.0f, 1.25f, 1.0f};
+    FE_REQUIRE_TRUE(original.scene.setObjectTransform(cube, cube_tf).hasValue());
+    FE_REQUIRE_TRUE(original.scene.assignMesh(cube, cube_mesh).hasValue());
+
+    scene::CameraComponent cam;
+    cam.fov_y_radians = math::degToRad(55.0f);
+    cam.near_plane = 0.2f;
+    cam.far_plane = 500.0f;
+    FE_REQUIRE_TRUE(original.scene.assignCamera(cam_obj, cam).hasValue());
+    FE_REQUIRE_TRUE(original.scene.setActiveCamera(cam_obj).hasValue());
+
+    scene::DirectionalLightComponent key_light{.color = {1.0f, 0.95f, 0.9f}, .intensity = 1.4f};
+    FE_REQUIRE_TRUE(original.scene.assignDirectionalLight(light_obj, key_light).hasValue());
+
+    // Save to disk and reload via LocalFileSystem.
+    platform::LocalFileSystem fs;
+    const auto temp_dir = platform::queryAppPaths("finaleffect3d_projtest").value().temp_directory;
+    const auto file_path = temp_dir / "showcase.fe3d";
+    std::error_code ec;
+    std::filesystem::remove_all(temp_dir, ec);
+
+    FE_REQUIRE_TRUE(ProjectSerializer::saveToFile(original, file_path, fs).hasValue());
+    const auto loaded_res = ProjectSerializer::loadFromFile(file_path, fs);
+    FE_REQUIRE_TRUE(loaded_res.hasValue());
+    const auto& loaded = loaded_res.value();
+
+    FE_EXPECT_EQ(loaded.metadata.project_name, original.metadata.project_name);
+    FE_EXPECT_EQ(loaded.metadata.author, original.metadata.author);
+    FE_EXPECT_EQ(loaded.scene.name(), std::string("Main Composition"));
+    FE_EXPECT_EQ(loaded.scene.objectCount(), original.scene.objectCount());
+    FE_EXPECT_EQ(loaded.scene.meshCount(), original.scene.meshCount());
+    FE_EXPECT_EQ(loaded.scene.activeCamera(), cam_obj);
+
+    const auto orig_world = original.scene.computeWorldMatrix(cube).value();
+    const auto load_world = loaded.scene.computeWorldMatrix(cube).value();
+    FE_EXPECT_TRUE(orig_world.approxEqual(load_world, 1e-4f));
+
+    // Re-serializing produces identical JSON text.
+    const auto text_a = ProjectSerializer::serializeToString(original).value();
+    const auto text_b = ProjectSerializer::serializeToString(loaded).value();
+    FE_EXPECT_EQ(text_a, text_b);
+
+    std::filesystem::remove_all(temp_dir, ec);
 }
 
-FE3D_TEST(project, tolerates_unknown_keys_and_optional_sections) {
-    const std::string text = R"({
-        "format": "finaleffect3d-project",
-        "formatVersion": 1,
-        "revision": 7,
-        "futureKey": {"anything": [1, 2, 3]},
-        "application": {"name": "Final Effect 3D", "id": "finaleffect3d", "version": "0.9.9"},
-        "settings": {"author": "Test", "units": "meters", "rendererHint": "cpu", "unknownSetting": true},
-        "scene": {"objects": [{"id": 4, "name": "Solo", "mesh": "sphere", "unknownObjectKey": 12}]}
+FE_TEST(Project, RejectsUnsupportedVersionsAndTamperedData) {
+    // 1. Unsupported major schema version.
+    const char* future_major = R"({
+        "format": "finaleffect.project",
+        "schema_version": { "major": 99, "minor": 0 },
+        "coordinate_system": "right-handed-y-up",
+        "scene": { "name": "Future", "objects": [] }
     })";
-    const fe::core::Result<ProjectDocument> parsed = ProjectDocument::fromJsonText(text);
-    FE3D_REQUIRE(parsed.ok());
-    FE3D_CHECK_EQ(parsed.value().revision, std::uint64_t(7));
-    FE3D_CHECK_EQ(parsed.value().applicationVersion, std::string("0.9.9"));
-    FE3D_CHECK_EQ(parsed.value().settings.author, std::string("Test"));
-    FE3D_CHECK_EQ(parsed.value().settings.rendererHint, std::string("cpu"));
-    FE3D_REQUIRE(parsed.value().objects.size() == 1);
-    FE3D_CHECK_EQ(parsed.value().objects[0].mesh, std::string("sphere"));
-    FE3D_CHECK(parsed.value().objects[0].visible);
+    FE_EXPECT_EQ(
+        ProjectSerializer::deserializeFromString(future_major).error().code,
+        core::ErrorCode::UnsupportedVersion);
+
+    // 2. Unsupported minor schema version (newer minor than reader supports).
+    const char* future_minor = R"({
+        "format": "finaleffect.project",
+        "schema_version": { "major": 1, "minor": 5 },
+        "coordinate_system": "right-handed-y-up",
+        "scene": { "name": "FutureMinor", "objects": [] }
+    })";
+    FE_EXPECT_EQ(
+        ProjectSerializer::deserializeFromString(future_minor).error().code,
+        core::ErrorCode::UnsupportedVersion);
+
+    // 3. Wrong format identifier.
+    const char* wrong_magic = R"({
+        "format": "other.app.project",
+        "schema_version": { "major": 1, "minor": 0 },
+        "coordinate_system": "right-handed-y-up",
+        "scene": { "name": "Wrong", "objects": [] }
+    })";
+    FE_EXPECT_EQ(
+        ProjectSerializer::deserializeFromString(wrong_magic).error().code,
+        core::ErrorCode::ValidationError);
+
+    // 4. Hierarchy cycle inside serialized objects (1 -> 2 -> 1).
+    const char* cycle_project = R"({
+        "format": "finaleffect.project",
+        "schema_version": { "major": 1, "minor": 0 },
+        "coordinate_system": "right-handed-y-up",
+        "scene": {
+            "name": "Cyclic",
+            "objects": [
+                {
+                    "id": 1,
+                    "name": "NodeA",
+                    "parent_id": 2,
+                    "local_transform": { "position": [0,0,0], "rotation": [0,0,0,1], "scale": [1,1,1] }
+                },
+                {
+                    "id": 2,
+                    "name": "NodeB",
+                    "parent_id": 1,
+                    "local_transform": { "position": [0,0,0], "rotation": [0,0,0,1], "scale": [1,1,1] }
+                }
+            ]
+        }
+    })";
+    FE_EXPECT_EQ(
+        ProjectSerializer::deserializeFromString(cycle_project).error().code,
+        core::ErrorCode::HierarchyCycle);
+
+    // 5. Dangling mesh reference on object.
+    const char* dangling_mesh = R"({
+        "format": "finaleffect.project",
+        "schema_version": { "major": 1, "minor": 0 },
+        "coordinate_system": "right-handed-y-up",
+        "scene": {
+            "name": "DanglingMesh",
+            "objects": [
+                {
+                    "id": 1,
+                    "name": "OrphanMeshObj",
+                    "parent_id": 0,
+                    "mesh_id": 404,
+                    "local_transform": { "position": [0,0,0], "rotation": [0,0,0,1], "scale": [1,1,1] }
+                }
+            ]
+        }
+    })";
+    FE_EXPECT_EQ(
+        ProjectSerializer::deserializeFromString(dangling_mesh).error().code,
+        core::ErrorCode::ValidationError);
 }
 
-FE3D_TEST(project, saving_rejects_invalid_documents) {
-    ProjectDocument document;
-    fe::scene::SceneObject object;
-    object.id = fe::scene::ObjectId{1};
-    object.name = "Broken";
-    object.color = fe::math::Vec3(0.0F, std::nanf(""), 0.0F);
-    document.objects.push_back(object);
-    FE3D_CHECK(!document.toJsonText().ok());
+FE_TEST(Project, BinaryAssetBundleDeduplicationCrcAndPathTraversalProtection) {
+    // 1. Content-addressed deduplication in BinaryAssetBuilder + CRC-32 tampering detection.
+    BinaryAssetBuilder builder;
+    const auto cube_a = scene::Primitives::createCube(1.0f);
+    const auto cube_b = scene::Primitives::createCube(1.0f); // identical geometry
+    const auto plane = scene::Primitives::createCheckerPlane(2.0f, 2);
 
-    ProjectDocument nameless;
-    fe::scene::SceneObject unnamed;
-    unnamed.id = fe::scene::ObjectId{2};
-    unnamed.name = "";
-    nameless.objects.push_back(unnamed);
-    FE3D_CHECK(!nameless.toJsonText().ok());
+    const auto hash_a = builder.addMesh(cube_a).value();
+    const auto hash_b = builder.addMesh(cube_b).value();
+    const auto hash_plane = builder.addMesh(plane).value();
 
-    ProjectDocument noId;
-    fe::scene::SceneObject unset;
-    unset.name = "Unset";
-    noId.objects.push_back(unset);
-    FE3D_CHECK(!noId.toJsonText().ok());
+    FE_EXPECT_EQ(hash_a, hash_b);
+    FE_EXPECT_TRUE(hash_a != hash_plane);
+    FE_EXPECT_EQ(builder.uniqueChunkCount(), std::size_t{2}); // deduplicated!
+
+    auto bytes = builder.encode();
+    const auto decoded = BinaryAssetArchive::decode(bytes);
+    FE_REQUIRE_TRUE(decoded.hasValue());
+    FE_EXPECT_EQ(decoded.value().chunkCount(), std::size_t{2});
+    FE_EXPECT_EQ(decoded.value().extractMesh(hash_a).value().vertices.size(), cube_a.vertices.size());
+
+    // Flipping a single payload bit triggers CRC-32 validation failure.
+    auto tampered = bytes;
+    tampered[40] ^= 0x01u;
+    FE_EXPECT_EQ(BinaryAssetArchive::decode(tampered).error().code, core::ErrorCode::ValidationError);
+
+    // 2. Full .fe3d + .fe3dbin bundle round-trip + smaller JSON metadata file.
+    ProjectDocument doc;
+    doc.metadata.project_name = "Binary Bundle Scene";
+    doc.scene.setName("Bundled");
+
+    const auto m1 = doc.scene.registerMesh("CubePrimary", cube_a).value();
+    const auto m2 = doc.scene.registerMesh("CubeDuplicateAsset", cube_b).value();
+    const auto o1 = doc.scene.createObject("Obj1").value();
+    const auto o2 = doc.scene.createObject("Obj2").value();
+    FE_REQUIRE_TRUE(doc.scene.assignMesh(o1, m1).hasValue());
+    FE_REQUIRE_TRUE(doc.scene.assignMesh(o2, m2).hasValue());
+
+    platform::LocalFileSystem fs;
+    const auto temp_dir = platform::queryAppPaths("finaleffect3d_bintest").value().temp_directory;
+    std::error_code ec;
+    std::filesystem::remove_all(temp_dir, ec);
+
+    const auto inline_path = temp_dir / "inline.fe3d";
+    const auto bundle_path = temp_dir / "bundle.fe3d";
+    const auto bin_path = temp_dir / "bundle.fe3dbin";
+
+    FE_REQUIRE_TRUE(ProjectSerializer::saveToFile(doc, inline_path, fs).hasValue());
+    FE_REQUIRE_TRUE(ProjectSerializer::saveBundleToFile(doc, bundle_path, fs).hasValue());
+    FE_EXPECT_TRUE(fs.exists(bin_path));
+
+    // Bundle .fe3d JSON text is dramatically smaller than inline JSON vertex arrays.
+    const auto inline_text = fs.readTextFile(inline_path).value();
+    const auto bundle_text = fs.readTextFile(bundle_path).value();
+    FE_EXPECT_TRUE(bundle_text.size() * 3 < inline_text.size());
+
+    const auto loaded_bundle = ProjectSerializer::loadFromFile(bundle_path, fs);
+    FE_REQUIRE_TRUE(loaded_bundle.hasValue());
+    FE_EXPECT_EQ(loaded_bundle.value().scene.meshCount(), std::size_t{2});
+    FE_EXPECT_EQ(loaded_bundle.value().scene.findMesh(m1)->data.indices.size(), cube_a.indices.size());
+    FE_EXPECT_EQ(loaded_bundle.value().scene.findMesh(m2)->data.vertices.size(), cube_b.vertices.size());
+
+    // 3. Path-traversal binary_chunk URI must be rejected.
+    const auto traversal_path = temp_dir / "traversal.fe3d";
+    const char* malicious_json = R"({
+        "format": "finaleffect.project",
+        "schema_version": { "major": 1, "minor": 1 },
+        "coordinate_system": "right-handed-y-up",
+        "scene": {
+            "name": "Malicious",
+            "meshes": [
+                {
+                    "id": 1,
+                    "name": "EvilMesh",
+                    "binary_chunk": {
+                        "uri": "../outside.fe3dbin",
+                        "content_hash": "0123456789abcdef"
+                    }
+                }
+            ],
+            "objects": []
+        }
+    })";
+    FE_REQUIRE_TRUE(fs.writeTextFile(traversal_path, malicious_json).hasValue());
+    FE_EXPECT_EQ(
+        ProjectSerializer::loadFromFile(traversal_path, fs).error().code,
+        core::ErrorCode::ValidationError);
+
+    std::filesystem::remove_all(temp_dir, ec);
 }
 
-FE3D_TEST(project, file_round_trip_and_error_reporting) {
-    fe::platform::StdFileSystem fileSystem;
-    const std::string directory = "fe3d-test-project";
-    FE3D_REQUIRE(fileSystem.createDirectories(directory).ok());
-    const std::string path = fe::platform::joinPath(directory, "sample.fe3d");
+} // namespace
 
-    const std::string text = sampleProjectJson();
-    FE3D_REQUIRE(!text.empty());
-    const fe::core::Result<ProjectDocument> document = ProjectDocument::fromJsonText(text);
-    FE3D_REQUIRE(document.ok());
-
-    FE3D_REQUIRE(fe::project::saveProjectFile(fileSystem, path, document.value()).ok());
-    FE3D_CHECK(fileSystem.exists(path));
-    FE3D_CHECK(!fileSystem.exists(path + ".tmp"));
-
-    const fe::core::Result<ProjectDocument> loaded = fe::project::loadProjectFile(fileSystem, path);
-    FE3D_REQUIRE(loaded.ok());
-    FE3D_CHECK_EQ(loaded.value().objects.size(), std::size_t(2));
-
-    const fe::core::Result<ProjectDocument> missing =
-        fe::project::loadProjectFile(fileSystem, fe::platform::joinPath(directory, "does-not-exist.fe3d"));
-    FE3D_CHECK(!missing.ok());
-    FE3D_CHECK(missing.error().code() == fe::core::ErrorCode::IoFailure);
-
-    const std::string brokenPath = fe::platform::joinPath(directory, "broken.fe3d");
-    FE3D_REQUIRE(fileSystem.writeTextFile(brokenPath, "{ this is not json }").ok());
-    const fe::core::Result<ProjectDocument> broken = fe::project::loadProjectFile(fileSystem, brokenPath);
-    FE3D_CHECK(!broken.ok());
-    FE3D_CHECK(broken.error().code() == fe::core::ErrorCode::ParseError);
-    FE3D_CHECK(broken.error().message().find("broken.fe3d") != std::string::npos);
-
-    FE3D_CHECK(fileSystem.removeFile(path).ok());
-    FE3D_CHECK(fileSystem.removeFile(brokenPath).ok());
-    FE3D_REQUIRE(fileSystem.createDirectories(directory).ok());
+int main(int argc, char** argv) {
+    return finaleffect::testing::runAllTests(argc, argv);
 }

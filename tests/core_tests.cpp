@@ -1,170 +1,146 @@
-// SPDX-License-Identifier: GPL-3.0-only
-#include <cmath>
-#include <limits>
-#include <string>
-#include <vector>
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Final Effect 3D Contributors
 
-#include "TestFramework.hpp"
-#include "finaleffect/core/Error.hpp"
-#include "finaleffect/core/Json.hpp"
-#include "finaleffect/core/Log.hpp"
-#include "finaleffect/core/Version.hpp"
+#include "test_harness.hpp"
+
+#include "finaleffect/core/application.hpp"
+#include "finaleffect/core/engine.hpp"
+#include "finaleffect/core/logger.hpp"
+#include "finaleffect/core/result.hpp"
+#include "finaleffect/core/version.hpp"
+#include "finaleffect/platform/clock.hpp"
+
+#include <memory>
 
 namespace {
-using fe::core::JsonValue;
-using fe::core::LogLevel;
-using fe::core::MemoryLogSink;
-using fe::core::Logger;
-}  // namespace
 
-FE3D_TEST(core, version_string_is_semantic) {
-    const std::string version(fe::core::versionString());
-    FE3D_CHECK(!version.empty());
-    FE3D_CHECK_EQ(version.find('.'), std::size_t(1));
-    FE3D_CHECK(fe::core::buildInfo().find("Final Effect 3D") != std::string_view::npos);
-}
+using namespace finaleffect::core;
+using namespace finaleffect::platform;
 
-FE3D_TEST(core, result_success_and_failure) {
-    const fe::core::Result<int> good = fe::core::Result<int>::success(41);
-    FE3D_CHECK(good.ok());
-    FE3D_CHECK_EQ(good.value(), 41);
-    FE3D_CHECK_EQ(good.valueOr(7), 41);
+class ProbeApplication final : public IApplication {
+public:
+    bool fail_init{false};
+    bool fail_on_second_frame{false};
+    int init_calls{0};
+    int update_calls{0};
+    int shutdown_calls{0};
+    double accumulated_delta{0.0};
 
-    const fe::core::Result<int> bad = fe::core::Result<int>::failure(
-        fe::core::makeError(fe::core::ErrorCode::NotFound, "missing", "test"));
-    FE3D_CHECK(!bad.ok());
-    FE3D_CHECK(bad.error().code() == fe::core::ErrorCode::NotFound);
-    FE3D_CHECK_EQ(bad.valueOr(7), 7);
-    FE3D_CHECK_EQ(bad.error().toString(), std::string("NotFound: missing (test)"));
-
-    const fe::core::Status ok = fe::core::successStatus();
-    FE3D_CHECK(ok.ok());
-    FE3D_CHECK(fe::core::isFailure(fe::core::ErrorCode::IoFailure));
-    FE3D_CHECK(!fe::core::isFailure(fe::core::ErrorCode::Ok));
-}
-
-FE3D_TEST(core, json_round_trip_preserves_values) {
-    JsonValue root = JsonValue::object();
-    root.set("name", JsonValue(std::string("scene")));
-    root.set("version", JsonValue(3.0));
-    root.set("visible", JsonValue(true));
-    root.set("nothing", JsonValue());
-
-    JsonValue array = JsonValue::array();
-    array.append(JsonValue(1.0));
-    array.append(JsonValue(2.5));
-    root.set("values", std::move(array));
-
-    const std::string text = root.dump(2);
-    const fe::core::JsonParseResult parsed = JsonValue::parse(text);
-    FE3D_REQUIRE(parsed.ok);
-    FE3D_CHECK(parsed.value.isObject());
-    FE3D_CHECK_EQ(parsed.value.stringOr("name"), std::string("scene"));
-    FE3D_CHECK_NEAR(parsed.value.numberOr("version"), 3.0, 0.0);
-    FE3D_CHECK(parsed.value.booleanOr("visible", false));
-    FE3D_CHECK(parsed.value.find("nothing")->isNull());
-    FE3D_CHECK_EQ(parsed.value.find("values")->items().size(), std::size_t(2));
-    FE3D_CHECK_NEAR(parsed.value.find("values")->items()[1].asNumber(), 2.5, 0.0);
-
-    // Member order is preserved, so files are byte-for-byte stable.
-    FE3D_CHECK_EQ(text.find("\"name\""), std::size_t(4));  // "{\n" + two spaces of indentation
-    const std::string compact = root.dump(0);
-    FE3D_CHECK(compact.find('\n') == std::string::npos);
-}
-
-FE3D_TEST(core, json_handles_escapes_and_unicode) {
-    const std::string source = R"({"text":"line\nquote\"tab\t\\slash \u00e9\u0041"})";
-    const fe::core::JsonParseResult parsed = JsonValue::parse(source);
-    FE3D_REQUIRE(parsed.ok);
-    const std::string text = parsed.value.stringOr("text");
-    FE3D_CHECK_EQ(text, std::string("line\nquote\"tab\t\\slash \xc3\xa9" "A"));
-
-    // Re-serializing and re-parsing must be lossless.
-    const fe::core::JsonParseResult second = JsonValue::parse(parsed.value.dump(0));
-    FE3D_REQUIRE(second.ok);
-    FE3D_CHECK_EQ(second.value.stringOr("text"), text);
-}
-
-FE3D_TEST(core, json_rejects_malformed_input) {
-    const std::vector<std::string> malformed = {
-        "",
-        "{",
-        R"({"a": })",
-        R"({"a" 1})",
-        R"({"a": 01})",
-        R"({"a": 1} trailing)",
-        R"([1,2,])",
-        R"({"a": 'single'})",
-        R"({"a": "unterminated})",
-    };
-    for (const std::string& text : malformed) {
-        const fe::core::JsonParseResult parsed = JsonValue::parse(text);
-        FE3D_CHECK_MSG(!parsed.ok, "should reject: " + text);
-        FE3D_CHECK_MSG(!parsed.error.empty(), "error message missing for: " + text);
-        FE3D_CHECK_MSG(parsed.line >= 1 && parsed.column >= 1, "position missing for: " + text);
+    Status onInitialize(Engine&) override {
+        ++init_calls;
+        if (fail_init) {
+            return Status::fail(ErrorCode::InvalidState, "Simulated app init failure");
+        }
+        return Status::ok();
     }
-}
 
-FE3D_TEST(core, json_enforces_depth_limit) {
-    std::string deep;
-    for (int i = 0; i < 200; ++i) {
-        deep.push_back('[');
+    Status onUpdate(Engine&, const FrameTimings& timings) override {
+        ++update_calls;
+        accumulated_delta += timings.delta_seconds;
+        if (fail_on_second_frame && timings.frame_index == 1) {
+            return Status::fail(ErrorCode::InvalidState, "Simulated frame update failure");
+        }
+        return Status::ok();
     }
-    for (int i = 0; i < 200; ++i) {
-        deep.push_back(']');
+
+    void onShutdown(Engine&) noexcept override {
+        ++shutdown_calls;
     }
-    const fe::core::JsonParseResult parsed = JsonValue::parse(deep);
-    FE3D_CHECK(!parsed.ok);
-    FE3D_CHECK(parsed.error.find("depth") != std::string::npos);
+};
+
+FE_TEST(Core, VersionAndResult) {
+    FE_EXPECT_EQ(kEngineVersion.toString(), std::string("0.3.0"));
+    FE_EXPECT_TRUE((Version{0, 3, 0} > Version{0, 2, 0}));
+
+    auto ok_res = Result<int>::ok(42);
+    FE_REQUIRE_TRUE(ok_res.hasValue());
+    FE_EXPECT_EQ(ok_res.value(), 42);
+
+    auto err_res = Result<int>::fail(ErrorCode::ValidationError, "bad value", "field_x");
+    FE_REQUIRE_TRUE(err_res.isError());
+    FE_EXPECT_EQ(err_res.error().code, ErrorCode::ValidationError);
+    FE_EXPECT_EQ(err_res.valueOr(7), 7);
+    FE_EXPECT_TRUE(err_res.error().format().find("ValidationError") != std::string::npos);
 }
 
-FE3D_TEST(core, json_writes_non_finite_numbers_as_null) {
-    JsonValue root = JsonValue::object();
-    root.set("nan", JsonValue(std::nan("")));
-    root.set("inf", JsonValue(std::numeric_limits<double>::infinity()));
-    const std::string text = root.dump(0);
-    FE3D_CHECK_EQ(text, std::string(R"({"nan":null,"inf":null})"));
-}
-
-FE3D_TEST(core, logger_filters_by_level_and_captures_records) {
-    Logger logger(LogLevel::Info, "test");
+FE_TEST(Core, LoggerFilteringAndIsolation) {
+    Logger logger(LogLevel::Warning);
     auto sink = std::make_shared<MemoryLogSink>();
     logger.addSink(sink);
 
-    logger.log(LogLevel::Debug, "cat", "hidden");
-    logger.log(LogLevel::Info, "cat", "visible");
-    logger.log(LogLevel::Error, "cat", "problem");
+    logger.debug("Test", "filtered out", 0.1);
+    logger.info("Test", "also filtered", 0.2);
+    logger.warning("Test", "kept warning", 0.3);
+    logger.error("Test", "kept error", 0.4);
 
-    FE3D_CHECK_EQ(sink->size(), std::size_t(2));
-    FE3D_CHECK(sink->contains(LogLevel::Info, "visible"));
-    FE3D_CHECK(sink->contains(LogLevel::Error, "problem"));
-    FE3D_CHECK(!sink->contains(LogLevel::Debug, "hidden"));
-    FE3D_CHECK_EQ(sink->at(1).category, std::string("cat"));
-    FE3D_CHECK(sink->at(0).timeSeconds >= 0.0);
-
-    logger.setMinimumLevel(LogLevel::Off);
-    logger.log(LogLevel::Critical, "cat", "also hidden");
-    FE3D_CHECK_EQ(sink->size(), std::size_t(2));
-
-    FE3D_CHECK(logger.shouldLog(LogLevel::Error) == false);
-    logger.setMinimumLevel(LogLevel::Warning);
-    FE3D_CHECK(logger.shouldLog(LogLevel::Error));
-    FE3D_CHECK(!logger.shouldLog(LogLevel::Info));
+    const auto entries = sink->entries();
+    FE_REQUIRE_TRUE(entries.size() == 2);
+    FE_EXPECT_EQ(entries[0].level, LogLevel::Warning);
+    FE_EXPECT_EQ(entries[0].message, std::string("kept warning"));
+    FE_EXPECT_EQ(entries[1].level, LogLevel::Error);
 }
 
-FE3D_TEST(core, log_stream_writes_a_single_record) {
-    Logger logger(LogLevel::Trace, "test");
-    auto sink = std::make_shared<MemoryLogSink>();
-    logger.addSink(sink);
+FE_TEST(Core, EngineLifecycleAndDeterministicTiming) {
+    auto clock = std::make_unique<ManualClock>(10.0);
+    auto* clock_ptr = clock.get();
 
-    fe::core::LogStream(logger, LogLevel::Warning, "scene") << "objects=" << 4 << " ready=" << true;
-    FE3D_REQUIRE(sink->size() == 1);
-    FE3D_CHECK_EQ(sink->at(0).message, std::string("objects=4 ready=1"));
-    FE3D_CHECK_EQ(std::string(fe::core::toString(LogLevel::Warning)), std::string("WARN"));
+    EngineConfig cfg;
+    cfg.application_name = "TestHost";
+    cfg.attach_console_log_sink = false;
+    cfg.max_frame_delta_seconds = 0.1;
 
-    LogLevel parsed = LogLevel::Off;
-    FE3D_CHECK(fe::core::tryParseLogLevel("dEbUg", parsed));
-    FE3D_CHECK(parsed == LogLevel::Debug);
-    FE3D_CHECK(!fe::core::tryParseLogLevel("loud", parsed));
-    FE3D_CHECK(parsed == LogLevel::Debug);
+    Engine engine(cfg, nullptr, std::move(clock));
+    auto log_sink = std::make_shared<MemoryLogSink>();
+    engine.logger().addSink(log_sink);
+
+    // Calling stepFrame before initialize must fail cleanly.
+    FE_EXPECT_TRUE(engine.stepFrame().isError());
+    FE_EXPECT_EQ(engine.state(), EngineState::Uninitialized);
+
+    ProbeApplication app;
+    FE_REQUIRE_TRUE(engine.initialize(&app).hasValue());
+    FE_EXPECT_EQ(engine.state(), EngineState::Initialized);
+    FE_EXPECT_EQ(app.init_calls, 1);
+
+    // Double initialize must be rejected.
+    FE_EXPECT_EQ(engine.initialize(&app).error().code, ErrorCode::InvalidState);
+
+    clock_ptr->advance(0.016);
+    FE_REQUIRE_TRUE(engine.stepFrame().hasValue());
+
+    // Spike beyond max_frame_delta_seconds (0.1) must be clamped.
+    clock_ptr->advance(2.5);
+    FE_REQUIRE_TRUE(engine.stepFrame().hasValue());
+
+    FE_EXPECT_EQ(engine.frameCount(), static_cast<std::uint64_t>(2));
+    FE_EXPECT_EQ(app.update_calls, 2);
+    FE_EXPECT_NEAR(app.accumulated_delta, 0.116, 1e-6);
+
+    engine.shutdown();
+    FE_EXPECT_EQ(engine.state(), EngineState::Terminated);
+    FE_EXPECT_EQ(app.shutdown_calls, 1);
+
+    // Stepping after shutdown must fail cleanly.
+    FE_EXPECT_EQ(engine.stepFrame().error().code, ErrorCode::InvalidState);
+}
+
+FE_TEST(Core, EnginePropagatesAppInitFailure) {
+    EngineConfig cfg;
+    cfg.attach_console_log_sink = false;
+    Engine engine(cfg);
+
+    ProbeApplication failing_app;
+    failing_app.fail_init = true;
+
+    const auto status = engine.initialize(&failing_app);
+    FE_REQUIRE_TRUE(status.isError());
+    FE_EXPECT_EQ(status.error().code, ErrorCode::InvalidState);
+    FE_EXPECT_EQ(engine.state(), EngineState::Terminated);
+    FE_EXPECT_EQ(failing_app.shutdown_calls, 0);
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    return finaleffect::testing::runAllTests(argc, argv);
 }
