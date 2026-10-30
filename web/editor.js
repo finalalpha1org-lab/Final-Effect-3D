@@ -462,14 +462,8 @@
     requestAnimationFrame(updateWorkspaceTabsOverflowUi);
   }
 
-  let resizeRafPending = false;
   window.addEventListener("resize", () => {
-    if (resizeRafPending) return;
-    resizeRafPending = true;
-    requestAnimationFrame(() => {
-      resizeRafPending = false;
-      applyPreferencesAndResponsiveMode();
-    });
+    applyPreferencesAndResponsiveMode();
   });
   window.addEventListener("orientationchange", () => {
     setTimeout(applyPreferencesAndResponsiveMode, 50);
@@ -888,9 +882,14 @@
         return M.ccall("fe3d_get_state_json", "string", [], []);
       },
       dispatchAction: function (payloadObj) {
-        const ok = M.ccall("fe3d_dispatch_action", "number", ["string"], [JSON.stringify(payloadObj)]);
-        syncFromEngine(true);
-        return ok === 1;
+        const ptr = M.stringToNewUTF8(JSON.stringify(payloadObj));
+        try {
+          const ok = M._fe3d_dispatch_action(ptr);
+          syncFromEngine(true);
+          return ok === 1;
+        } finally {
+          M._free(ptr);
+        }
       },
       exportInlineProject: function () {
         return M.ccall("fe3d_export_inline_project", "string", [], []);
