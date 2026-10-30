@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Final Effect 3D — Studio</title>
+  <link rel="stylesheet" href="editor.css" />
+</head>
+<body>
+  <div class="studio-shell" data-testid="studio-shell">
+    <!-- Top Studio Command & Authoring Bar -->
+    <header class="studio-topbar">
+      <div class="brand-cluster">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div class="brand-titles">
+          <span class="brand-name">Final Effect 3D</span>
+          <span class="brand-badge" id="engine-version-badge" data-testid="engine-badge">v0.3.0 · WebGL 2.0</span>
+        </div>
+      </div>
+
+      <div class="toolbar-group" role="toolbar" aria-label="Project file actions">
+        <button type="button" class="tb-btn" id="btn-new-project" data-testid="btn-new-project" title="Reset to starter 3D showcase project">New</button>
+        <button type="button" class="tb-btn" id="btn-open-project" data-testid="btn-open-project" title="Open .fe3d inline project or .fe3d + .fe3dbin bundle">Open…</button>
+        <input type="file" id="file-open-input" data-testid="file-open-input" accept=".fe3d,.fe3dbin,.json" multiple hidden />
+        <button type="button" class="tb-btn" id="btn-export-fe3d" data-testid="btn-export-fe3d" title="Download portable .fe3d (inline JSON)">Save .fe3d</button>
+        <button type="button" class="tb-btn" id="btn-export-bundle" data-testid="btn-export-bundle" title="Download .fe3d + .fe3dbin binary mesh archive">Export Bundle</button>
+      </div>
+
+      <div class="toolbar-divider"></div>
+
+      <div class="toolbar-group" role="toolbar" aria-label="Undo and redo history">
+        <button type="button" class="tb-btn" id="btn-undo" data-testid="btn-undo" disabled title="Undo (Ctrl+Z)">Undo</button>
+        <button type="button" class="tb-btn" id="btn-redo" data-testid="btn-redo" disabled title="Redo (Ctrl+Y)">Redo</button>
+      </div>
+
+      <div class="toolbar-divider"></div>
+
+      <div class="toolbar-group" role="toolbar" aria-label="Create 3D objects">
+        <span class="toolbar-label">Add</span>
+        <button type="button" class="tb-btn" data-preset="cube" data-testid="btn-add-cube" title="Add Cube mesh">+ Cube</button>
+        <button type="button" class="tb-btn" data-preset="pyramid" data-testid="btn-add-pyramid" title="Add Pyramid mesh">+ Pyramid</button>
+        <button type="button" class="tb-btn" data-preset="plane" data-testid="btn-add-plane" title="Add Checker Plane">+ Plane</button>
+        <button type="button" class="tb-btn" data-preset="pivot" data-testid="btn-add-pivot" title="Add Empty Hierarchy Pivot">+ Pivot</button>
+        <button type="button" class="tb-btn" data-preset="light" data-testid="btn-add-light" title="Add Directional Light">+ Light</button>
+        <button type="button" class="tb-btn" data-preset="camera" data-testid="btn-add-camera" title="Add Camera">+ Camera</button>
+      </div>
+
+      <div class="toolbar-divider"></div>
+
+      <div class="toolbar-group" role="toolbar" aria-label="Object and viewport tools">
+        <button type="button" class="tb-btn" id="btn-duplicate" data-testid="btn-duplicate" disabled title="Duplicate selected object">Duplicate</button>
+        <button type="button" class="tb-btn tb-btn-danger" id="btn-delete" data-testid="btn-delete" disabled title="Delete selected object (Del)">Delete</button>
+        <button type="button" class="tb-btn" id="btn-frame" data-testid="btn-frame" title="Frame selected object or whole scene (F)">Frame</button>
+        <button type="button" class="tb-btn tb-btn-accent" id="btn-toggle-rig" data-testid="btn-toggle-rig" title="Play or pause showcase rig animation (Space)">Pause Rig</button>
+      </div>
+    </header>
+
+    <!-- Main 3-Column Studio Workspace -->
+    <div class="studio-workspace">
+      <!-- Left Dock: Scene Outliner + Project Metadata -->
+      <aside class="studio-dock dock-left" aria-label="Scene Outliner and Project">
+        <section class="dock-section dock-section-grow">
+          <div class="section-header">
+            <h2>Scene Outliner</h2>
+            <button type="button" class="ghost-btn" id="btn-clear-selection" data-testid="btn-clear-selection" title="Deselect active object">Deselect</button>
+          </div>
+          <div class="outliner-list" id="outliner-list" data-testid="outliner-list" role="tree" aria-label="Scene hierarchy"></div>
+        </section>
+
+        <section class="dock-section">
+          <div class="section-header">
+            <h2>Project &amp; Scene</h2>
+          </div>
+          <div class="form-stack">
+            <label class="field-row">
+              <span>Project</span>
+              <input type="text" id="meta-project-name" data-testid="meta-project-name" autocomplete="off" />
+            </label>
+            <label class="field-row">
+              <span>Author</span>
+              <input type="text" id="meta-author" data-testid="meta-author" autocomplete="off" />
+            </label>
+            <label class="field-row">
+              <span>Scene</span>
+              <input type="text" id="meta-scene-name" data-testid="meta-scene-name" autocomplete="off" />
+            </label>
+          </div>
+        </section>
+      </aside>
+
+      <!-- Center Stage: Live WebGL 2.0 3D Viewport -->
+      <main class="viewport-stage" id="viewport-stage" data-testid="viewport-stage">
+        <canvas id="fe3d-canvas" data-testid="fe3d-canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
+
+        <div class="viewport-overlay-top">
+          <span class="vp-pill" id="vp-camera-pill" data-testid="vp-camera-pill">Camera: MainCamera</span>
+          <span class="vp-pill" id="vp-selection-pill" data-testid="vp-selection-pill">No Selection</span>
+        </div>
+
+        <div class="viewport-overlay-bottom">
+          <span><b>LMB</b> Pick &middot; <b>RMB / Alt+LMB</b> Orbit &middot; <b>MMB / Shift+LMB</b> Pan &middot; <b>Wheel</b> Zoom &middot; <b>F</b> Frame &middot; <b>Del</b> Delete</span>
+        </div>
+
+        <div class="viewport-banner" id="viewport-banner" data-testid="viewport-banner">
+          Initializing WebAssembly Engine &amp; WebGL 2.0 Pipeline…
+        </div>
+      </main>
+
+      <!-- Right Dock: Property Inspector + Telemetry -->
+      <aside class="studio-dock dock-right" aria-label="Property Inspector and Telemetry">
+        <section class="dock-section dock-section-grow">
+          <div class="section-header">
+            <h2>Inspector</h2>
+            <span class="muted-tag" id="inspector-id-badge">None</span>
+          </div>
+
+          <!-- Empty Selection State -->
+          <div class="inspector-empty" id="inspector-empty" data-testid="inspector-empty">
+            <p>Click an object in the <b>3D Viewport</b> or <b>Scene Outliner</b> to inspect and edit its transform, hierarchy, and components.</p>
+          </div>
+
+          <!-- Active Object Inspector -->
+          <div class="inspector-body" id="inspector-body" data-testid="inspector-body" hidden>
+            <div class="inspector-card">
+              <div class="field-row">
+                <label for="insp-name">Name</label>
+                <input type="text" id="insp-name" data-testid="insp-name" autocomplete="off" />
+              </div>
+              <div class="field-row">
+                <label for="insp-parent">Parent</label>
+                <select id="insp-parent" data-testid="insp-parent"></select>
+              </div>
+              <label class="checkbox-row">
+                <input type="checkbox" id="insp-visible" data-testid="insp-visible" />
+                <span>Visible in Viewport</span>
+              </label>
+            </div>
+
+            <!-- Transform Card -->
+            <div class="inspector-card">
+              <div class="card-header">
+                <h3>Local Transform</h3>
+                <button type="button" class="ghost-btn" id="btn-reset-transform" data-testid="btn-reset-transform">Reset</button>
+              </div>
+
+              <div class="vec3-group">
+                <span class="vec3-label">Position</span>
+                <div class="vec3-inputs">
+                  <label class="axis-x"><span>X</span><input type="number" step="0.1" id="tf-pos-x" data-testid="tf-pos-x" /></label>
+                  <label class="axis-y"><span>Y</span><input type="number" step="0.1" id="tf-pos-y" data-testid="tf-pos-y" /></label>
+                  <label class="axis-z"><span>Z</span><input type="number" step="0.1" id="tf-pos-z" data-testid="tf-pos-z" /></label>
+                </div>
+              </div>
+
+              <div class="vec3-group">
+                <span class="vec3-label">Rotation (°)</span>
+                <div class="vec3-inputs">
+                  <label class="axis-x"><span>X</span><input type="number" step="5" id="tf-rot-x" data-testid="tf-rot-x" /></label>
+                  <label class="axis-y"><span>Y</span><input type="number" step="5" id="tf-rot-y" data-testid="tf-rot-y" /></label>
+                  <label class="axis-z"><span>Z</span><input type="number" step="5" id="tf-rot-z" data-testid="tf-rot-z" /></label>
+                </div>
+              </div>
+
+              <div class="vec3-group">
+                <span class="vec3-label">Scale</span>
+                <div class="vec3-inputs">
+                  <label class="axis-x"><span>X</span><input type="number" step="0.1" min="0.01" id="tf-scl-x" data-testid="tf-scl-x" /></label>
+                  <label class="axis-y"><span>Y</span><input type="number" step="0.1" min="0.01" id="tf-scl-y" data-testid="tf-scl-y" /></label>
+                  <label class="axis-z"><span>Z</span><input type="number" step="0.1" min="0.01" id="tf-scl-z" data-testid="tf-scl-z" /></label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Mesh Component Card -->
+            <div class="inspector-card" id="card-mesh" data-testid="card-mesh" hidden>
+              <div class="card-header">
+                <h3>Mesh Component</h3>
+              </div>
+              <div class="kv-grid">
+                <span>Asset</span><strong id="mesh-asset-name">-</strong>
+                <span>Geometry</span><strong id="mesh-geo-counts">-</strong>
+                <span>Local Bounds</span><strong id="mesh-bounds">-</strong>
+              </div>
+            </div>
+
+            <!-- Camera Component Card -->
+            <div class="inspector-card" id="card-camera" data-testid="card-camera" hidden>
+              <div class="card-header">
+                <h3>Camera Component</h3>
+                <button type="button" class="ghost-btn" id="btn-set-active-camera" data-testid="btn-set-active-camera">Set Active</button>
+              </div>
+              <div class="form-stack">
+                <label class="field-row">
+                  <span>Projection</span>
+                  <select id="cam-projection" data-testid="cam-projection">
+                    <option value="perspective">Perspective</option>
+                    <option value="orthographic">Orthographic</option>
+                  </select>
+                </label>
+                <label class="field-row">
+                  <span>FOV Y (°)</span>
+                  <input type="number" step="1" min="5" max="150" id="cam-fov" data-testid="cam-fov" />
+                </label>
+                <label class="field-row">
+                  <span>Ortho Height</span>
+                  <input type="number" step="0.5" min="0.1" id="cam-ortho" data-testid="cam-ortho" />
+                </label>
+                <label class="field-row">
+                  <span>Near / Far</span>
+                  <div class="inline-pair">
+                    <input type="number" step="0.05" min="0.01" id="cam-near" data-testid="cam-near" />
+                    <input type="number" step="5" min="1" id="cam-far" data-testid="cam-far" />
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <!-- Directional Light Component Card -->
+            <div class="inspector-card" id="card-light" data-testid="card-light" hidden>
+              <div class="card-header">
+                <h3>Directional Light</h3>
+              </div>
+              <div class="form-stack">
+                <label class="field-row">
+                  <span>Color</span>
+                  <input type="color" id="light-color" data-testid="light-color" value="#ffffff" />
+                </label>
+                <label class="field-row">
+                  <span>Intensity</span>
+                  <input type="number" step="0.1" min="0" max="20" id="light-intensity" data-testid="light-intensity" />
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Resource & Memory Telemetry -->
+        <section class="dock-section">
+          <div class="section-header">
+            <h2>Engine Telemetry</h2>
+          </div>
+          <div class="kv-grid telemetry-grid" data-testid="telemetry-grid">
+            <span>Objects / Meshes</span><strong id="stat-objects-meshes">0 / 0</strong>
+            <span>Scene Triangles</span><strong id="stat-triangles">0</strong>
+            <span>CPU / GPU Mesh</span><strong id="stat-memory">0 KB / 0 KB</strong>
+            <span>Undo Stack</span><strong id="stat-history">0 steps (0 B)</strong>
+          </div>
+        </section>
+      </aside>
+    </div>
+
+    <!-- Bottom Studio Status & Backend Bar -->
+    <footer class="studio-statusbar">
+      <div class="status-left">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-message" data-testid="status-message">Starting Final Effect 3D…</span>
+      </div>
+      <div class="status-right">
+        <span id="status-renderer" data-testid="status-renderer">WebGL 2.0</span>
+      </div>
+    </footer>
+  </div>
+
+  <script src="editor.js"></script>
+  <script src="finaleffect_web.js"></script>
+</body>
+</html>
