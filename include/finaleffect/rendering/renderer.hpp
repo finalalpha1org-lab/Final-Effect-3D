@@ -29,7 +29,10 @@ public:
     void shutdown() noexcept;
 
     [[nodiscard]] core::Status resize(std::uint32_t width, std::uint32_t height);
-    [[nodiscard]] core::Status renderScene(const scene::Scene& scene, const FrameClearDesc& clear = {});
+    [[nodiscard]] core::Status renderScene(
+        const scene::Scene& scene,
+        const FrameClearDesc& clear = {},
+        scene::ObjectId selected_object = {});
 
     void releaseSceneResources() noexcept;
 

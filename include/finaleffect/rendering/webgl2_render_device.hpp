@@ -65,6 +65,7 @@ private:
     std::int32_t loc_light_dir_{-1};
     std::int32_t loc_light_radiance_{-1};
     std::int32_t loc_ambient_{-1};
+    std::int32_t loc_selection_tint_{-1};
 
     std::uint64_t next_handle_{1};
     std::unordered_map<std::uint64_t, GpuMeshRecord> meshes_;

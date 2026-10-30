@@ -56,6 +56,7 @@ struct DrawMeshCommand {
     math::Mat4 view_projection_matrix{math::Mat4::identity()};
     math::Vec3 camera_position{0.0f, 0.0f, 5.0f};
     DirectionalLightUniforms lighting{};
+    bool selected{false};
 };
 
 } // namespace finaleffect::rendering

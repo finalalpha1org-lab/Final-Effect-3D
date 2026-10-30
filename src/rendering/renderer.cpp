@@ -91,7 +91,10 @@ core::Result<GpuMeshHandle> Renderer::ensureMeshUploaded(const scene::MeshAsset&
     return created;
 }
 
-core::Status Renderer::renderScene(const scene::Scene& scene, const FrameClearDesc& clear) {
+core::Status Renderer::renderScene(
+    const scene::Scene& scene,
+    const FrameClearDesc& clear,
+    scene::ObjectId selected_object) {
     if (!initialized_) {
         return core::Status::fail(core::ErrorCode::InvalidState, "Renderer::renderScene called before initialize");
     }
@@ -184,6 +187,7 @@ core::Status Renderer::renderScene(const scene::Scene& scene, const FrameClearDe
             .view_projection_matrix = view_proj,
             .camera_position = camera_pos,
             .lighting = light_uniforms,
+            .selected = (selected_object.isValid() && obj.id == selected_object),
         };
         auto draw_st = device_->drawMesh(cmd);
         if (!draw_st) {

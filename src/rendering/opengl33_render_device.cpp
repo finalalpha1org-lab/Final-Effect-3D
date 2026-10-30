@@ -88,6 +88,7 @@ uniform vec3 u_camera_pos;
 uniform vec3 u_light_dir;
 uniform vec3 u_light_radiance;
 uniform vec3 u_ambient;
+uniform vec3 u_selection_tint;
 
 out vec4 o_frag_color;
 
@@ -101,8 +102,10 @@ void main() {
     float spec = (ndotl > 0.0) ? pow(max(dot(n, h), 0.0), 32.0) * 0.18 : 0.0;
     float hemi = 0.5 * n.y + 0.5;
     vec3 ambient_term = u_ambient * mix(0.75, 1.15, hemi);
+    float rim = 1.0 - max(dot(n, v), 0.0);
 
     vec3 lit = v_color * (ambient_term + u_light_radiance * ndotl) + u_light_radiance * spec;
+    lit += u_selection_tint * (0.35 + 0.85 * rim * rim);
     o_frag_color = vec4(clamp(lit, 0.0, 1.0), 1.0);
 }
 )";
@@ -351,6 +354,7 @@ core::Status OpenGL33RenderDevice::buildShaderPipeline() {
     loc_light_dir_ = gl_->GetUniformLocation(shader_program_, "u_light_dir");
     loc_light_radiance_ = gl_->GetUniformLocation(shader_program_, "u_light_radiance");
     loc_ambient_ = gl_->GetUniformLocation(shader_program_, "u_ambient");
+    loc_selection_tint_ = gl_->GetUniformLocation(shader_program_, "u_selection_tint");
     return core::Status::ok();
 }
 
@@ -554,6 +558,14 @@ core::Status OpenGL33RenderDevice::drawMesh(const DrawMeshCommand& command) {
             command.lighting.ambient.z,
         };
         gl_->Uniform3fv(loc_ambient_, 1, amb);
+    }
+    if (loc_selection_tint_ >= 0) {
+        const float tint[3] = {
+            command.selected ? 0.42f : 0.0f,
+            command.selected ? 0.28f : 0.0f,
+            command.selected ? 0.06f : 0.0f,
+        };
+        gl_->Uniform3fv(loc_selection_tint_, 1, tint);
     }
 
     gl_->BindVertexArray(it->second.vao);

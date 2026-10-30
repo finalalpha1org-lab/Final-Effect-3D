@@ -193,6 +193,24 @@ FE_TEST(Math, RayAabbAndRayTriangleIntersections) {
     FE_EXPECT_TRUE(intersectRayTriangle(behind_ray, v0, v1, v2, false).has_value());
 }
 
+FE_TEST(Math, QuaternionEulerXYZRoundTripAndSingularities) {
+    const Vec3 angles_rad{degToRad(-24.0f), degToRad(37.5f), degToRad(112.0f)};
+    const Quat q = Quat::fromEulerXYZ(angles_rad);
+    const Vec3 extracted = q.toEulerXYZ();
+    const Quat q_rebuilt = Quat::fromEulerXYZ(extracted);
+
+    const Vec3 probe{1.2f, -0.7f, 2.5f};
+    FE_EXPECT_TRUE(q.rotate(probe).approxEqual(q_rebuilt.rotate(probe), 1e-4f));
+
+    // Gimbal lock at +90 deg Y pitch must reconstruct an equivalent rotation without NaN.
+    const Vec3 gimbal_pos{degToRad(33.0f), degToRad(90.0f), degToRad(-18.0f)};
+    const Quat q_gimbal = Quat::fromEulerXYZ(gimbal_pos);
+    const Vec3 gimbal_extracted = q_gimbal.toEulerXYZ();
+    FE_EXPECT_TRUE(gimbal_extracted.isFinite());
+    const Quat q_gimbal_rebuilt = Quat::fromEulerXYZ(gimbal_extracted);
+    FE_EXPECT_TRUE(q_gimbal.rotate(probe).approxEqual(q_gimbal_rebuilt.rotate(probe), 1e-4f));
+}
+
 } // namespace
 
 int main(int argc, char** argv) {

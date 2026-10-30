@@ -160,8 +160,11 @@ core::Status SoftwareRenderDevice::drawMesh(const DrawMeshCommand& command) {
 
         const math::Vec3 world_normal = normal_matrix.transformDirection(v.normal).normalized();
         const float n_dot_l = std::max(0.0f, world_normal.dot(light_dir));
-        const math::Vec3 lit = v.color.cwiseProduct(
+        math::Vec3 lit = v.color.cwiseProduct(
             command.lighting.ambient + command.lighting.radiance * n_dot_l);
+        if (command.selected) {
+            lit = lit * 0.82f + math::Vec3{0.28f, 0.19f, 0.05f};
+        }
 
         projected[vi] = ProjectedVertex{
             .sx = (ndc_x * 0.5f + 0.5f) * f_width,

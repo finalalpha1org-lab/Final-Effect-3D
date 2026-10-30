@@ -113,6 +113,65 @@ FE_TEST(Commands, CompoundTransactionRollsBackOnFailureAndMemoryCapEvictsOldest)
     FE_EXPECT_TRUE(stack.totalMemoryBytes() <= 512);
 }
 
+FE_TEST(Commands, RenameVisibilityCameraAndLightUndoRedo) {
+    Scene scene;
+    CommandStack stack;
+
+    CameraComponent init_cam{};
+    init_cam.fov_y_radians = math::degToRad(50.0f);
+    DirectionalLightComponent init_light{
+        .color = {1.0f, 0.9f, 0.8f},
+        .intensity = 1.2f,
+    };
+
+    auto create_cmd = std::make_unique<CreateObjectCommand>(
+        "RiggedCameraLight",
+        ObjectId::invalid(),
+        math::Transform::identity(),
+        std::nullopt,
+        init_cam,
+        init_light);
+    const auto* raw_create = create_cmd.get();
+    FE_REQUIRE_TRUE(stack.execute(scene, std::move(create_cmd)).hasValue());
+
+    const ObjectId obj_id = raw_create->createdObjectId();
+    FE_REQUIRE_TRUE(obj_id.isValid());
+    FE_EXPECT_EQ(scene.activeCamera(), obj_id);
+
+    // Rename + Undo + Redo.
+    FE_REQUIRE_TRUE(stack.execute(scene, std::make_unique<RenameObjectCommand>(obj_id, "MainCam")).hasValue());
+    FE_EXPECT_EQ(scene.findObject(obj_id)->name, std::string("MainCam"));
+    FE_REQUIRE_TRUE(stack.undo(scene).hasValue());
+    FE_EXPECT_EQ(scene.findObject(obj_id)->name, std::string("RiggedCameraLight"));
+    FE_REQUIRE_TRUE(stack.redo(scene).hasValue());
+    FE_EXPECT_EQ(scene.findObject(obj_id)->name, std::string("MainCam"));
+
+    // Visibility + Undo.
+    FE_REQUIRE_TRUE(stack.execute(scene, std::make_unique<SetVisibilityCommand>(obj_id, false)).hasValue());
+    FE_EXPECT_FALSE(scene.findObject(obj_id)->visible);
+    FE_REQUIRE_TRUE(stack.undo(scene).hasValue());
+    FE_EXPECT_TRUE(scene.findObject(obj_id)->visible);
+
+    // Camera component update + Undo.
+    CameraComponent wide_cam = init_cam;
+    wide_cam.fov_y_radians = math::degToRad(85.0f);
+    FE_REQUIRE_TRUE(stack.execute(scene, std::make_unique<SetCameraComponentCommand>(obj_id, wide_cam)).hasValue());
+    FE_EXPECT_NEAR(scene.findObject(obj_id)->camera->fov_y_radians, math::degToRad(85.0f), 1e-5f);
+    FE_REQUIRE_TRUE(stack.undo(scene).hasValue());
+    FE_EXPECT_NEAR(scene.findObject(obj_id)->camera->fov_y_radians, math::degToRad(50.0f), 1e-5f);
+
+    // Coalescing directional light updates + single Undo back to 1.2f.
+    DirectionalLightComponent l1{.color = {0.5f, 0.6f, 1.0f}, .intensity = 2.0f};
+    DirectionalLightComponent l2{.color = {0.4f, 0.7f, 1.0f}, .intensity = 3.5f};
+    const std::size_t undo_before = stack.undoCount();
+    FE_REQUIRE_TRUE(stack.execute(scene, std::make_unique<SetDirectionalLightCommand>(obj_id, l1, true)).hasValue());
+    FE_REQUIRE_TRUE(stack.execute(scene, std::make_unique<SetDirectionalLightCommand>(obj_id, l2, true)).hasValue());
+    FE_EXPECT_EQ(stack.undoCount(), undo_before + 1);
+    FE_EXPECT_NEAR(scene.findObject(obj_id)->directional_light->intensity, 3.5f, 1e-5f);
+    FE_REQUIRE_TRUE(stack.undo(scene).hasValue());
+    FE_EXPECT_NEAR(scene.findObject(obj_id)->directional_light->intensity, 1.2f, 1e-5f);
+}
+
 } // namespace
 
 int main(int argc, char** argv) {

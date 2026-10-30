@@ -8,7 +8,7 @@
   * [`LICENSE`](../LICENSE) — verbatim GNU GPL v3.0 license text (preserved unchanged).
   * [`NOTICE`](../NOTICE) — repository release notice (preserved unchanged).
 
-All original source files created in Stage 1 and Stage 2 carry SPDX license headers compatible with the repository's GNU GPL v3.0 license (`SPDX-License-Identifier: GPL-3.0-or-later`).
+All original source files created in Stage 1, Stage 2, and Stage 3 carry SPDX license headers compatible with the repository's GNU GPL v3.0 license (`SPDX-License-Identifier: GPL-3.0-or-later`).
 
 ---
 
@@ -19,18 +19,19 @@ All original source files created in Stage 1 and Stage 2 carry SPDX license head
 
 ---
 
-## 3. Third-Party Dependency Inventory (Stage 1 & Stage 2)
+## 3. Third-Party Dependency Inventory (Stage 1, Stage 2 & Stage 3)
 
-### A. Mandatory Core Engine & Unit Test Dependencies
+### A. Mandatory Core Engine, Editor Controller & C++ Unit Test Dependencies
 
 **None.**
 
-`finaleffect_platform`, `finaleffect_core`, `finaleffect_math`, `finaleffect_scene`, `finaleffect_project` (including `.fe3dbin` + CRC-32 + FNV-1a), `finaleffect_rendering`, `finaleffect_rendering_opengl33`, `finaleffect_rendering_webgl2`, `finaleffect_app`, and all 10 unit test suites rely exclusively on the **ISO C++20 Standard Library** and standard OS system libraries.
+`finaleffect_platform`, `finaleffect_core`, `finaleffect_math`, `finaleffect_scene`, `finaleffect_project` (including `.fe3dbin` + CRC-32 + FNV-1a), `finaleffect_rendering`, `finaleffect_rendering_opengl33`, `finaleffect_rendering_webgl2`, `finaleffect_app` (`StudioSession` + `EditorController`), and all 11 C++ CTest suites rely exclusively on the **ISO C++20 Standard Library** and standard OS system libraries. Similarly, the connected browser Studio UI (`web/index.html`, `web/editor.css`, `web/editor.js`) uses standard HTML5/CSS3/ES2022 browser APIs with zero runtime npm packages or external CDN assets.
 
-### B. Optional Host Windowing & Platform Toolchain Dependencies
+### B. Optional Host Windowing, Platform Toolchain & Browser Test Dependencies
 
 | Dependency | Version | Source | License | Usage in Final Effect 3D | GPL-3.0 Compatibility & Obligations |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **GLFW** | `>= 3.3` (system) or pinned `3.4` when `FINALEFFECT_FETCH_GLFW=ON` | `https://github.com/glfw/glfw` | **zlib/libpng License** | Optional desktop window, input, and OpenGL 3.3 Core context creation (`finaleffect_window_glfw`) | **Compatible** with GPL-3.0. Retain GLFW's copyright/zlib notice in binary redistributions that link GLFW. |
 | **System OpenGL Runtime** (`libGL` / `opengl32.dll` / macOS `OpenGL.framework`) | Host OS ABI | Host OS / Mesa3D (`https://mesa3d.org`) | System Library / MIT / Khronos | Linked dynamically when `FINALEFFECT_HAS_GLFW=ON` | Covered by the **System Library** definition in GNU GPL v3.0 Section 1; Mesa3D uses permissive MIT/X11 licenses compatible with GPL-3.0. |
 | **Emscripten SDK Runtime** (`emscripten/html5.h` JS/WASM glue) | `>= 3.1.50` (`3.1.68` in CI) | `https://github.com/emscripten-core/emscripten` | **MIT License / University of Illinois/NCSA Open Source License** | Used only when cross-compiling optional `finaleffect_web` (`apps/web/main.cpp`) to WebAssembly | **Compatible** with GPL-3.0 (permissive dual MIT/NCSA license). Retain standard runtime copyright notices if distributing compiled `.js`/`.wasm` bundles alongside GPLv3 source offer. |
+| **Playwright Test (`@playwright/test`)** | `1.48.2` | `https://registry.npmjs.org/@playwright/test` (`https://github.com/microsoft/playwright`) | **Apache License 2.0** | Dev/CI-only real-browser Chromium WebGL 2.0 end-to-end test runner in `web/e2e/` (not linked into or distributed with Final Effect 3D binaries) | **Compatible** with GPL-3.0 (Apache-2.0 is one-way compatible with GPLv3; moreover, Playwright runs purely as an external automated test harness). |

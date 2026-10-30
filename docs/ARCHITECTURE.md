@@ -61,11 +61,21 @@ finaleffect::app        (StarterScene, OrbitCameraController, StudioSession)
 
 All interactive `Scene` edits execute through reversible `ISceneCommand` transactions:
 
-* **`SetTransformCommand`**: Captures pre/post `Transform` and coalesces consecutive drag updates on the same `ObjectId` within a configurable drag token.
-* **`CreateObjectCommand` / `DeleteObjectCommand`**: Preserves exact `ObjectId`s across undo/redo cycles using `Scene::createObjectWithId` and snapshots full subtrees, components, and active camera bindings.
+* **`SetTransformCommand`**: Captures pre/post `Transform` and coalesces consecutive drag updates on the same `ObjectId` when coalescing is enabled.
+* **`CreateObjectCommand` / `DeleteObjectCommand`**: Preserves exact `ObjectId`s across undo/redo cycles using `Scene::createObjectWithId` and snapshots full subtrees, mesh/camera/light components, and active camera bindings.
+* **`RenameObjectCommand` / `SetVisibilityCommand`**: Reversible object naming and viewport visibility toggles.
+* **`SetCameraComponentCommand` / `SetDirectionalLightCommand`**: Reversible camera projection/clipping edits and coalescing directional light color/intensity edits.
 * **`ReparentObjectCommand`**: Cycle-checked reversible hierarchy reparenting.
 * **`CompoundTransactionCommand`**: Atomic multi-command batch that rolls back already-executed steps in reverse order if any step fails.
 * **Bounded Low-Memory Footprint**: `CommandStack` enforces both entry-count and byte-size budgets (default 16 MiB), evicting the oldest undo entries first and reporting live usage in `core::ResourceStats`.
+
+### Portable Studio Editor Controller (`app::EditorController`)
+
+`EditorController` (`include/finaleffect/app/editor_controller.hpp`) sits directly over `StudioSession` without any OS or DOM dependencies:
+
+* Executes all authoring mutations (spawning shared-mesh presets, duplicating, deleting with active-camera protection, renaming, visibility toggling, parent hierarchy editing, XYZ Euler degree transform editing via `Quat::toEulerXYZ`/`fromEulerXYZ`, camera/light component editing, undo/redo, and `.fe3d`/`.fe3dbin` project load/export) against the real `Scene`, `CommandStack`, `Renderer`, and `ProjectSerializer`.
+* Exposes both strongly typed C++ methods and a deterministic JSON state/action bridge (`serializeStateJson` / `executeActionJson`) using `finaleffect_project`'s self-contained JSON codec, powering the connected WebAssembly Studio UI (`apps/web/main.cpp` + `web/index.html`, `web/editor.css`, `web/editor.js`) without mock objects or duplicated UI state.
+* Passes `selectedObject()` into `Renderer::renderScene`, applying a warm Fresnel rim/selection highlight across `SoftwareRenderDevice`, `OpenGL33RenderDevice`, and `WebGL2RenderDevice`.
 
 ---
 

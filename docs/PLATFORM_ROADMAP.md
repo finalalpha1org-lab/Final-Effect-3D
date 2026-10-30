@@ -12,14 +12,14 @@ Final Effect 3D targets three distinct execution models around a single portable
 
 ---
 
-## 2. Per-Platform Architecture & Current Status (Stage 2)
+## 2. Per-Platform Architecture & Current Status (Stage 3)
 
-| Target Platform | Stage 2 Status | Host / Window Layer | Rendering Backend Strategy |
+| Target Platform | Stage 3 Status | Host / Window Layer | Rendering Backend Strategy |
 | :--- | :--- | :--- | :--- |
-| **Linux (x86_64 / arm64)** | Core, Viewport, `.fe3dbin` & Tests **Verified locally**; OpenGL 3.3 + GLFW implemented & CI-tested | `platform/linux/` + `GlfwWindow` / `HeadlessWindow` | OpenGL 3.3 Core baseline + CPU `SoftwareRenderDevice`; future Vulkan |
-| **Windows (x64 / arm64)** | Core + OpenGL 3.3 + WebGL2 adapter tests configured & CI-targeted | `platform/windows/` + `GlfwWindow` / `HeadlessWindow` | OpenGL 3.3 Core baseline + CPU `SoftwareRenderDevice`; future Vulkan / Direct3D 12 |
-| **macOS (Apple Silicon / Intel)** | Core + OpenGL 3.3 + WebGL2 adapter tests configured & CI-targeted | `platform/macos/` + `GlfwWindow` / `HeadlessWindow` | OpenGL 3.3 Core forward-compatible prototype (deprecated by Apple); planned native **Metal** backend |
-| **Web Browser (Desktop & Mobile Web)** | `WebGL2RenderDevice` **Verified via unit tests**; `apps/web/` + `web/index.html` Emscripten target implemented & CI-targeted | `Html5CanvasWindow` (`apps/web/main.cpp`) using `emscripten_set_main_loop_arg` + DOM pointer/key input | **WebGL 2.0 (GLSL ES 3.00)** `IRenderDevice` baseline (`NegativeOneToOne` clip depth); planned **WebGPU** (`ZeroToOne` clip depth) |
+| **Linux (x86_64 / arm64)** | Core, `EditorController`, Viewport, `.fe3dbin` & 11 Test Suites **Verified locally & in CI**; OpenGL 3.3 + GLFW verified under Xvfb in CI | `platform/linux/` + `GlfwWindow` / `HeadlessWindow` | OpenGL 3.3 Core baseline + CPU `SoftwareRenderDevice`; future Vulkan |
+| **Windows (x64 / arm64)** | Core + `EditorController` + OpenGL 3.3 + WebGL2 adapter tests **Verified in CI (MSVC)** | `platform/windows/` + `GlfwWindow` / `HeadlessWindow` | OpenGL 3.3 Core baseline + CPU `SoftwareRenderDevice`; future Vulkan / Direct3D 12 |
+| **macOS (Apple Silicon / Intel)** | Core + `EditorController` + OpenGL 3.3 + WebGL2 adapter tests **Verified in CI (AppleClang)** | `platform/macos/` + `GlfwWindow` / `HeadlessWindow` | OpenGL 3.3 Core forward-compatible prototype (deprecated by Apple); planned native **Metal** backend |
+| **Web Browser (Desktop & Mobile Web)** | Connected Studio UI + `finaleffect_web` WASM + `WebGL2RenderDevice` **Compiled via Emscripten & Verified in Real Headless Chromium (Playwright)** | `Html5CanvasWindow` (`apps/web/main.cpp`) + Connected Studio DOM (`web/`) | **WebGL 2.0 (GLSL ES 3.00)** `IRenderDevice` baseline (`NegativeOneToOne` clip depth); planned **WebGPU** (`ZeroToOne` clip depth) |
 | **iOS / iPadOS** | Architecture prepared; **not yet built** | Planned Objective-C++ / Swift host (`platform/ios/`) with `CAMetalLayer` & touch gestures | Planned native **Metal** `IRenderDevice` (`ZeroToOne` clip depth) |
 | **Android** | Architecture prepared; **not yet built** | Planned NDK `GameActivity` / `ANativeWindow` host (`platform/android/`) | Planned **Vulkan** primary `IRenderDevice` with shared **OpenGL ES 3.0** (`WebGL2RenderDevice` lineage) fallback |
 
