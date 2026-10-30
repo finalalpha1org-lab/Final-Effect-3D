@@ -131,7 +131,8 @@ void main() {
 )";
 
 // Unified Stage 5.4 Cook-Torrance GGX PBR + Directional/Point/Spot/Area + Shadow Atlas + SH9/Cubemap IBL shader.
-constexpr const char* kFragmentShaderGlsl330 = R"(#version 330 core
+// Split across <=8 KB raw string segments so MSVC (/WX, C2026 16,380-byte literal limit) compiles cleanly.
+constexpr const char* kFragmentShaderGlsl330PartA = R"(#version 330 core
 in vec3 v_world_pos;
 in vec3 v_world_normal;
 in vec3 v_color;
@@ -150,8 +151,6 @@ uniform vec3 u_pbr_params;        // x = metallic, y = roughness, z = ambient_oc
 uniform vec3 u_emissive_radiance;
 uniform vec3 u_surface_flags;     // x = opacity, y = vertex_color_weight, z = unlit_overlay
 
-// Stage 5.4 unified lighting uniforms (kept at ~121 vec4 total for universal GL/GLES compatibility):
-// u_light_meta: x = use_scene_lighting, y = light_count, z = apply_studio_fill, w = inv_shadow_atlas_size
 uniform vec4 u_light_meta;
 uniform int u_light_mask;
 uniform vec4 u_light_pos_type[12];
@@ -164,11 +163,9 @@ uniform vec4 u_light_shadow_params[12];
 uniform mat4 u_shadow_2d_vp[4];
 uniform vec4 u_shadow_2d_rect[4];
 uniform vec4 u_point_shadow_params[2];
-uniform vec4 u_point_shadow_far;  // x = caster0 far, y = caster1 far
+uniform vec4 u_point_shadow_far;
 
-// u_env_params: x = enabled, y = has_hdri, z = intensity, w = max_cubemap_lod
 uniform vec4 u_env_params;
-// u_env_rot_scales: x = cos_rot, y = sin_rot, z = diffuse_ibl_scale, w = specular_ibl_scale
 uniform vec4 u_env_rot_scales;
 uniform vec3 u_overflow_irradiance;
 uniform vec3 u_ibl_sh[9];
@@ -250,7 +247,9 @@ float evalDistanceAttenuation(float dist, float range, float exponent, float src
     }
     return (1.0 - u) / (1.0 + 0.12 * exponent * d_eff);
 }
+)";
 
+constexpr const char* kFragmentShaderGlsl330PartB = R"(
 vec2 concentricDisk(float sx, float sy) {
     if (abs(sx) <= 1.0e-6 && abs(sy) <= 1.0e-6) {
         return vec2(0.0);
@@ -283,43 +282,42 @@ vec3 evalSh9Irradiance(vec3 d) {
     return max(res, vec3(0.0));
 }
 
+float sampleShadowTap(vec2 base_uv, vec2 offs, float step_uv, vec2 min_uv, vec2 max_uv, float cmp_z) {
+    vec2 suv = clamp(base_uv + offs * step_uv, min_uv, max_uv);
+    float stored = textureLod(u_shadow_atlas, suv, 0.0).r;
+    return (cmp_z <= stored) ? 1.0 : 0.0;
+}
+
 float filterShadowRect(vec4 uv_rect, float u, float v, float z_win, float depth_bias, float filter_code, float extra_soft) {
     float inv_atlas = u_light_meta.w;
     if (inv_atlas <= 0.0 || uv_rect.z <= 0.0 || u < 0.0 || u > 1.0 || v < 0.0 || v > 1.0 || z_win <= 0.0 || z_win > 1.0) {
         return 1.0;
     }
-    float min_u = uv_rect.x + 0.5 * inv_atlas;
-    float max_u = uv_rect.x + uv_rect.z - 0.5 * inv_atlas;
-    float min_v = uv_rect.y + 0.5 * inv_atlas;
-    float max_v = uv_rect.y + uv_rect.w - 0.5 * inv_atlas;
-
-    float base_u = uv_rect.x + u * uv_rect.z;
-    float base_v = uv_rect.y + v * uv_rect.w;
+    vec2 min_uv = uv_rect.xy + vec2(0.5 * inv_atlas);
+    vec2 max_uv = uv_rect.xy + uv_rect.zw - vec2(0.5 * inv_atlas);
+    vec2 base_uv = uv_rect.xy + vec2(u, v) * uv_rect.zw;
     float cmp_z = z_win - depth_bias;
 
     if (filter_code < 0.0) {
-        float d = texture(u_shadow_atlas, vec2(clamp(base_u, min_u, max_u), clamp(base_v, min_v, max_v))).r;
-        return (cmp_z <= d) ? 1.0 : 0.0;
+        return sampleShadowTap(base_uv, vec2(0.0), 0.0, min_uv, max_uv, cmp_z);
     }
 
-    int radius = (filter_code >= 50.0) ? 2 : 1;
-    float softness = ((filter_code >= 50.0) ? (filter_code - 100.0) : filter_code) * extra_soft;
+    bool wide_pcf = (filter_code >= 50.0);
+    float softness = (wide_pcf ? (filter_code - 100.0) : filter_code) * extra_soft;
     float step_uv = inv_atlas * softness;
-    float sum = 0.0;
-    int taps = 0;
-    for (int dy = -2; dy <= 2; ++dy) {
-        if (abs(dy) > radius) continue;
-        for (int dx = -2; dx <= 2; ++dx) {
-            if (abs(dx) > radius) continue;
-            vec2 suv = vec2(
-                clamp(base_u + float(dx) * step_uv, min_u, max_u),
-                clamp(base_v + float(dy) * step_uv, min_v, max_v));
-            float stored = texture(u_shadow_atlas, suv).r;
-            sum += (cmp_z <= stored) ? 1.0 : 0.0;
-            taps += 1;
-        }
+
+    float sum = sampleShadowTap(base_uv, vec2(-0.75, -0.25), step_uv, min_uv, max_uv, cmp_z)
+              + sampleShadowTap(base_uv, vec2( 0.25, -0.75), step_uv, min_uv, max_uv, cmp_z)
+              + sampleShadowTap(base_uv, vec2(-0.25,  0.75), step_uv, min_uv, max_uv, cmp_z)
+              + sampleShadowTap(base_uv, vec2( 0.75,  0.25), step_uv, min_uv, max_uv, cmp_z);
+    if (!wide_pcf) {
+        return sum * 0.25;
     }
-    return sum / float(max(taps, 1));
+    sum += sampleShadowTap(base_uv, vec2(-1.55,  0.85), step_uv, min_uv, max_uv, cmp_z)
+         + sampleShadowTap(base_uv, vec2( 1.55, -0.85), step_uv, min_uv, max_uv, cmp_z)
+         + sampleShadowTap(base_uv, vec2(-0.85, -1.55), step_uv, min_uv, max_uv, cmp_z)
+         + sampleShadowTap(base_uv, vec2( 0.85,  1.55), step_uv, min_uv, max_uv, cmp_z);
+    return sum * 0.125;
 }
 
 float evalLightShadow(int shadow_slot, vec4 shadow_params, vec3 light_pos, vec3 world_pos, vec3 n, vec3 l_dir, float area_soft_boost) {
@@ -383,9 +381,11 @@ float evalLightShadow(int shadow_slot, vec4 shadow_params, vec3 light_pos, vec3 
             float v = 0.5 * (yv * inv_guard) + 0.5;
             float z_win = (z_far * (z_eye - z_near)) / ((z_far - z_near) * z_eye);
             float t_sz = p_params.z;
+            int row = (face >= 3) ? 1 : 0;
+            int col = face - row * 3;
             vec4 face_rect = vec4(
-                p_params.x + float(face % 3) * t_sz,
-                p_params.y + float(face / 3) * t_sz,
+                p_params.x + float(col) * t_sz,
+                p_params.y + float(row) * t_sz,
                 t_sz,
                 t_sz);
             raw_vis = filterShadowRect(face_rect, u, v, z_win, depth_bias, shadow_params.w, 1.0);
@@ -393,7 +393,9 @@ float evalLightShadow(int shadow_slot, vec4 shadow_params, vec3 light_pos, vec3 
     }
     return 1.0 - shadow_params.x * (1.0 - raw_vis);
 }
+)";
 
+constexpr const char* kFragmentShaderGlsl330PartC = R"(
 void main() {
     float opacity = clamp(u_surface_flags.x, 0.0, 1.0);
     vec3 weighted_vcol = mix(vec3(1.0), v_color, clamp(u_surface_flags.y, 0.0, 1.0));
@@ -436,23 +438,26 @@ void main() {
             int ltype = int(floor(pos_type.w + 0.5));
             int sh_slot = int(floor(tan_sh.w + 0.5));
 
+            vec3 shade_l = vec3(0.0, 1.0, 0.0);
+            vec3 shade_rad = vec3(0.0);
+            vec3 area_contrib = vec3(0.0);
+            float soft_boost = 1.0;
+            bool has_direct = false;
+            bool is_area = false;
+
             if (ltype == 0) {
-                vec3 l = normalize(-dir_range.xyz);
-                float vis = evalLightShadow(sh_slot, sh_params, pos_type.xyz, v_world_pos, n, l, 1.0);
-                lo += evalCookTorranceLobe(n, v, l, radiance * vis, albedo, f0, metallic, roughness, k_direct);
-                if (i == 0 && u_light_meta.z > 0.5) {
-                    vec3 fill_l = normalize(vec3(-0.55, 0.35, -0.65));
-                    lo += evalCookTorranceLobe(n, v, fill_l, radiance * 0.22, albedo, f0, metallic, roughness, k_direct);
-                }
+                shade_l = normalize(-dir_range.xyz);
+                shade_rad = radiance;
+                has_direct = true;
             } else if (ltype == 1) {
                 vec3 to_l = pos_type.xyz - v_world_pos;
                 float dist = length(to_l);
                 int fmode = int(floor(shape.y + 0.5));
                 float att = evalDistanceAttenuation(dist, dir_range.w, rad_atten.w, shape.x, fmode);
                 if (att > 1.0e-6) {
-                    vec3 l = to_l / max(dist, 1.0e-5);
-                    float vis = evalLightShadow(sh_slot, sh_params, pos_type.xyz, v_world_pos, n, l, 1.0);
-                    lo += evalCookTorranceLobe(n, v, l, radiance * (att * vis), albedo, f0, metallic, roughness, k_direct);
+                    shade_l = to_l / max(dist, 1.0e-5);
+                    shade_rad = radiance * att;
+                    has_direct = true;
                 }
             } else if (ltype == 2) {
                 vec3 to_l = pos_type.xyz - v_world_pos;
@@ -466,8 +471,9 @@ void main() {
                         float t = clamp((cos_t - shape.x) * shape.y, 0.0, 1.0);
                         float sm = t * t * (3.0 - 2.0 * t);
                         float cone = (abs(shape.z - 1.0) <= 1.0e-3) ? sm : pow(sm, max(shape.z, 0.1));
-                        float vis = evalLightShadow(sh_slot, sh_params, pos_type.xyz, v_world_pos, n, l, 1.0);
-                        lo += evalCookTorranceLobe(n, v, l, radiance * (att * cone * vis), albedo, f0, metallic, roughness, k_direct);
+                        shade_l = l;
+                        shade_rad = radiance * (att * cone);
+                        has_direct = true;
                     }
                 }
             } else {
@@ -479,41 +485,31 @@ void main() {
                 int flags = int(floor(shape.z + 0.5));
                 bool is_disk = ((flags & 1) != 0);
                 bool two_sided = ((flags & 2) != 0);
-                int samples = flags >> 2;
                 float flux_scale = shape.w;
 
                 vec3 c_delta = v_world_pos - pos_type.xyz;
                 float plane_d = dot(c_delta, n_emit);
                 if ((two_sided || plane_d > 1.0e-4) && length(c_delta) < (dir_range.w + max(half_w, half_h))) {
-                    int grid_n = (samples <= 4) ? 2 : ((samples <= 9) ? 3 : 4);
-                    float inv_g = 1.0 / float(grid_n);
                     vec3 diff_irr = vec3(0.0);
-                    for (int sy = 0; sy < 4; ++sy) {
-                        if (sy >= grid_n) break;
-                        for (int sx = 0; sx < 4; ++sx) {
-                            if (sx >= grid_n) break;
-                            float su = 2.0 * ((float(sx) + 0.5) * inv_g) - 1.0;
-                            float sv = 2.0 * ((float(sy) + 0.5) * inv_g) - 1.0;
-                            vec2 offs = vec2(su * half_w, sv * half_h);
-                            if (is_disk) {
-                                offs = concentricDisk(su, sv) * half_w;
-                            }
-                            vec3 s_pos = pos_type.xyz + tan_u * offs.x + tan_v * offs.y;
-                            vec3 to_s = s_pos - v_world_pos;
-                            float d_s = length(to_s);
-                            if (d_s > 1.0e-5 && d_s < dir_range.w) {
-                                vec3 wi = to_s / d_s;
-                                float ec_raw = dot(n_emit, -wi);
-                                float ec = two_sided ? abs(ec_raw) : max(ec_raw, 0.0);
-                                float rc = max(dot(n, wi), 0.0);
-                                if (ec > 0.0 && rc > 0.0) {
-                                    float s_att = evalDistanceAttenuation(d_s, dir_range.w, 2.0, 0.12, 0);
-                                    diff_irr += radiance * (ec * rc * s_att);
-                                }
+                    for (int qs = 0; qs < 4; ++qs) {
+                        float su = ((qs == 1 || qs == 3) ? 0.55 : -0.55);
+                        float sv = ((qs >= 2) ? 0.55 : -0.55);
+                        vec2 offs = is_disk ? (concentricDisk(su, sv) * half_w) : vec2(su * half_w, sv * half_h);
+                        vec3 s_pos = pos_type.xyz + tan_u * offs.x + tan_v * offs.y;
+                        vec3 to_s = s_pos - v_world_pos;
+                        float d_s = length(to_s);
+                        if (d_s > 1.0e-5 && d_s < dir_range.w) {
+                            vec3 wi = to_s / d_s;
+                            float ec_raw = dot(n_emit, -wi);
+                            float ec = two_sided ? abs(ec_raw) : max(ec_raw, 0.0);
+                            float rc = max(dot(n, wi), 0.0);
+                            if (ec > 0.0 && rc > 0.0) {
+                                float s_att = evalDistanceAttenuation(d_s, dir_range.w, 2.0, 0.12, 0);
+                                diff_irr += radiance * (ec * rc * s_att);
                             }
                         }
                     }
-                    diff_irr *= flux_scale / float(grid_n * grid_n);
+                    diff_irr *= flux_scale * 0.25;
 
                     vec3 r_vec = reflect(-v, n);
                     float r_dot_p = dot(r_vec, n_emit);
@@ -541,10 +537,6 @@ void main() {
                     float es_raw = dot(n_emit, -l_spec);
                     float es = two_sided ? abs(es_raw) : max(es_raw, 0.0);
 
-                    vec3 l_ctr = normalize(pos_type.xyz - v_world_pos);
-                    float soft_boost = 1.0 + 1.6 * max(half_w, half_h);
-                    float vis = evalLightShadow(sh_slot, sh_params, pos_type.xyz, v_world_pos, n, l_ctr, soft_boost);
-
                     vec3 f_view = fresnelSchlick(ndotv, f0);
                     vec3 kd = (vec3(1.0) - f_view) * (1.0 - metallic);
                     vec3 area_diff = kd * albedo * diff_irr * (1.0 / kPi);
@@ -564,7 +556,24 @@ void main() {
                         vec3 f_sp = fresnelSchlick(max(dot(h, v), 0.0), f0);
                         area_spec = f_sp * radiance * (((ndf * geom) / max(4.0 * ndotv * ndotls, 1.0e-4)) * ndotls * es * sp_att * flux_scale);
                     }
-                    lo += (area_diff + area_spec) * vis;
+                    shade_l = normalize(pos_type.xyz - v_world_pos);
+                    soft_boost = 1.0 + 1.6 * max(half_w, half_h);
+                    area_contrib = area_diff + area_spec;
+                    is_area = true;
+                    has_direct = true;
+                }
+            }
+
+            if (has_direct) {
+                float vis = evalLightShadow(sh_slot, sh_params, pos_type.xyz, v_world_pos, n, shade_l, soft_boost);
+                if (is_area) {
+                    lo += area_contrib * vis;
+                } else {
+                    lo += evalCookTorranceLobe(n, v, shade_l, shade_rad * vis, albedo, f0, metallic, roughness, k_direct);
+                    if (ltype == 0 && i == 0 && u_light_meta.z > 0.5) {
+                        vec3 fill_l = normalize(vec3(-0.55, 0.35, -0.65));
+                        lo += evalCookTorranceLobe(n, v, fill_l, radiance * 0.22, albedo, f0, metallic, roughness, k_direct);
+                    }
                 }
             }
         }
@@ -630,6 +639,15 @@ void main() {
     o_frag_color = vec4(srgb, opacity);
 }
 )";
+
+std::string buildFragmentShaderGlsl330() {
+    std::string src;
+    src.reserve(18000);
+    src += kFragmentShaderGlsl330PartA;
+    src += kFragmentShaderGlsl330PartB;
+    src += kFragmentShaderGlsl330PartC;
+    return src;
+}
 
 constexpr const char* kGridVertexShaderGlsl330 = R"(#version 330 core
 layout(location = 0) in vec3 a_position;
@@ -1074,7 +1092,8 @@ core::Status OpenGL33RenderDevice::buildShaderPipeline() {
     if (!vs) {
         return vs.error();
     }
-    auto fs = compileStage(kGlFragmentShader, kFragmentShaderGlsl330, "fragment");
+    const std::string frag_shader_src = buildFragmentShaderGlsl330();
+    auto fs = compileStage(kGlFragmentShader, frag_shader_src.c_str(), "fragment");
     if (!fs) {
         gl_->DeleteShader(vs.value());
         return fs.error();
