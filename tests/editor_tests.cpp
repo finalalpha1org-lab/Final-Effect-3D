@@ -66,11 +66,11 @@ FE_TEST(Editor, AuthoringWorkflowUndoRedoAndSelectionHighlight) {
     EditorTestRig rig;
     FE_REQUIRE_TRUE(rig.init(240, 160));
 
-    // Initial state JSON must contain starter scene objects and empty inspector.
+    // Initial state JSON must contain starter scene objects (no fake GroundPlane object) and empty inspector.
     const auto init_state_res = project::parseJson(rig.editor->serializeStateJson());
     FE_REQUIRE_TRUE(init_state_res.hasValue());
     const auto& init_state = init_state_res.value();
-    FE_EXPECT_EQ(init_state.findKey("objects")->asArray().size(), static_cast<std::size_t>(6));
+    FE_EXPECT_EQ(init_state.findKey("objects")->asArray().size(), static_cast<std::size_t>(5));
     FE_EXPECT_TRUE(init_state.findKey("inspector")->isNull());
 
     // Render baseline frame without selection, then pick center HeroCube and render with selection highlight.
@@ -90,7 +90,7 @@ FE_TEST(Editor, AuthoringWorkflowUndoRedoAndSelectionHighlight) {
     const std::size_t initial_mesh_count = rig.session->document().scene.meshCount();
     FE_REQUIRE_TRUE(rig.editor->executeActionJson(R"({"action":"add_preset","preset":"pyramid"})").hasValue());
     FE_EXPECT_EQ(rig.session->document().scene.meshCount(), initial_mesh_count);
-    FE_EXPECT_EQ(rig.session->document().scene.objectCount(), static_cast<std::size_t>(7));
+    FE_EXPECT_EQ(rig.session->document().scene.objectCount(), static_cast<std::size_t>(6));
 
     const auto spawned_id = rig.session->selectedObject();
     FE_REQUIRE_TRUE(spawned_id.isValid());
@@ -164,13 +164,13 @@ FE_TEST(Editor, InlineJsonAndBinaryBundleProjectRoundTrip) {
 
     FE_REQUIRE_TRUE(rig.editor->newStarterProject().hasValue());
     FE_EXPECT_EQ(rig.session->document().metadata.project_name, std::string("Final Effect 3D Starter Project"));
-    FE_EXPECT_EQ(rig.session->document().scene.objectCount(), static_cast<std::size_t>(6));
+    FE_EXPECT_EQ(rig.session->document().scene.objectCount(), static_cast<std::size_t>(5));
 
     FE_REQUIRE_TRUE(rig.editor->importInlineProjectJson(legacy_v11_json).hasValue());
     FE_REQUIRE_TRUE(rig.editor->importInlineProjectJson(legacy_v10_json).hasValue());
     FE_EXPECT_EQ(rig.session->document().metadata.project_name, std::string("Studio Stage 3 Test"));
     FE_EXPECT_EQ(rig.session->document().scene.name(), std::string("AuthoredScene"));
-    FE_EXPECT_EQ(rig.session->document().scene.objectCount(), static_cast<std::size_t>(7));
+    FE_EXPECT_EQ(rig.session->document().scene.objectCount(), static_cast<std::size_t>(6));
 
     // Export v1.1 + .fe3dbin bundle to disk and reload via EditorController.
     const auto tmp_dir = std::filesystem::temp_directory_path() / "fe3d_editor_bundle_test";
@@ -186,7 +186,7 @@ FE_TEST(Editor, InlineJsonAndBinaryBundleProjectRoundTrip) {
     FE_REQUIRE_TRUE(rig.editor->newStarterProject().hasValue());
     FE_REQUIRE_TRUE(rig.editor->loadProjectFile(bundle_fe3d, rig.fs).hasValue());
     FE_EXPECT_EQ(rig.session->document().metadata.project_name, std::string("Studio Stage 3 Test"));
-    FE_EXPECT_EQ(rig.session->document().scene.objectCount(), static_cast<std::size_t>(7));
+    FE_EXPECT_EQ(rig.session->document().scene.objectCount(), static_cast<std::size_t>(6));
 
     std::filesystem::remove_all(tmp_dir, ec);
 }

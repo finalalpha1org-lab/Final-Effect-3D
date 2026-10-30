@@ -180,6 +180,13 @@ public:
     [[nodiscard]] bool areEditorHelpersVisible() const noexcept { return editor_helpers_visible_; }
     void setEditorHelpersVisible(bool visible) noexcept;
 
+    [[nodiscard]] bool isEditorGridVisible() const noexcept { return editor_grid_visible_; }
+    void setEditorGridVisible(bool visible) noexcept;
+
+    // Renders the final/offline scene image from the active scene camera without editor grid,
+    // selection highlights, transform gizmos, or camera/light viewport helpers.
+    [[nodiscard]] core::Status renderFinalScene(const rendering::FrameClearDesc& clear = {});
+
     [[nodiscard]] core::ResourceStats collectResourceStats() const noexcept;
 
 private:
@@ -227,6 +234,7 @@ private:
     std::string viewport_view_label_{"User Persp"};
     bool camera_view_active_{false};
     bool editor_helpers_visible_{true};
+    bool editor_grid_visible_{true};
     TransformGizmo gizmo_{};
     WorkspaceManager workspace_{};
 

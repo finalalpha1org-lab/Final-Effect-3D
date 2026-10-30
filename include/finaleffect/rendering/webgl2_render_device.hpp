@@ -32,6 +32,7 @@ public:
     void destroyMesh(GpuMeshHandle handle) noexcept override;
 
     [[nodiscard]] core::Status beginFrame(const FrameClearDesc& clear) override;
+    [[nodiscard]] core::Status drawEditorGrid(const EditorGridCommand& command) override;
     [[nodiscard]] core::Status beginOverlayPass(float clear_depth = 1.0f) override;
     [[nodiscard]] core::Status drawMesh(const DrawMeshCommand& command) override;
     [[nodiscard]] core::Status endFrame() override;
@@ -53,6 +54,7 @@ private:
     };
 
     [[nodiscard]] core::Status buildShaderPipeline();
+    [[nodiscard]] core::Status ensureGridPipeline();
 
     platform::GlProcLoaderFn proc_loader_{nullptr};
     std::unique_ptr<GlEs3DispatchTable> gl_;
@@ -77,6 +79,24 @@ private:
     std::int32_t loc_pbr_params_{-1};
     std::int32_t loc_emissive_radiance_{-1};
     std::int32_t loc_surface_flags_{-1};
+
+    // Dedicated viewport-only procedural XZ ground grid GPU program & clip-space fullscreen pass.
+    std::uint32_t grid_program_{0};
+    std::uint32_t grid_vao_{0};
+    std::uint32_t grid_vbo_{0};
+    std::uint32_t grid_ebo_{0};
+    std::int32_t loc_grid_cam_pos_{-1};
+    std::int32_t loc_grid_cam_right_{-1};
+    std::int32_t loc_grid_cam_up_{-1};
+    std::int32_t loc_grid_cam_fwd_{-1};
+    std::int32_t loc_grid_frustum_{-1};
+    std::int32_t loc_grid_depth_{-1};
+    std::int32_t loc_grid_steps_{-1};
+    std::int32_t loc_grid_fade_{-1};
+    std::int32_t loc_grid_phase_x_{-1};
+    std::int32_t loc_grid_phase_z_{-1};
+    std::int32_t loc_grid_axis_px_{-1};
+    std::int32_t loc_grid_ndc_step_{-1};
 
     std::uint64_t next_handle_{1};
     std::unordered_map<std::uint64_t, GpuMeshRecord> meshes_;

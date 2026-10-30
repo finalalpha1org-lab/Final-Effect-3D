@@ -952,6 +952,12 @@
           M._fe3d_camera_zoom(steps);
         }
       },
+      renderFinalFrame: function () {
+        if (typeof M._fe3d_render_final_frame === "function") {
+          return M._fe3d_render_final_frame() !== 0;
+        }
+        return false;
+      },
       blitMaterialPreview: function () {
         if (!previewCtx || typeof M._fe3d_material_preview_ptr !== "function") return;
         const gen = M._fe3d_material_preview_generation();
@@ -988,6 +994,11 @@
         return document.body.dataset.appView;
       },
       getNavGizmoLayout: getNavGizmoLayout,
+      renderFinalFrame: wasmApi.renderFinalFrame,
+      exportInlineProject: wasmApi.exportInlineProject,
+      importInlineProject: function (jsonText) {
+        return wasmApi.dispatchAction({ action: "import_inline_project", json: jsonText });
+      },
     };
 
     restoreWorkspaceFromStorage();
@@ -1417,6 +1428,14 @@
           ? !document.body.classList.contains("is-landscape-drawer-closed")
           : !els.dockRight.hidden;
       menuToggleRight.classList.toggle("is-on", rightOpen);
+    }
+    const menuToggleGrid = document.querySelector('[data-menu-cmd="toggle_editor_grid"]');
+    if (menuToggleGrid && state.viewport) {
+      menuToggleGrid.classList.toggle("is-on", Boolean(state.viewport.editor_grid_visible));
+    }
+    const menuToggleHelpers = document.querySelector('[data-menu-cmd="toggle_editor_helpers"]');
+    if (menuToggleHelpers && state.viewport) {
+      menuToggleHelpers.classList.toggle("is-on", Boolean(state.viewport.editor_helpers_visible));
     }
 
     [els.tabTimeline, els.tabAssetBrowser, els.tabConsole].forEach((tab) => {
@@ -3054,6 +3073,8 @@
           wasmApi.dispatchAction({ action: "toggle_camera_view" });
         } else if (cmd === "toggle_editor_helpers") {
           wasmApi.dispatchAction({ action: "toggle_editor_helpers" });
+        } else if (cmd === "toggle_editor_grid") {
+          wasmApi.dispatchAction({ action: "toggle_editor_grid" });
         } else if (cmd === "save_custom_layout") {
           saveNamedCustomWorkspace();
         } else if (cmd === "restore_custom_layout") {

@@ -27,6 +27,7 @@ public:
     void destroyMesh(GpuMeshHandle handle) noexcept override;
 
     [[nodiscard]] core::Status beginFrame(const FrameClearDesc& clear) override;
+    [[nodiscard]] core::Status drawEditorGrid(const EditorGridCommand& command) override;
     [[nodiscard]] core::Status beginOverlayPass(float clear_depth = 1.0f) override;
     [[nodiscard]] core::Status drawMesh(const DrawMeshCommand& command) override;
     [[nodiscard]] core::Status endFrame() override;
@@ -37,6 +38,7 @@ public:
 
     [[nodiscard]] std::uint64_t completedFrames() const noexcept { return completed_frames_; }
     [[nodiscard]] std::uint64_t totalDrawCalls() const noexcept { return total_draw_calls_; }
+    [[nodiscard]] std::uint64_t totalGridPasses() const noexcept { return total_grid_passes_; }
     [[nodiscard]] std::uint32_t viewportWidth() const noexcept { return width_; }
     [[nodiscard]] std::uint32_t viewportHeight() const noexcept { return height_; }
 
@@ -52,6 +54,7 @@ private:
     std::size_t buffer_updates_{0};
     std::uint64_t completed_frames_{0};
     std::uint64_t total_draw_calls_{0};
+    std::uint64_t total_grid_passes_{0};
 };
 
 } // namespace finaleffect::rendering

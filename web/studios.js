@@ -65,7 +65,7 @@
         {
           id: "starter",
           name: "Studio Showcase",
-          subtitle: "Hierarchical rig, HeroCube, AccentPyramid, Ground & 3 PBR materials",
+          subtitle: "Hierarchical rig, HeroCube, AccentPyramid, Camera, Light & 3 PBR materials",
           icon: "cube",
         },
         {

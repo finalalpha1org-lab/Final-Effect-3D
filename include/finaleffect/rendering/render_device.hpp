@@ -28,6 +28,8 @@ public:
     virtual void destroyMesh(GpuMeshHandle handle) noexcept = 0;
 
     [[nodiscard]] virtual core::Status beginFrame(const FrameClearDesc& clear) = 0;
+    // Dedicated viewport-only procedural ground grid pass (depth-tested against opaque scene geometry, non-occluding).
+    [[nodiscard]] virtual core::Status drawEditorGrid(const EditorGridCommand& command) = 0;
     // Clears depth buffer only so 3D gizmos & edit-mode cages render cleanly over scene geometry.
     [[nodiscard]] virtual core::Status beginOverlayPass(float clear_depth = 1.0f) = 0;
     [[nodiscard]] virtual core::Status drawMesh(const DrawMeshCommand& command) = 0;

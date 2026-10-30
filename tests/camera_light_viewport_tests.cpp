@@ -120,8 +120,8 @@ FE_TEST(CameraLightViewport, DefaultAndCreatedHelpersVisibleAndExcludedFromFinal
     FE_REQUIRE_TRUE(rig.init(480, 320));
 
     const auto& scene = rig.session->document().scene;
-    FE_EXPECT_EQ(scene.objectCount(), std::size_t{6});
-    FE_EXPECT_EQ(scene.meshCount(), std::size_t{3}); // Helpers NEVER pollute Scene mesh asset registry!
+    FE_EXPECT_EQ(scene.objectCount(), std::size_t{5});
+    FE_EXPECT_EQ(scene.meshCount(), std::size_t{2}); // Helpers & procedural grid NEVER pollute Scene mesh asset registry!
 
     const auto* main_cam = scene.findObjectByName("MainCamera");
     const auto* sun_light = scene.findObjectByName("SunLight");
@@ -166,8 +166,14 @@ FE_TEST(CameraLightViewport, DefaultAndCreatedHelpersVisibleAndExcludedFromFinal
         12);
     FE_EXPECT_TRUE(dark_sun_px_count >= 12u);
 
-    // Toggling editor helpers off removes MainCamera and SunLight helpers cleanly from the viewport!
+    // Toggling editor helpers off removes MainCamera and SunLight helpers cleanly from the viewport
+    // while leaving the procedural XZ ground grid intact behind them (and 0 pixels when grid is also hidden)!
+    const auto with_helpers_buf = rig.sw_device->colorBuffer();
     rig.session->setEditorHelpersVisible(false);
+    FE_REQUIRE_TRUE(rig.engine->stepFrame().hasValue());
+    FE_EXPECT_TRUE(rig.sw_device->colorBuffer() != with_helpers_buf);
+
+    rig.session->setEditorGridVisible(false);
     FE_REQUIRE_TRUE(rig.engine->stepFrame().hasValue());
     FE_EXPECT_EQ(
         rig.countNonBackgroundPixelsInPatch(
@@ -181,6 +187,7 @@ FE_TEST(CameraLightViewport, DefaultAndCreatedHelpersVisibleAndExcludedFromFinal
             static_cast<int>(std::lround(sun_screen->y)),
             10),
         0u);
+    rig.session->setEditorGridVisible(true);
     rig.session->setEditorHelpersVisible(true);
 
     // Area 9: Final scene render (Renderer::renderScene with empty overlays) MUST NOT show any editor helpers!

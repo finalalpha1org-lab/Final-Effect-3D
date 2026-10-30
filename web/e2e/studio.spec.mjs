@@ -138,7 +138,7 @@ async function bootDirectStudioReady(page) {
   await expect(page.getByTestId("splash-screen")).toBeHidden({ timeout: 25_000 });
   await expect(page.getByTestId("studio-shell")).toBeVisible();
   await expect(page.getByTestId("engine-badge")).toContainText("v0.5.0");
-  await expect(page.getByTestId("stat-objects-meshes")).toHaveText("6 / 3");
+  await expect(page.getByTestId("stat-objects-meshes")).toHaveText("5 / 2");
   expect(pageErrors).toEqual([]);
   return pageErrors;
 }
@@ -196,15 +196,15 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await setControlValueAndCommit(page.getByTestId("launcher-project-author"), "Stage5Artist");
     await page.getByTestId("btn-launcher-create").click();
 
-    // Verify we entered 3D Studio with real C++ MinimalCube scene (4 objects: Camera, Light, Ground, Cube)
+    // Verify we entered 3D Studio with real C++ MinimalCube scene (3 objects: Camera, Light, Cube — ground is procedural grid!)
     await expect(page.getByTestId("studio-shell")).toBeVisible();
     await expect(page.getByTestId("active-project-pill")).toHaveText("ArchCubeProject");
-    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("4 / 2");
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("3 / 1");
     await expect(page.getByTestId("outliner-item-Cube")).toBeVisible();
 
-    // Add a Sphere object (4 -> 5 objects) and return to Main Home
+    // Add a Sphere object (3 -> 4 objects) and return to Main Home
     await page.getByTestId("btn-add-sphere").click();
-    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("5 / 3");
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("4 / 2");
     await page.getByTestId("btn-go-home").click();
 
     await expect(page.getByTestId("home-screen")).toBeVisible();
@@ -221,13 +221,13 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await page.getByTestId("btn-launcher-create").click();
     await expect(page.getByTestId("stat-objects-meshes")).toHaveText("2 / 0");
 
-    // Return to Home and reopen "ArchCubeProject" from Recent Projects -> restores 5 objects!
+    // Return to Home and reopen "ArchCubeProject" from Recent Projects -> restores 4 objects!
     await page.getByTestId("btn-go-home").click();
     await expect(recentItems).toHaveCount(2);
     const archRow = recentItems.filter({ hasText: "ArchCubeProject" });
     await archRow.getByTestId("btn-reopen-recent").click();
     await expect(page.getByTestId("studio-shell")).toBeVisible();
-    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("5 / 3");
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("4 / 2");
 
     // Return to Home, test corrupted .fe3d file handling in Launcher
     await page.getByTestId("btn-go-home").click();
@@ -350,7 +350,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await page.getByTestId("btn-toggle-rig").click();
     await page.waitForTimeout(50);
 
-    await expect(page.getByTestId("outliner-item-GroundPlane")).toBeVisible();
+    await expect(page.getByTestId("outliner-item-GroundPlane")).toHaveCount(0);
     await expect(page.getByTestId("outliner-item-HeroCube")).toBeVisible();
 
     const initialPixels = await sampleViewportPixels(page);
@@ -378,7 +378,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
 
     // Add Cube, rename with viewport hotkey characters (focus guard), Duplicate, Delete, Undo/Redo
     await page.getByTestId("btn-add-cube").click();
-    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("7 / 3");
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("6 / 2");
     const nameInput = page.getByTestId("insp-name");
     await nameInput.click({ clickCount: 3 });
     await page.keyboard.press("Backspace");
@@ -388,17 +388,17 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await expect(page.getByTestId("vp-mode-pill")).toContainText("OBJECT · MOVE");
 
     await page.getByTestId("btn-duplicate").click();
-    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("8 / 3");
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("7 / 2");
     await expect(page.getByTestId("outliner-item-Pillar_WERF1234.001")).toBeVisible();
 
     await page.getByTestId("btn-delete").click();
-    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("7 / 3");
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("6 / 2");
     await page.getByTestId("btn-undo").click();
-    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("8 / 3");
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("7 / 2");
     await page.getByTestId("btn-undo").click();
-    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("7 / 3");
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("6 / 2");
     await page.getByTestId("btn-redo").click();
-    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("8 / 3");
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("7 / 2");
 
     // Cycle-safe parenting rejection
     await page.getByTestId("outliner-item-RigPivot").click();
@@ -426,7 +426,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     // Export .fe3d + .fe3dbin bundle, reset via File menu, and reload bundle
     await setControlValueAndCommit(page.getByTestId("meta-project-name"), "Stage5BundleTrip");
     await page.getByTestId("btn-add-sphere").click();
-    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("9 / 4");
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("8 / 3");
 
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "fe3d-s5-"));
     const bundleDownloads = [];
@@ -445,10 +445,10 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
 
     await page.getByTestId("menu-file").click();
     await page.getByTestId("btn-new-project").click();
-    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("6 / 3");
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("5 / 2");
 
     await page.locator("#file-open-input").setInputFiles(savedPaths);
-    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("9 / 4");
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("8 / 3");
     await expect(page.getByTestId("meta-project-name")).toHaveValue("Stage5BundleTrip");
 
     await fs.rm(tmpDir, { recursive: true, force: true });
@@ -1359,13 +1359,13 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
 
     // 5, 7, & 8. Multiple independent Cameras & Lights + Rename + Delete + Undo/Redo + .fe3d/.fe3dbin persistence without duplication
     await page.getByTestId("btn-add-camera").click();
-    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("7 / 3");
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("6 / 2");
     await setControlValueAndCommit(page.getByTestId("insp-name"), "KeyShotCam");
     await page.getByTestId("cam-projection").selectOption("orthographic");
     await expect(page.getByTestId("outliner-item-KeyShotCam")).toBeVisible();
 
     await page.getByTestId("btn-add-light").click();
-    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("8 / 3");
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("7 / 2");
     await setControlValueAndCommit(page.getByTestId("insp-name"), "RimLight");
     await setControlValueAndCommit(page.getByTestId("light-color"), "#4499ff");
     await setControlValueAndCommit(page.getByTestId("light-intensity"), "1.6");
@@ -1377,9 +1377,9 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
 
     // Delete RimLight -> disappears cleanly -> Undo restores RimLight & its 3D helper -> Redo -> Undo
     await page.getByTestId("btn-delete").click();
-    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("7 / 3");
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("6 / 2");
     await page.getByTestId("btn-undo").click();
-    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("8 / 3");
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("7 / 2");
     await expect(page.getByTestId("outliner-item-RimLight")).toBeVisible();
 
     // Save/Export .fe3d + .fe3dbin bundle, reset to New Project, and reopen -> ZERO duplicate cameras/lights!
@@ -1400,10 +1400,10 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
 
     await page.getByTestId("menu-file").click();
     await page.getByTestId("btn-new-project").click();
-    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("6 / 3");
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("5 / 2");
 
     await page.locator("#file-open-input").setInputFiles(bundlePaths);
-    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("8 / 3");
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("7 / 2");
     await expect(page.getByTestId("outliner-item-MainCamera")).toBeVisible();
     await expect(page.getByTestId("outliner-item-KeyShotCam")).toBeVisible();
     await expect(page.getByTestId("outliner-item-SunLight")).toBeVisible();
@@ -1844,6 +1844,232 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     });
 
     await mobileContext.close();
+  });
+
+  test("10. True Procedural Editor Viewport Grid: default XZ grid & axes, absent from Outliner, unselectable, user Plane preservation, View menu toggle safety, camera zoom/orbit & Persp/Ortho, final render & .fe3d exclusion, and helper/gizmo parity", async ({
+    browser,
+  }) => {
+    const outDir = process.env.FE3D_SCREENSHOT_DIR
+      ? path.resolve(process.env.FE3D_SCREENSHOT_DIR)
+      : path.resolve(process.cwd(), "../../build/ci-screenshots/editor-grid");
+    await fs.mkdir(outDir, { recursive: true });
+
+    const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    const page = await context.newPage();
+    await bootDirectStudioReady(page);
+    await page.getByTestId("btn-toggle-rig").click();
+    await page.waitForTimeout(50);
+
+    // (1) & (2): Default viewport displays procedural editor grid; NO GroundPlane or Grid object in Outliner!
+    await expect(page.getByTestId("outliner-item-GroundPlane")).toHaveCount(0);
+    const starterState = await page.evaluate(() => window.__FE3D_STUDIO__.getState());
+    expect(starterState.viewport.editor_grid_visible).toBe(true);
+    expect(starterState.stats.object_count).toBe(5);
+    expect(starterState.stats.mesh_count).toBe(2);
+    expect(starterState.stats.gpu_buffer_count).toBeLessThanOrEqual(4); // HeroCube + AccentPyramid + reusable helper/gizmo slots (zero grid mesh!)
+    expect(
+      starterState.objects.some((o) => /ground|grid/i.test(o.name))
+    ).toBe(false);
+
+    await page.screenshot({
+      path: path.join(outDir, "06-editor-grid-perspective-showcase-1920x1080.png"),
+    });
+
+    // Switch to Empty Stage (MainCamera + SunLight, 0 meshes) and hide scene helpers so ONLY the procedural grid renders:
+    await page.evaluate(() => {
+      window.__FE3D_STUDIO__.dispatch({
+        action: "new_project",
+        template: "empty_stage",
+        project_name: "ProceduralGridOnly",
+      });
+      window.__FE3D_STUDIO__.dispatch({ action: "set_editor_helpers_visible", visible: false });
+    });
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("2 / 0");
+
+    // Sample WebGL2 framebuffer: verify major/minor grid lines + distinct red X & blue Z world axes!
+    const analyzeGridFramebuffer = async () =>
+      page.evaluate(
+        () =>
+          new Promise((resolve) => {
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => {
+                const c = document.getElementById("fe3d-canvas");
+                const gl = c.getContext("webgl2");
+                const w = c.width;
+                const h = c.height;
+                const buf = new Uint8Array(w * h * 4);
+                gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+                // Top-left sky pixel (y = h - 4 in GL bottom-up coords) is pure clear background:
+                const bgOff = ((h - 4) * w + 4) * 4;
+                const bgR = buf[bgOff];
+                const bgG = buf[bgOff + 1];
+                const bgB = buf[bgOff + 2];
+                let gridPx = 0;
+                let redAxisPx = 0;
+                let blueAxisPx = 0;
+                let hash = 2166136261;
+                for (let i = 0; i < buf.length; i += 16) {
+                  const r = buf[i];
+                  const g = buf[i + 1];
+                  const b = buf[i + 2];
+                  const diff = Math.abs(r - bgR) + Math.abs(g - bgG) + Math.abs(b - bgB);
+                  if (diff >= 12) {
+                    gridPx++;
+                    if (r > b + 35 && r > g + 28) redAxisPx++;
+                    if (b > r + 35 && b > g + 10) blueAxisPx++;
+                  }
+                  hash ^= r ^ (g << 8) ^ (b << 16);
+                  hash = Math.imul(hash, 16777619);
+                }
+                resolve({ gridPx, redAxisPx, blueAxisPx, hash: hash >>> 0 });
+              })
+            );
+          })
+      );
+
+    const emptyGridStats = await analyzeGridFramebuffer();
+    expect(emptyGridStats.gridPx).toBeGreaterThan(250);
+    expect(emptyGridStats.redAxisPx).toBeGreaterThan(8);
+    expect(emptyGridStats.blueAxisPx).toBeGreaterThan(8);
+
+    await page.screenshot({
+      path: path.join(outDir, "07-editor-grid-empty-stage-axes-and-origin-1920x1080.png"),
+    });
+
+    // (3): Grid cannot be selected, transformed, or deleted as an object!
+    const canvas = page.getByTestId("viewport-canvas");
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+    await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.62);
+    await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: None");
+    await page.keyboard.press("Delete");
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("2 / 0");
+
+    // (8): Final scene render (renderFinalFrame) & .fe3d serialization MUST exclude the editor grid!
+    const finalRenderNonClear = await page.evaluate(() => {
+      const ok = window.__FE3D_STUDIO__.renderFinalFrame();
+      if (!ok) return -1;
+      const c = document.getElementById("fe3d-canvas");
+      const gl = c.getContext("webgl2");
+      const w = c.width;
+      const h = c.height;
+      const buf = new Uint8Array(w * h * 4);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+      const bgOff = ((h - 4) * w + 4) * 4;
+      const bgR = buf[bgOff];
+      const bgG = buf[bgOff + 1];
+      const bgB = buf[bgOff + 2];
+      let nonClear = 0;
+      for (let i = 0; i < buf.length; i += 16) {
+        if (Math.abs(buf[i] - bgR) + Math.abs(buf[i + 1] - bgG) + Math.abs(buf[i + 2] - bgB) >= 8) {
+          nonClear++;
+        }
+      }
+      return nonClear;
+    });
+    expect(finalRenderNonClear).toBe(0);
+
+    const exportedEmptyJson = JSON.parse(
+      await page.evaluate(() => window.__FE3D_STUDIO__.exportInlineProject())
+    );
+    expect(exportedEmptyJson.scene.meshes).toHaveLength(0);
+    expect(exportedEmptyJson.scene.objects).toHaveLength(2);
+
+    // (6) & (7): Grid follows camera navigation, zoom-adaptive LOD, and Perspective + Orthographic views!
+    await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
+    await page.mouse.wheel(0, -360);
+    const zoomedInGrid = await analyzeGridFramebuffer();
+    expect(zoomedInGrid.hash).not.toBe(emptyGridStats.hash);
+    expect(zoomedInGrid.gridPx).toBeGreaterThan(200);
+
+    // Switch to Orthographic & snap to Top (+Y) view via Navigation Gizmo:
+    await page.getByTestId("btn-nav-projection").click();
+    await expect(page.getByTestId("btn-nav-projection")).toHaveText("Ortho");
+    const ortho3dStats = await analyzeGridFramebuffer();
+    expect(ortho3dStats.gridPx).toBeGreaterThan(250);
+
+    const navLayout = await page.evaluate(() => window.__FE3D_STUDIO__.getNavGizmoLayout());
+    await page.mouse.click(navLayout.axes.pos_y.x, navLayout.axes.pos_y.y);
+    await expect
+      .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.view_transition_active))
+      .toBe(false);
+    const topOrthoStats = await analyzeGridFramebuffer();
+    expect(topOrthoStats.gridPx).toBeGreaterThan(300);
+    expect(topOrthoStats.redAxisPx).toBeGreaterThan(10);
+    expect(topOrthoStats.blueAxisPx).toBeGreaterThan(10);
+
+    // (4) & (5): Create a real user Plane object ('Add -> Mesh -> Grid Plane'), edit & persist it,
+    // and verify View -> Toggle Ground Grid hides ONLY the procedural grid without touching the Plane object!
+    await page.getByTestId("btn-nav-home").click();
+    await expect
+      .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.view_transition_active))
+      .toBe(false);
+    await page.getByTestId("btn-nav-projection").click();
+    await expect(page.getByTestId("btn-nav-projection")).toHaveText("Persp");
+
+    await page.getByTestId("btn-add-plane").click();
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("3 / 1");
+    await expect(page.getByTestId("outliner-item-Plane")).toBeVisible();
+    await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: Plane");
+
+    // Raise user Plane to Y = 0.65 so both user Plane mesh AND underlying Y = 0 procedural grid are distinct:
+    await setControlValueAndCommit(page.getByTestId("pos-y"), "0.65");
+    await page.screenshot({
+      path: path.join(outDir, "08-editor-grid-and-real-user-plane-mesh-1920x1080.png"),
+    });
+
+    const withGridAndPlane = await analyzeGridFramebuffer();
+    await page.getByTestId("menu-view").click();
+    await page.getByTestId("cmd-toggle-editor-grid").click();
+    await expect
+      .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.editor_grid_visible))
+      .toBe(false);
+
+    // User Plane object remains 100% visible, selected, and intact in Scene Outliner!
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("3 / 1");
+    await expect(page.getByTestId("outliner-item-Plane")).toBeVisible();
+    const planeOnlyStats = await analyzeGridFramebuffer();
+    expect(planeOnlyStats.hash).not.toBe(withGridAndPlane.hash);
+    expect(planeOnlyStats.gridPx).toBeGreaterThan(80); // Real Plane object still renders!
+
+    // Save inline .fe3d with user Plane + re-import -> user Plane preserved untouched!
+    const savedPlaneProject = await page.evaluate(() => window.__FE3D_STUDIO__.exportInlineProject());
+    await page.evaluate((json) => window.__FE3D_STUDIO__.importInlineProject(json), savedPlaneProject);
+    await expect(page.getByTestId("outliner-item-Plane")).toBeVisible();
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("3 / 1");
+
+    // Re-enable procedural grid via View -> Toggle Ground Grid & restore Scene Helpers (Scenario 9):
+    await page.getByTestId("menu-view").click();
+    await page.getByTestId("cmd-toggle-editor-grid").click();
+    await expect
+      .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.editor_grid_visible))
+      .toBe(true);
+    await page.getByTestId("menu-view").click();
+    await page.getByTestId("cmd-toggle-editor-helpers").click();
+
+    // Verify Transform Gizmo (+X Move handle) and SunLight helper still work cleanly alongside the grid:
+    const planeXBefore = await page.evaluate(() => window.__FE3D_STUDIO__.getState().inspector.position[0]);
+    const planeGx = await page.evaluate(() => {
+      const c = document.getElementById("fe3d-canvas");
+      const r = c.getBoundingClientRect();
+      const gh = window.__FE3D_STUDIO__.getState().editor.gizmo_handles_screen;
+      return {
+        x: r.left + gh.x[0] * (r.width / (c.width || r.width)),
+        y: r.top + gh.x[1] * (r.height / (c.height || r.height)),
+      };
+    });
+    await page.mouse.move(planeGx.x, planeGx.y);
+    await page.mouse.down({ button: "left" });
+    await page.mouse.move(planeGx.x + 60, planeGx.y, { steps: 6 });
+    await page.mouse.up({ button: "left" });
+    await expect
+      .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().inspector.position[0]))
+      .toBeGreaterThan(planeXBefore + 0.15);
+
+    await page.getByTestId("outliner-item-SunLight").click();
+    await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: SunLight");
+
+    await context.close();
   });
 });
 

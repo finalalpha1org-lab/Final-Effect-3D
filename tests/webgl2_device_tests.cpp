@@ -273,6 +273,40 @@ FE_TEST(WebGL2Device, GlslEs300ComplianceClearDepthfAndZeroLeakLifecycle) {
     FE_EXPECT_EQ(g_gles.live_shaders, 0);
 }
 
+FE_TEST(WebGL2, ProceduralEditorGridPassAndGlslEs300Validation) {
+    g_gles = MockGles3State{};
+    rendering::Renderer renderer(
+        std::make_unique<rendering::WebGL2RenderDevice>(&mockGles3Loader));
+    FE_REQUIRE_TRUE(renderer.initialize(960, 540).hasValue());
+
+    scene::Scene scene("WebGL2GridScene");
+    const rendering::ViewportGridOptions grid_visible{.enabled = true, .opacity = 1.0f, .focus_distance = 6.5f};
+    const rendering::ViewportGridOptions grid_hidden{.enabled = false, .opacity = 1.0f, .focus_distance = 6.5f};
+
+    FE_REQUIRE_TRUE(renderer.renderScene(scene, {}, {}, {}, nullptr, &grid_visible).hasValue());
+    FE_EXPECT_EQ(scene.objectCount(), std::size_t{0});
+    FE_EXPECT_EQ(scene.meshCount(), std::size_t{0});
+    FE_EXPECT_EQ(renderer.device().liveMeshCount(), std::size_t{0});
+    FE_EXPECT_EQ(g_gles.live_programs, 2);
+    FE_EXPECT_EQ(g_gles.uploaded_shader_sources.size(), std::size_t{4});
+    for (const auto& src : g_gles.uploaded_shader_sources) {
+        FE_EXPECT_TRUE(src.rfind("#version 300 es\n", 0) == 0);
+    }
+    FE_EXPECT_EQ(g_gles.draw_elements_calls, 1);
+
+    // Hidden grid and final scene render (nullptr grid_options) skip the grid pass completely.
+    FE_REQUIRE_TRUE(renderer.renderScene(scene, {}, {}, {}, nullptr, &grid_hidden).hasValue());
+    FE_EXPECT_EQ(g_gles.draw_elements_calls, 1);
+    FE_REQUIRE_TRUE(renderer.renderScene(scene).hasValue());
+    FE_EXPECT_EQ(g_gles.draw_elements_calls, 1);
+
+    renderer.shutdown();
+    FE_EXPECT_EQ(g_gles.live_vaos, 0);
+    FE_EXPECT_EQ(g_gles.live_buffers, 0);
+    FE_EXPECT_EQ(g_gles.live_programs, 0);
+    FE_EXPECT_EQ(g_gles.live_shaders, 0);
+}
+
 } // namespace
 
 int main(int argc, char** argv) {

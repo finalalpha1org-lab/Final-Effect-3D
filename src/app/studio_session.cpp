@@ -439,6 +439,24 @@ void StudioSession::setEditorHelpersVisible(bool visible) noexcept {
     ++interaction_revision_;
 }
 
+void StudioSession::setEditorGridVisible(bool visible) noexcept {
+    if (editor_grid_visible_ == visible) {
+        return;
+    }
+    editor_grid_visible_ = visible;
+    ++interaction_revision_;
+}
+
+core::Status StudioSession::renderFinalScene(const rendering::FrameClearDesc& clear) {
+    return renderer_.renderScene(
+        document_.scene,
+        clear,
+        scene::ObjectId{},
+        {},
+        nullptr,
+        nullptr);
+}
+
 void StudioSession::resetEditorViewportCamera() noexcept {
     view_transition_.active = false;
     math::Transform editor_eye{};
@@ -1383,19 +1401,31 @@ core::Status StudioSession::onUpdate(core::Engine&, const core::FrameTimings& ti
 
     rendering::ViewportCameraOverride cam_override{};
     const rendering::ViewportCameraOverride* override_ptr = nullptr;
+    float grid_focus_distance = camera_controller_.distance();
     if (!camera_view_active_) {
         const auto cam_st = activeCameraState();
         cam_override.camera_world = cam_st.camera_world;
         cam_override.camera = cam_st.camera;
         override_ptr = &cam_override;
+    } else {
+        const auto cam_st = activeCameraState();
+        const math::Vec3 cam_eye = cam_st.camera_world.transformPoint(math::Vec3::zero());
+        grid_focus_distance = std::max(cam_eye.length(), 1.0f);
     }
+
+    const rendering::ViewportGridOptions grid_options{
+        .enabled = editor_grid_visible_,
+        .opacity = 1.0f,
+        .focus_distance = grid_focus_distance,
+    };
 
     auto render_st = renderer_.renderScene(
         document_.scene,
         {},
         highlight_obj,
         std::span<const rendering::ViewportOverlayMesh>{overlays.data(), overlay_count},
-        override_ptr);
+        override_ptr,
+        &grid_options);
     if (!render_st) {
         return render_st;
     }

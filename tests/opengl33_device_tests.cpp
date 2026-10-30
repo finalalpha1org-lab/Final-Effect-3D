@@ -272,6 +272,45 @@ FE_TEST(OpenGL33Device, FailureHandlingAndZeroLeakLifecycle) {
     FE_EXPECT_EQ(g_gl.live_programs, 0);
 }
 
+FE_TEST(OpenGL33, ProceduralEditorGridPassAndZeroSceneMeshPollution) {
+    g_gl = MockGlState{};
+    rendering::Renderer renderer(
+        std::make_unique<rendering::OpenGL33RenderDevice>(&mockGlLoader));
+    FE_REQUIRE_TRUE(renderer.initialize(1280, 720).hasValue());
+
+    scene::Scene scene("GridScene");
+    const rendering::ViewportGridOptions grid_visible{.enabled = true, .opacity = 1.0f, .focus_distance = 6.5f};
+    const rendering::ViewportGridOptions grid_hidden{.enabled = false, .opacity = 1.0f, .focus_distance = 6.5f};
+
+    // Empty scene + visible procedural grid: 1 fullscreen pass draw, 0 SceneObjects, 0 scene GPU meshes!
+    FE_REQUIRE_TRUE(renderer.renderScene(scene, {}, {}, {}, nullptr, &grid_visible).hasValue());
+    FE_EXPECT_EQ(scene.objectCount(), std::size_t{0});
+    FE_EXPECT_EQ(scene.meshCount(), std::size_t{0});
+    FE_EXPECT_EQ(renderer.device().liveMeshCount(), std::size_t{0});
+    FE_EXPECT_EQ(g_gl.live_programs, 2); // 1 PBR program + 1 dedicated GLSL 330 procedural grid program
+    FE_EXPECT_EQ(g_gl.draw_elements_calls, 1);
+
+    // Hidden grid or final render (nullptr grid_options) issues zero draw calls on an empty scene.
+    FE_REQUIRE_TRUE(renderer.renderScene(scene, {}, {}, {}, nullptr, &grid_hidden).hasValue());
+    FE_EXPECT_EQ(g_gl.draw_elements_calls, 1);
+    FE_REQUIRE_TRUE(renderer.renderScene(scene).hasValue());
+    FE_EXPECT_EQ(g_gl.draw_elements_calls, 1);
+
+    // Orthographic camera override renders procedural grid cleanly too.
+    rendering::ViewportCameraOverride ortho_cam{};
+    ortho_cam.camera_world = math::Mat4::lookAtRH({0.0f, 8.0f, 0.001f}, math::Vec3::zero(), {0.0f, 0.0f, -1.0f}).inverted().value();
+    ortho_cam.camera.projection = scene::ProjectionType::Orthographic;
+    ortho_cam.camera.orthographic_height = 8.0f;
+    FE_REQUIRE_TRUE(renderer.renderScene(scene, {}, {}, {}, &ortho_cam, &grid_visible).hasValue());
+    FE_EXPECT_EQ(g_gl.draw_elements_calls, 2);
+
+    renderer.shutdown();
+    FE_EXPECT_EQ(g_gl.live_vaos, 0);
+    FE_EXPECT_EQ(g_gl.live_buffers, 0);
+    FE_EXPECT_EQ(g_gl.live_programs, 0);
+    FE_EXPECT_EQ(g_gl.live_shaders, 0);
+}
+
 } // namespace
 
 int main(int argc, char** argv) {

@@ -103,6 +103,17 @@ core::Status NullRenderDevice::beginFrame(const FrameClearDesc&) {
     return core::Status::ok();
 }
 
+core::Status NullRenderDevice::drawEditorGrid(const EditorGridCommand&) {
+    if (!initialized_ || !in_frame_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "drawEditorGrid called outside active frame");
+    }
+    if (width_ == 0 || height_ == 0) {
+        return core::Status::ok();
+    }
+    ++total_grid_passes_;
+    return core::Status::ok();
+}
+
 core::Status NullRenderDevice::beginOverlayPass(float) {
     if (!initialized_ || !in_frame_) {
         return core::Status::fail(core::ErrorCode::InvalidState, "beginOverlayPass called outside active frame");

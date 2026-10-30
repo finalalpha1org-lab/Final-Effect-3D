@@ -64,6 +64,7 @@ public:
     void setRigAnimationPlaying(bool playing) noexcept;
     void setCameraViewActive(bool active) noexcept;
     void setEditorHelpersVisible(bool visible) noexcept;
+    void setEditorGridVisible(bool visible) noexcept;
     void setViewportViewPreset(ViewportViewPreset preset, bool smooth = true) noexcept;
     void resetViewportHomeView(bool smooth = true) noexcept;
     void setViewportProjection(scene::ProjectionType projection) noexcept;

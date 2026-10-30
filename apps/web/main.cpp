@@ -644,6 +644,14 @@ EMSCRIPTEN_KEEPALIVE void fe3d_camera_zoom(double wheel_steps) {
     (void)g_web_ctx->session->zoomViewportCamera(static_cast<float>(wheel_steps));
 }
 
+EMSCRIPTEN_KEEPALIVE int fe3d_render_final_frame() {
+    if (g_web_ctx == nullptr || g_web_ctx->session == nullptr) {
+        return 0;
+    }
+    const auto st = g_web_ctx->session->renderFinalScene();
+    return st ? 1 : 0;
+}
+
 } // extern "C"
 
 int main() {

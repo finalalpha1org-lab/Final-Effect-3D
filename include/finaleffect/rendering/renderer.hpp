@@ -48,7 +48,8 @@ public:
         const FrameClearDesc& clear = {},
         scene::ObjectId selected_object = {},
         std::span<const ViewportOverlayMesh> overlays = {},
-        const ViewportCameraOverride* camera_override = nullptr);
+        const ViewportCameraOverride* camera_override = nullptr,
+        const ViewportGridOptions* grid_options = nullptr);
 
     void releaseSceneResources() noexcept;
 

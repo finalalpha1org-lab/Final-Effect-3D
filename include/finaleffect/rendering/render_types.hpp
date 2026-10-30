@@ -87,4 +87,48 @@ struct DrawMeshCommand {
     std::uint32_t index_count{0}; // 0 draws entire index buffer from index_offset
 };
 
+// Viewport-only procedural ground grid options (never part of Scene or serialized geometry).
+struct ViewportGridOptions {
+    bool enabled{true};
+    float base_scale{1.0f};
+    float opacity{1.0f};
+    // Optional camera-to-pivot focus distance hint for horizon-stable Perspective zoom scaling.
+    float focus_distance{0.0f};
+};
+
+// Camera-relative procedural XZ ground grid draw parameters shared across CPU, OpenGL 3.3, and WebGL 2.0.
+struct EditorGridCommand {
+    math::Vec3 camera_position{0.0f, 2.95f, 6.10f};
+    math::Vec3 camera_right{1.0f, 0.0f, 0.0f};
+    math::Vec3 camera_up{0.0f, 1.0f, 0.0f};
+    math::Vec3 camera_forward{0.0f, 0.0f, -1.0f};
+
+    bool is_orthographic{false};
+    bool zero_to_one_depth{false};
+
+    // Frustum ray extents: tan(fov_x/2), tan(fov_y/2) for Perspective; half_width, half_height for Orthographic.
+    float frustum_half_x{0.6f};
+    float frustum_half_y{0.4f};
+
+    // Projection depth row coefficients: clip_z = proj_22 * (-t) + proj_23.
+    float proj_22{-1.001f};
+    float proj_23{-0.2001f};
+
+    // Continuous 3-cascade decade LOD steps: 10^(L0-1), 10^L0, 10^(L0+1) and fractional blend f in [0, 1).
+    float step_fine{0.1f};
+    float step_minor{1.0f};
+    float step_major{10.0f};
+    float level_blend{0.0f};
+    float fade_distance{80.0f};
+
+    // Double-precision pre-wrapped camera ground phases fmod(camera_xz, step_k) for large-coordinate stability.
+    math::Vec3 phase_x{0.0f, 0.0f, 0.0f};
+    math::Vec3 phase_z{0.0f, 0.0f, 0.0f};
+
+    // Clamped world-origin camera XZ offset for X/Z principal axes and (0,0,0) origin marker.
+    float axis_cam_x{0.0f};
+    float axis_cam_z{0.0f};
+    float opacity{1.0f};
+};
+
 } // namespace finaleffect::rendering

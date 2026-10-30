@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Final Effect 3D Contributors
 
 #include "finaleffect/rendering/renderer.hpp"
+#include "finaleffect/rendering/editor_grid.hpp"
 
 #include <algorithm>
 #include <utility>
@@ -208,7 +209,8 @@ core::Status Renderer::renderScene(
     const FrameClearDesc& clear,
     scene::ObjectId selected_object,
     std::span<const ViewportOverlayMesh> overlays,
-    const ViewportCameraOverride* camera_override) {
+    const ViewportCameraOverride* camera_override,
+    const ViewportGridOptions* grid_options) {
     if (!initialized_) {
         return core::Status::fail(core::ErrorCode::InvalidState, "Renderer::renderScene called before initialize");
     }
@@ -379,6 +381,25 @@ core::Status Renderer::renderScene(
                     (void)device_->endFrame();
                     return st;
                 }
+            }
+        }
+    }
+
+    // Dedicated viewport-only procedural XZ ground grid pass (Y = 0).
+    // Never creates SceneObjects or mesh assets; depth-tested against opaque scene meshes without
+    // modifying the depth buffer; omitted completely when grid_options == nullptr (final scene renders).
+    if (grid_options != nullptr) {
+        const auto grid_cmd = buildEditorGridCommand(
+            view_matrix,
+            proj_matrix,
+            camera_pos,
+            device_->capabilities().clip_space_depth,
+            *grid_options);
+        if (grid_cmd.has_value()) {
+            auto grid_st = device_->drawEditorGrid(*grid_cmd);
+            if (!grid_st) {
+                (void)device_->endFrame();
+                return grid_st;
             }
         }
     }

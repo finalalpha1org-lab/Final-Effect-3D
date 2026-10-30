@@ -3,6 +3,7 @@
 
 #include "finaleffect/rendering/software_render_device.hpp"
 #include "finaleffect/math/constants.hpp"
+#include "finaleffect/rendering/editor_grid.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -247,6 +248,59 @@ core::Status SoftwareRenderDevice::beginFrame(const FrameClearDesc& clear) {
     };
     std::fill(color_buffer_.begin(), color_buffer_.end(), clear_px);
     std::fill(depth_buffer_.begin(), depth_buffer_.end(), clear.clear_depth);
+    return core::Status::ok();
+}
+
+core::Status SoftwareRenderDevice::drawEditorGrid(const EditorGridCommand& command) {
+    if (!initialized_ || !in_frame_) {
+        return core::Status::fail(
+            core::ErrorCode::InvalidState,
+            "SoftwareRenderDevice::drawEditorGrid called outside active frame");
+    }
+    if (width_ == 0 || height_ == 0 || command.opacity <= 1.0e-4f) {
+        return core::Status::ok();
+    }
+
+    const float inv_w = 1.0f / static_cast<float>(width_);
+    const float inv_h = 1.0f / static_cast<float>(height_);
+    const float dx_ndc = 2.0f * inv_w;
+    const float dy_ndc = 2.0f * inv_h;
+    const bool unrolled_persp =
+        (!command.is_orthographic) && (std::fabs(command.camera_right.y) <= 1.0e-5f);
+
+    for (std::uint32_t py = 0; py < height_; ++py) {
+        const float ndc_y = 1.0f - (static_cast<float>(py) + 0.5f) * dy_ndc;
+        if (unrolled_persp) {
+            const float row_dy =
+                command.camera_forward.y + command.camera_up.y * (ndc_y * command.frustum_half_y);
+            if (std::fabs(row_dy) <= 1.0e-6f || (-command.camera_position.y / row_dy) <= 0.0f) {
+                continue;
+            }
+        }
+
+        const std::size_t row_offset = static_cast<std::size_t>(py) * static_cast<std::size_t>(width_);
+        for (std::uint32_t px = 0; px < width_; ++px) {
+            const float ndc_x = (static_cast<float>(px) + 0.5f) * dx_ndc - 1.0f;
+            const EditorGridPixelSample sample =
+                evaluateEditorGridAtNdc(ndc_x, ndc_y, dx_ndc, dy_ndc, command);
+            if (!sample.visible) {
+                continue;
+            }
+            const std::size_t idx = row_offset + static_cast<std::size_t>(px);
+            if (sample.window_depth >= depth_buffer_[idx]) {
+                continue;
+            }
+            const Rgba8 dst = color_buffer_[idx];
+            const float a = sample.alpha;
+            const float inv_a = 1.0f - a;
+            color_buffer_[idx] = Rgba8{
+                floatToByte(sample.color.x * a + (static_cast<float>(dst.r) / 255.0f) * inv_a),
+                floatToByte(sample.color.y * a + (static_cast<float>(dst.g) / 255.0f) * inv_a),
+                floatToByte(sample.color.z * a + (static_cast<float>(dst.b) / 255.0f) * inv_a),
+                255,
+            };
+        }
+    }
     return core::Status::ok();
 }
 

@@ -4,7 +4,6 @@
 #include "finaleffect/app/starter_scene.hpp"
 #include "finaleffect/math/constants.hpp"
 #include "finaleffect/scene/editable_mesh.hpp"
-#include "finaleffect/scene/primitives.hpp"
 
 #include <cmath>
 
@@ -23,11 +22,6 @@ core::Result<StarterSceneHandles> populateStarterScene(scene::Scene& scene) {
         "AccentPyramidMesh",
         scene::EditableMesh::createPyramid(0.85f, 1.15f, math::Vec3{0.20f, 0.68f, 0.88f}));
     if (!pyramid_mesh) return pyramid_mesh.error();
-
-    auto ground_mesh = scene.registerMesh(
-        "StudioGroundMesh",
-        scene::Primitives::createCheckerPlane(4.5f, 6));
-    if (!ground_mesh) return ground_mesh.error();
 
     // Register starter PBR materials for immediate metallic-roughness editing & preview.
     auto copper_mat = scene.createMaterial(scene::PbrMaterial{
@@ -59,12 +53,6 @@ core::Result<StarterSceneHandles> populateStarterScene(scene::Scene& scene) {
     if (!glass_mat) return glass_mat.error();
 
     StarterSceneHandles handles{};
-
-    // Ground plane at y = 0.
-    auto ground_res = scene.createObject("GroundPlane");
-    if (!ground_res) return ground_res.error();
-    handles.ground_plane = ground_res.value();
-    if (auto st = scene.assignMesh(handles.ground_plane, ground_mesh.value()); !st) return st.error();
 
     // Hierarchical rig pivot at center.
     auto pivot_res = scene.createObject("RigPivot");

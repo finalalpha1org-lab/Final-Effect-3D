@@ -42,6 +42,7 @@ public:
     void destroyMesh(GpuMeshHandle handle) noexcept override;
 
     [[nodiscard]] core::Status beginFrame(const FrameClearDesc& clear) override;
+    [[nodiscard]] core::Status drawEditorGrid(const EditorGridCommand& command) override;
     [[nodiscard]] core::Status beginOverlayPass(float clear_depth = 1.0f) override;
     [[nodiscard]] core::Status drawMesh(const DrawMeshCommand& command) override;
     [[nodiscard]] core::Status endFrame() override;

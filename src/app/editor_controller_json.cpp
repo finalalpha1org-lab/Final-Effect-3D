@@ -165,6 +165,7 @@ std::string EditorController::serializeStateJson() const {
     vp.setKey("rig_playing", session_.isRigAnimationEnabled());
     vp.setKey("camera_view_active", session_.isCameraViewActive());
     vp.setKey("editor_helpers_visible", session_.areEditorHelpersVisible());
+    vp.setKey("editor_grid_visible", session_.isEditorGridVisible());
     vp.setKey("projection",
               (cam_st.camera.projection == scene::ProjectionType::Orthographic)
                   ? "orthographic"
@@ -177,6 +178,7 @@ std::string EditorController::serializeStateJson() const {
     vp.setKey("view_transition_active", session_.isViewTransitionActive());
     vp.setKey("active_camera_id", scene.activeCamera().value);
     vp.setKey("selected_object_id", session_.selectedObject().value);
+    vp.setKey("camera_position", vec3ToJson(cam_eye));
     vp.setKey("camera_target", vec3ToJson(session_.cameraController().target()));
     vp.setKey("camera_distance", static_cast<double>(session_.cameraController().distance()));
     vp.setKey("camera_yaw_deg", static_cast<double>(math::radToDeg(session_.cameraController().yawRadians())));
@@ -1097,6 +1099,22 @@ core::Status EditorController::executeActionJson(std::string_view action_json) {
 
     if (action == "toggle_editor_helpers") {
         setEditorHelpersVisible(!session_.areEditorHelpersVisible());
+        return core::Status::ok();
+    }
+
+    if (action == "set_editor_grid_visible") {
+        const auto* vv = cmd.findKey("visible");
+        if (vv == nullptr || !vv->isBool()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing boolean 'visible'");
+            recordStatus(st, {});
+            return st;
+        }
+        setEditorGridVisible(vv->asBool());
+        return core::Status::ok();
+    }
+
+    if (action == "toggle_editor_grid") {
+        setEditorGridVisible(!session_.isEditorGridVisible());
         return core::Status::ok();
     }
 

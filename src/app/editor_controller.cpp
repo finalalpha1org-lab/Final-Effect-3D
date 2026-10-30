@@ -5,7 +5,6 @@
 #include "finaleffect/core/version.hpp"
 #include "finaleffect/math/constants.hpp"
 #include "finaleffect/scene/editable_mesh.hpp"
-#include "finaleffect/scene/primitives.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -176,6 +175,15 @@ void EditorController::setEditorHelpersVisible(bool visible) noexcept {
     last_status_message_ = visible
                                ? "Shown camera & light viewport helpers"
                                : "Hidden camera & light viewport helpers";
+}
+
+void EditorController::setEditorGridVisible(bool visible) noexcept {
+    session_.setEditorGridVisible(visible);
+    ++state_revision_;
+    last_status_is_error_ = false;
+    last_status_message_ = visible
+                               ? "Shown viewport ground grid"
+                               : "Hidden viewport ground grid";
 }
 
 void EditorController::setViewportViewPreset(ViewportViewPreset preset, bool smooth) noexcept {
@@ -832,7 +840,7 @@ core::Result<scene::MeshId> EditorController::ensurePresetMesh(ScenePreset prese
     switch (preset) {
         case ScenePreset::Cube:    target_name = "HeroCubeMesh"; break;
         case ScenePreset::Pyramid: target_name = "AccentPyramidMesh"; break;
-        case ScenePreset::Plane:   target_name = "StudioGroundMesh"; break;
+        case ScenePreset::Plane:   target_name = "StudioPlaneMesh"; break;
         case ScenePreset::Sphere:  target_name = "StudioSphereMesh"; break;
         default:
             return core::Result<scene::MeshId>::fail(core::ErrorCode::InvalidArgument, "Not a mesh preset");
@@ -1323,13 +1331,6 @@ core::Status EditorController::createNewProject(
     scene::MaterialId default_mat{};
 
     if (tmpl == ProjectTemplate::MinimalCube) {
-        auto ground_mesh = sc.registerMesh(
-            "StudioGroundMesh", scene::Primitives::createCheckerPlane(4.5f, 6));
-        auto ground_obj = sc.createObject("GroundPlane");
-        if (ground_mesh && ground_obj) {
-            (void)sc.assignMesh(ground_obj.value(), ground_mesh.value());
-        }
-
         auto neutral_mat = sc.createMaterial(scene::PbrMaterial{
             .name = "Studio Clay",
             .base_color = {0.76f, 0.78f, 0.82f},
@@ -1352,13 +1353,6 @@ core::Status EditorController::createNewProject(
             default_selected = cube_obj.value();
         }
     } else if (tmpl == ProjectTemplate::ShaderBall) {
-        auto ground_mesh = sc.registerMesh(
-            "StudioGroundMesh", scene::Primitives::createCheckerPlane(4.5f, 6));
-        auto ground_obj = sc.createObject("GroundPlane");
-        if (ground_mesh && ground_obj) {
-            (void)sc.assignMesh(ground_obj.value(), ground_mesh.value());
-        }
-
         auto gold_mat = sc.createMaterial(scene::PbrMaterial{
             .name = "Brushed Gold",
             .base_color = {0.96f, 0.76f, 0.28f},
