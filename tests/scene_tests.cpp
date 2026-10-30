@@ -1,192 +1,170 @@
-// SPDX-License-Identifier: GPL-3.0-only
-#include <cstdint>
-#include <string>
-#include <vector>
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Final Effect 3D Contributors
 
-#include "TestFramework.hpp"
-#include "finaleffect/scene/Scene.hpp"
+#include "test_harness.hpp"
+
+#include "finaleffect/math/constants.hpp"
+#include "finaleffect/scene/picking.hpp"
+#include "finaleffect/scene/primitives.hpp"
+#include "finaleffect/scene/scene.hpp"
+
+#include <limits>
 
 namespace {
-using fe::scene::ObjectId;
-using fe::scene::Scene;
-using fe::scene::SceneObject;
-}  // namespace
 
-FE3D_TEST(scene, create_lookup_and_count) {
-    Scene scene;
-    FE3D_CHECK_EQ(scene.objectCount(), std::size_t(0));
-    FE3D_CHECK(scene.roots().empty());
+using namespace finaleffect;
+using namespace finaleffect::scene;
 
-    const fe::core::Result<ObjectId> first = scene.createObject("Camera");
-    const fe::core::Result<ObjectId> second = scene.createObject("Cube");
-    FE3D_REQUIRE(first.ok());
-    FE3D_REQUIRE(second.ok());
-    FE3D_CHECK(first.value() != second.value());
-    FE3D_CHECK_EQ(scene.objectCount(), std::size_t(2));
-    FE3D_CHECK_EQ(scene.roots().size(), std::size_t(2));
+FE_TEST(Scene, ObjectCreationLookupAndSharedMeshes) {
+    Scene scene("Studio Scene");
+    FE_EXPECT_EQ(scene.name(), std::string("Studio Scene"));
 
-    FE3D_REQUIRE(scene.find(first.value()) != nullptr);
-    FE3D_CHECK_EQ(scene.find(first.value())->name, std::string("Camera"));
-    FE3D_CHECK(scene.contains(second.value()));
-    FE3D_CHECK(!scene.contains(ObjectId{9999}));
-    FE3D_CHECK(scene.find(ObjectId{9999}) == nullptr);
-    FE3D_CHECK(!scene.createObject("").ok());
-    FE3D_CHECK(!scene.createObject("Orphan", ObjectId{4242}).ok());
+    const auto cube_mesh_res = scene.registerMesh("UnitCube", Primitives::createCube(1.0f));
+    FE_REQUIRE_TRUE(cube_mesh_res.hasValue());
+    const MeshId cube_id = cube_mesh_res.value();
+
+    const auto a_res = scene.createObject("CubeInstanceA");
+    const auto b_res = scene.createObject("CubeInstanceB");
+    FE_REQUIRE_TRUE(a_res.hasValue());
+    FE_REQUIRE_TRUE(b_res.hasValue());
+    FE_EXPECT_TRUE(a_res.value() != b_res.value());
+
+    FE_REQUIRE_TRUE(scene.assignMesh(a_res.value(), cube_id).hasValue());
+    FE_REQUIRE_TRUE(scene.assignMesh(b_res.value(), cube_id).hasValue());
+
+    // Dangling mesh ID must be rejected.
+    FE_EXPECT_EQ(scene.assignMesh(a_res.value(), MeshId{9999}).error().code, core::ErrorCode::NotFound);
+
+    const auto* found = scene.findObjectByName("CubeInstanceB");
+    FE_REQUIRE_TRUE(found != nullptr);
+    FE_EXPECT_EQ(found->id, b_res.value());
+    FE_REQUIRE_TRUE(found->mesh_id.has_value());
+    FE_EXPECT_EQ(found->mesh_id.value(), cube_id);
+
+    // Two object instances sharing one mesh asset only allocate CPU vertex storage once.
+    const auto stats = scene.collectResourceStats();
+    FE_EXPECT_EQ(stats.scene_object_count, static_cast<std::size_t>(2));
+    FE_EXPECT_EQ(stats.mesh_asset_count, static_cast<std::size_t>(1));
+    FE_EXPECT_EQ(stats.total_cpu_vertices, static_cast<std::size_t>(24));
+    FE_EXPECT_EQ(stats.total_cpu_indices, static_cast<std::size_t>(36));
 }
 
-FE3D_TEST(scene, hierarchy_parenting_and_world_matrices) {
+FE_TEST(Scene, HierarchyWorldMatrixAndCycleRejection) {
     Scene scene;
-    const ObjectId parent = scene.createObject("Parent").value();
-    const ObjectId child = scene.createObject("Child", parent).value();
-    const ObjectId grandChild = scene.createObject("GrandChild", child).value();
 
-    scene.find(parent)->localTransform.position = fe::math::Vec3(1.0F, 0.0F, 0.0F);
-    scene.find(child)->localTransform.position = fe::math::Vec3(0.0F, 2.0F, 0.0F);
-    scene.find(grandChild)->localTransform.position = fe::math::Vec3(0.0F, 0.0F, 3.0F);
+    const auto root_id = scene.createObject("Root").value();
+    const auto arm_id = scene.createObject("Arm", root_id).value();
+    const auto tip_id = scene.createObject("Tip", arm_id).value();
 
-    FE3D_CHECK_EQ(scene.find(parent)->children.size(), std::size_t(1));
-    FE3D_CHECK_EQ(scene.find(child)->children.size(), std::size_t(1));
-    FE3D_CHECK_EQ(scene.roots().size(), std::size_t(1));
-    FE3D_CHECK_EQ(scene.depthOf(parent), std::size_t(0));
-    FE3D_CHECK_EQ(scene.depthOf(grandChild), std::size_t(2));
-    FE3D_CHECK(scene.isAncestorOf(parent, grandChild));
-    FE3D_CHECK(!scene.isAncestorOf(grandChild, parent));
+    math::Transform root_tf;
+    root_tf.position = {10.0f, 0.0f, 0.0f};
+    root_tf.rotation = math::Quat::fromAxisAngle(math::Vec3::unitY(), math::kHalfPi);
+    FE_REQUIRE_TRUE(scene.setObjectTransform(root_id, root_tf).hasValue());
 
-    const fe::math::Vec3 world = scene.worldMatrix(grandChild).translation();
-    FE3D_CHECK(world.isApprox(fe::math::Vec3(1.0F, 2.0F, 3.0F), 1.0e-4F));
+    math::Transform arm_tf;
+    arm_tf.position = {0.0f, 2.0f, -3.0f};
+    FE_REQUIRE_TRUE(scene.setObjectTransform(arm_id, arm_tf).hasValue());
 
-    // Rotation of a parent must move the child's world position.
-    scene.find(parent)->localTransform.rotation = fe::math::Quat::fromAxisAngle(fe::math::Vec3::unitY(), 1.5707963F);
-    // Rotating the parent by +90 degrees about +Y maps the grandchild's local +Z
-    // offset onto +X: (1,0,0) + (0,2,0) + (3,0,0) = (4,2,0).
-    const fe::math::Vec3 rotated = scene.worldMatrix(grandChild).translation();
-    FE3D_CHECK(rotated.isApprox(fe::math::Vec3(4.0F, 2.0F, 0.0F), 1.0e-3F));
+    math::Transform tip_tf;
+    tip_tf.position = {1.0f, 0.0f, 0.0f};
+    FE_REQUIRE_TRUE(scene.setObjectTransform(tip_id, tip_tf).hasValue());
+
+    const auto tip_world_res = scene.computeWorldMatrix(tip_id);
+    FE_REQUIRE_TRUE(tip_world_res.hasValue());
+
+    // Local (0,0,0) of Tip -> Arm space (1, 0, 0) -> Root space (1, 2, -3)
+    // Rotated +90 deg around Y: (1, 2, -3) -> (-3, 2, -1), plus root translation (10, 0, 0) = (7, 2, -1).
+    const math::Vec3 tip_origin = tip_world_res.value().transformPoint(math::Vec3::zero());
+    FE_EXPECT_TRUE(tip_origin.approxEqual(math::Vec3{7.0f, 2.0f, -1.0f}, 1e-4f));
+
+    // Self-parenting and ancestor cycles must be rejected without mutating hierarchy.
+    FE_EXPECT_EQ(scene.setParent(root_id, root_id).error().code, core::ErrorCode::HierarchyCycle);
+    FE_EXPECT_EQ(scene.setParent(root_id, tip_id).error().code, core::ErrorCode::HierarchyCycle);
+    FE_EXPECT_EQ(scene.setParent(arm_id, tip_id).error().code, core::ErrorCode::HierarchyCycle);
+
+    // Non-finite transform must be rejected.
+    math::Transform bad_tf;
+    bad_tf.position = {std::numeric_limits<float>::quiet_NaN(), 0.0f, 0.0f};
+    FE_EXPECT_EQ(scene.setObjectTransform(tip_id, bad_tf).error().code, core::ErrorCode::ValidationError);
 }
 
-FE3D_TEST(scene, reparenting_rules_and_cycles) {
+FE_TEST(Scene, RemovalModesAndCameraInvariants) {
     Scene scene;
-    const ObjectId a = scene.createObject("A").value();
-    const ObjectId b = scene.createObject("B").value();
-    const ObjectId c = scene.createObject("C", b).value();
+    const auto parent = scene.createObject("Parent").value();
+    const auto mid = scene.createObject("Middle", parent).value();
+    const auto cam_obj = scene.createObject("CameraChild", mid).value();
 
-    FE3D_CHECK(scene.setParent(c, a).ok());
-    FE3D_CHECK_EQ(scene.find(b)->children.size(), std::size_t(0));
-    FE3D_CHECK_EQ(scene.find(a)->children.size(), std::size_t(1));
+    // Setting active camera before CameraComponent is attached must fail.
+    FE_EXPECT_EQ(scene.setActiveCamera(cam_obj).error().code, core::ErrorCode::ValidationError);
 
-    const fe::core::Status selfParent = scene.setParent(a, a);
-    FE3D_CHECK(!selfParent.ok());
-    FE3D_CHECK(selfParent.error().code() == fe::core::ErrorCode::CycleDetected);
+    CameraComponent cam;
+    cam.fov_y_radians = math::degToRad(60.0f);
+    FE_REQUIRE_TRUE(scene.assignCamera(cam_obj, cam).hasValue());
+    FE_REQUIRE_TRUE(scene.setActiveCamera(cam_obj).hasValue());
+    FE_EXPECT_EQ(scene.activeCamera(), cam_obj);
 
-    FE3D_CHECK(scene.setParent(b, c).ok());       // c is a child of a, so b under c is fine
-    const fe::core::Status cycle = scene.setParent(a, b);  // a -> c -> b, so b under a is a cycle
-    FE3D_CHECK(!cycle.ok());
-    FE3D_CHECK(cycle.error().code() == fe::core::ErrorCode::CycleDetected);
+    // ReparentChildren removal of Middle promotes CameraChild under Parent and keeps active camera valid.
+    FE_REQUIRE_TRUE(scene.removeObject(mid, RemovalMode::ReparentChildren).hasValue());
+    FE_EXPECT_TRUE(scene.findObject(mid) == nullptr);
+    FE_REQUIRE_TRUE(scene.findObject(cam_obj) != nullptr);
+    FE_EXPECT_EQ(scene.findObject(cam_obj)->parent_id, parent);
+    FE_EXPECT_EQ(scene.activeCamera(), cam_obj);
 
-    FE3D_CHECK(!scene.setParent(ObjectId{7}, a).ok());
-    FE3D_CHECK(!scene.setParent(a, ObjectId{7}).ok());
-    // Failed reparenting must not modify the hierarchy.
-    FE3D_CHECK_EQ(scene.find(a)->parent.value, std::uint64_t(0));
-    FE3D_CHECK(scene.setParent(c, a).ok());  // re-assigning the current parent is a no-op
-    FE3D_CHECK_EQ(scene.find(a)->children.size(), std::size_t(1));
-    FE3D_CHECK(scene.isAncestorOf(a, c));
-    // Moving a subtree back to the root keeps it reachable but detached.
-    FE3D_CHECK(scene.setParent(c, fe::scene::kInvalidObjectId).ok());
-    FE3D_CHECK_EQ(scene.roots().size(), std::size_t(2));
-    FE3D_CHECK(!scene.isAncestorOf(a, c));
-    FE3D_CHECK(scene.isAncestorOf(c, b));
-    FE3D_CHECK(scene.validate().ok());
+    // Recursive removal of Parent destroys CameraChild and clears activeCamera automatically.
+    FE_REQUIRE_TRUE(scene.removeObject(parent, RemovalMode::Recursive).hasValue());
+    FE_EXPECT_EQ(scene.objectCount(), static_cast<std::size_t>(0));
+    FE_EXPECT_FALSE(scene.activeCamera().isValid());
 }
 
-FE3D_TEST(scene, destroy_removes_descendants_and_keeps_other_objects) {
+FE_TEST(Scene, MeshValidationRejectsOutOfBoundsIndices) {
+    MeshData invalid_mesh;
+    invalid_mesh.vertices.push_back(Vertex{});
+    invalid_mesh.vertices.push_back(Vertex{});
+    invalid_mesh.vertices.push_back(Vertex{});
+    invalid_mesh.indices = {0, 1, 5}; // index 5 out of range
+
     Scene scene;
-    const ObjectId root = scene.createObject("Root").value();
-    const ObjectId child = scene.createObject("Child", root).value();
-    const ObjectId grandChild = scene.createObject("GrandChild", child).value();
-    const ObjectId keeper = scene.createObject("Keeper").value();
-
-    FE3D_CHECK(scene.destroyObject(child).ok());
-    FE3D_CHECK_EQ(scene.objectCount(), std::size_t(2));
-    FE3D_CHECK(!scene.contains(child));
-    FE3D_CHECK(!scene.contains(grandChild));
-    FE3D_CHECK(scene.contains(root));
-    FE3D_CHECK(scene.contains(keeper));
-    FE3D_CHECK_EQ(scene.find(root)->children.size(), std::size_t(0));
-
-    FE3D_CHECK(!scene.destroyObject(child).ok());
-    FE3D_CHECK(scene.destroyObject(root).ok());
-    FE3D_CHECK_EQ(scene.objectCount(), std::size_t(1));
-
-    // Identifiers are never reused.
-    const ObjectId fresh = scene.createObject("Fresh").value();
-    FE3D_CHECK(fresh.value > grandChild.value);
-
-    scene.clear();
-    FE3D_CHECK_EQ(scene.objectCount(), std::size_t(0));
+    const auto res = scene.registerMesh("Broken", std::move(invalid_mesh));
+    FE_REQUIRE_TRUE(res.isError());
+    FE_EXPECT_EQ(res.error().code, core::ErrorCode::ValidationError);
 }
 
-FE3D_TEST(scene, validate_detects_broken_data) {
-    Scene healthy;
-    const ObjectId parent = healthy.createObject("Parent").value();
-    (void)healthy.createObject("Child", parent);
-    FE3D_CHECK(healthy.validate().ok());
+FE_TEST(Scene, RaycastPickingFindsClosestVisibleHierarchicalMesh) {
+    Scene scene;
+    const auto cube_mesh = scene.registerMesh("Cube", Primitives::createCube(2.0f)).value();
 
-    std::vector<SceneObject> objects;
-    SceneObject first;
-    first.id = ObjectId{1};
-    first.name = "First";
-    objects.push_back(first);
-    SceneObject duplicate;
-    duplicate.id = ObjectId{1};
-    duplicate.name = "Duplicate";
-    objects.push_back(duplicate);
-    const fe::core::Result<Scene> duplicated = Scene::fromObjects(objects);
-    FE3D_CHECK(!duplicated.ok());
-    FE3D_CHECK(duplicated.error().code() == fe::core::ErrorCode::ValidationFailed);
+    const auto pivot = scene.createObject("Pivot").value();
+    math::Transform pivot_tf;
+    pivot_tf.position = {0.0f, 0.0f, -5.0f};
+    FE_REQUIRE_TRUE(scene.setObjectTransform(pivot, pivot_tf).hasValue());
 
-    std::vector<SceneObject> dangling;
-    SceneObject orphan;
-    orphan.id = ObjectId{5};
-    orphan.name = "Orphan";
-    orphan.parent = ObjectId{4};
-    dangling.push_back(orphan);
-    const fe::core::Result<Scene> orphaned = Scene::fromObjects(dangling);
-    FE3D_CHECK(!orphaned.ok());
-    FE3D_CHECK(orphaned.error().message().find("unknown parent") != std::string::npos);
+    const auto far_cube = scene.createObject("FarCube", pivot).value();
+    FE_REQUIRE_TRUE(scene.assignMesh(far_cube, cube_mesh).hasValue());
 
-    std::vector<SceneObject> cycle;
-    SceneObject one;
-    one.id = ObjectId{1};
-    one.name = "One";
-    one.parent = ObjectId{2};
-    SceneObject two;
-    two.id = ObjectId{2};
-    two.name = "Two";
-    two.parent = ObjectId{1};
-    cycle.push_back(one);
-    cycle.push_back(two);
-    const fe::core::Result<Scene> cyclic = Scene::fromObjects(cycle);
-    FE3D_CHECK(!cyclic.ok());
-    FE3D_CHECK(cyclic.error().code() == fe::core::ErrorCode::ValidationFailed);
+    const auto near_cube = scene.createObject("NearCube").value();
+    math::Transform near_tf;
+    near_tf.position = {0.0f, 0.0f, -2.0f};
+    near_tf.scale = {0.5f, 2.0f, 0.5f}; // Non-uniform scale: half-depth along Z is 0.5 -> front face at z = -1.5.
+    FE_REQUIRE_TRUE(scene.setObjectTransform(near_cube, near_tf).hasValue());
+    FE_REQUIRE_TRUE(scene.assignMesh(near_cube, cube_mesh).hasValue());
 
-    std::vector<SceneObject> nameless;
-    SceneObject empty;
-    empty.id = ObjectId{1};
-    empty.name = "";
-    nameless.push_back(empty);
-    FE3D_CHECK(!Scene::fromObjects(nameless).ok());
+    const math::Ray ray(math::Vec3{0.0f, 0.0f, 3.0f}, math::Vec3{0.0f, 0.0f, -1.0f});
+    const auto hit = raycastScene(scene, ray);
+    FE_REQUIRE_TRUE(hit.has_value());
+    FE_EXPECT_EQ(hit->object_id, near_cube);
+    FE_EXPECT_NEAR(hit->distance, 4.5f, 1e-4f); // From z=+3 to z=-1.5 is 4.5 units.
+    FE_EXPECT_TRUE(hit->world_normal.approxEqual(math::Vec3{0.0f, 0.0f, 1.0f}, 1e-4f));
 
-    std::vector<SceneObject> noId;
-    SceneObject unset;
-    unset.id = fe::scene::kInvalidObjectId;
-    unset.name = "NoId";
-    noId.push_back(unset);
-    FE3D_CHECK(!Scene::fromObjects(noId).ok());
+    // Hiding NearCube hits FarCube (center at z=-5, half-size=1 -> front face at z=-4, distance=7).
+    FE_REQUIRE_TRUE(scene.setObjectVisible(near_cube, false).hasValue());
+    const auto far_hit = raycastScene(scene, ray);
+    FE_REQUIRE_TRUE(far_hit.has_value());
+    FE_EXPECT_EQ(far_hit->object_id, far_cube);
+    FE_EXPECT_NEAR(far_hit->distance, 7.0f, 1e-4f);
+}
 
-    std::vector<SceneObject> nonFinite;
-    SceneObject broken;
-    broken.id = ObjectId{9};
-    broken.name = "Broken";
-    broken.localTransform.position = fe::math::Vec3(0.0F, std::nanf(""), 0.0F);
-    nonFinite.push_back(broken);
-    FE3D_CHECK(!Scene::fromObjects(nonFinite).ok());
+} // namespace
+
+int main(int argc, char** argv) {
+    return finaleffect::testing::runAllTests(argc, argv);
 }
