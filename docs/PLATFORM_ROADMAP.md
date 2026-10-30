@@ -1,46 +1,35 @@
-# Platform roadmap
+# Final Effect 3D — Cross-Platform Target Strategy & Roadmap
 
-This document separates what runs today from what is still planned. Interfaces and
-folders are not support: a platform is supported only once it is built and tested on
-that platform, and this table says so honestly.
+## 1. Fundamental Separation of Runtime Targets
 
-| Target | Today | What is missing |
-| --- | --- | --- |
-| Linux (headless, CPU renderer) | Built and tested: core, CLI, tests, PPM output | - |
-| Linux (windowed, OpenGL) | Source complete, not built in the authoring environment (GLFW unavailable) | Build with `FE3D_ENABLE_OPENGL_RENDERER=ON` on a host with GLFW and a GPU |
-| Windows | `core` is portable C++20 and `src/platform/windows/WindowsPaths.cpp` exists; CI job added | An actual build and test run on Windows |
-| macOS | Same as Windows (POSIX paths apply) | An actual build and test run on macOS |
-| WebAssembly | Not started | Emscripten toolchain file, `Window`/`FileSystem` backends, canvas/WebGL2 renderer, a browser smoke test |
-| iOS | Not started | Platform paths, an EGL/Metal or GLES context, lifecycle hooks, an Xcode project |
-| Android | Not started | Platform paths, an EGL context, JNI entry points, a Gradle project and NDK build |
+Final Effect 3D targets three distinct execution models around a single portable C++20 engine core:
 
-## Design constraints that keep the ports possible
+1. **Native Desktop Applications** (Windows, Linux, macOS)
+2. **Browser Execution** (WebAssembly via Emscripten + HTML5 Canvas / WebGL 2.0 host)
+3. **Native Mobile Applications** (iOS and Android native app bundles)
 
-* The portable core is standard C++20 with no platform headers, so it compiles for a
-  new target as soon as a compiler exists for it.
-* Everything host-specific is one file per platform behind the build system:
+> **Critical Architectural Rule**: Native desktop binaries (`.exe`, Linux ELF, macOS Mach-O) **cannot** execute directly inside desktop or mobile web browsers, nor does desktop OpenGL 3.3 code compile unchanged into a modern browser runtime without a WebGL2/WebGPU adaptation layer and an asynchronous browser event loop.
 
-  | Interface | Location | Portable fallback |
-  | --- | --- | --- |
-  | `platform::resolveAppPaths` | `src/platform/{posix,windows}/` | - |
-  | `platform::FileSystem` | `src/platform/generic/` | portable stdio implementation |
-  | `platform::Clock` | `src/platform/generic/` | monotonic + wall clock, plus a manual clock for tests |
-  | `platform::Window` | `src/platform/{generic,glfw}/` | `NullWindow` for headless runs |
+---
 
-* The renderer is an interface with a CPU implementation that always exists, so a new
-  target can be brought up (and tested) before any GPU code works.
+## 2. Per-Platform Architecture & Current Status (Stage 3)
 
-## Order of work for the next stages
+| Target Platform | Stage 3 Status | Host / Window Layer | Rendering Backend Strategy |
+| :--- | :--- | :--- | :--- |
+| **Linux (x86_64 / arm64)** | Core, `EditorController`, Viewport, `.fe3dbin` & 11 Test Suites **Verified locally & in CI**; OpenGL 3.3 + GLFW verified under Xvfb in CI | `platform/linux/` + `GlfwWindow` / `HeadlessWindow` | OpenGL 3.3 Core baseline + CPU `SoftwareRenderDevice`; future Vulkan |
+| **Windows (x64 / arm64)** | Core + `EditorController` + OpenGL 3.3 + WebGL2 adapter tests **Verified in CI (MSVC)** | `platform/windows/` + `GlfwWindow` / `HeadlessWindow` | OpenGL 3.3 Core baseline + CPU `SoftwareRenderDevice`; future Vulkan / Direct3D 12 |
+| **macOS (Apple Silicon / Intel)** | Core + `EditorController` + OpenGL 3.3 + WebGL2 adapter tests **Verified in CI (AppleClang)** | `platform/macos/` + `GlfwWindow` / `HeadlessWindow` | OpenGL 3.3 Core forward-compatible prototype (deprecated by Apple); planned native **Metal** backend |
+| **Web Browser (Desktop & Mobile Web)** | Connected Studio UI + `finaleffect_web` WASM + `WebGL2RenderDevice` **Compiled via Emscripten & Verified in Real Headless Chromium (Playwright)** | `Html5CanvasWindow` (`apps/web/main.cpp`) + Connected Studio DOM (`web/`) | **WebGL 2.0 (GLSL ES 3.00)** `IRenderDevice` baseline (`NegativeOneToOne` clip depth); planned **WebGPU** (`ZeroToOne` clip depth) |
+| **iOS / iPadOS** | Architecture prepared; **not yet built** | Planned Objective-C++ / Swift host (`platform/ios/`) with `CAMetalLayer` & touch gestures | Planned native **Metal** `IRenderDevice` (`ZeroToOne` clip depth) |
+| **Android** | Architecture prepared; **not yet built** | Planned NDK `GameActivity` / `ANativeWindow` host (`platform/android/`) | Planned **Vulkan** primary `IRenderDevice` with shared **OpenGL ES 3.0** (`WebGL2RenderDevice` lineage) fallback |
 
-1. **Stage 2:** editor shell - document model on top of `Scene`, viewport with the CPU
-   renderer first, then the OpenGL path, undo/redo, project save/load wired to the UI.
-2. **Stage 3, GPU on desktop:** build and test the OpenGL renderer and the windowed
-   application on Linux, Windows and macOS hosts, and add automated headless
-   screenshot comparisons.
-3. **Stage 4, WebAssembly:** Emscripten preset, `Window` and `FileSystem` backends,
-   WebGL2 renderer, browser smoke test in CI.
-4. **Stage 5, mobile:** platform paths, GLES/EGL context, lifecycle handling, touch
-   input, and a signed build pipeline for iOS and Android.
+---
 
-Each stage is expected to keep the portable core untouched except for additive,
-platform-neutral APIs.
+## 3. Shared Portable Subsystems Across Desktop & WebAssembly
+
+Both `finaleffect_desktop` and `finaleffect_web` link the exact same unmodified portable libraries:
+
+1. **Frame-Driven Non-Blocking Update Loop**: `core::Engine::stepFrame()` executes one discrete frame tick inside desktop `while (!window->shouldClose())` loops AND inside browser `requestAnimationFrame` (`emscripten_set_main_loop_arg`) callbacks.
+2. **Unified Input & Viewport Controller**: `GlfwWindow`, `HeadlessWindow`, and `Html5CanvasWindow` emit identical `platform::InputEvent` structs consumed by `StudioSession` and `OrbitCameraController`.
+3. **Low-Memory Binary Assets (`.fe3dbin`)**: Content-addressed binary geometry chunks avoid heavy JSON text parsing and excess heap allocations on memory-constrained laptops, browsers (32 MiB initial WASM heap), and future mobile devices.
+4. **Dual Clip-Space Depth Convention**: `math::Mat4` and `scene::CameraComponent` natively support both `[-1, 1]` NDC depth (OpenGL 3.3, OpenGL ES 3.0, WebGL 2.0) and `[0, 1]` NDC depth (Metal, Vulkan, WebGPU, Direct3D 12).

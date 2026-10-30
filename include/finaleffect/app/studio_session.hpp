@@ -1,0 +1,114 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Final Effect 3D Contributors
+
+#pragma once
+
+#include "finaleffect/app/orbit_camera_controller.hpp"
+#include "finaleffect/core/application.hpp"
+#include "finaleffect/core/engine.hpp"
+#include "finaleffect/platform/window.hpp"
+#include "finaleffect/project/project.hpp"
+#include "finaleffect/rendering/renderer.hpp"
+#include "finaleffect/scene/commands.hpp"
+#include "finaleffect/scene/picking.hpp"
+
+#include <cstddef>
+#include <filesystem>
+#include <memory>
+#include <optional>
+
+namespace finaleffect::app {
+
+struct StudioSessionConfig {
+    bool animate_showcase_rig{true};
+    float rig_angular_speed_radians{0.65f};
+    float orbit_radians_per_pixel{0.005f};
+    std::size_t command_history_max_bytes{16u * 1024u * 1024u};
+};
+
+// Application layer session connecting project/scene state, command stack, viewport camera,
+// raycast picking, window input routing, and Renderer.
+class StudioSession final : public core::IApplication {
+public:
+    StudioSession(
+        platform::IWindow& window,
+        std::unique_ptr<rendering::IRenderDevice> render_device,
+        StudioSessionConfig config = {});
+
+    [[nodiscard]] core::Status onInitialize(core::Engine& engine) override;
+    [[nodiscard]] core::Status onUpdate(core::Engine& engine, const core::FrameTimings& timings) override;
+    void onShutdown(core::Engine& engine) noexcept override;
+
+    [[nodiscard]] core::Status loadProjectFromFile(
+        const std::filesystem::path& path,
+        const platform::IFileSystem& file_system);
+
+    [[nodiscard]] core::Status saveProjectToFile(
+        const std::filesystem::path& path,
+        platform::IFileSystem& file_system) const;
+
+    [[nodiscard]] core::Status saveProjectBundleToFile(
+        const std::filesystem::path& fe3d_path,
+        platform::IFileSystem& file_system) const;
+
+    // Resets document to the starter 3D showcase project and clears command history.
+    [[nodiscard]] core::Status resetStarterProject();
+
+    // Performs a raycast from framebuffer coordinates and updates selectedObject().
+    [[nodiscard]] std::optional<scene::RaycastHit> pickAtScreenPosition(float screen_x, float screen_y);
+
+    // Frames selectedObject() (or the entire visible scene when nothing is selected) in the active camera.
+    [[nodiscard]] core::Status frameSelectionOrScene();
+
+    [[nodiscard]] scene::ObjectId selectedObject() const noexcept { return selected_object_; }
+    void setSelectedObject(scene::ObjectId id) noexcept { selected_object_ = id; }
+
+    [[nodiscard]] bool isRigAnimationEnabled() const noexcept { return config_.animate_showcase_rig; }
+    void setRigAnimationEnabled(bool enabled) noexcept { config_.animate_showcase_rig = enabled; }
+
+    [[nodiscard]] project::ProjectDocument& document() noexcept { return document_; }
+    [[nodiscard]] const project::ProjectDocument& document() const noexcept { return document_; }
+
+    [[nodiscard]] scene::CommandStack& commandStack() noexcept { return command_stack_; }
+    [[nodiscard]] const scene::CommandStack& commandStack() const noexcept { return command_stack_; }
+
+    [[nodiscard]] OrbitCameraController& cameraController() noexcept { return camera_controller_; }
+    [[nodiscard]] const OrbitCameraController& cameraController() const noexcept { return camera_controller_; }
+
+    [[nodiscard]] rendering::Renderer& renderer() noexcept { return renderer_; }
+    [[nodiscard]] const rendering::Renderer& renderer() const noexcept { return renderer_; }
+
+    [[nodiscard]] core::ResourceStats collectResourceStats() const noexcept;
+
+private:
+    enum class DragMode : std::uint8_t {
+        None = 0,
+        Orbit,
+        Pan,
+        PendingLeftClick,
+    };
+
+    void syncCameraControllerFromScene() noexcept;
+    [[nodiscard]] core::Status applyCameraControllerToScene();
+    [[nodiscard]] core::Status processInputEvent(const platform::InputEvent& event);
+
+    platform::IWindow& window_;
+    rendering::Renderer renderer_;
+    StudioSessionConfig config_;
+    project::ProjectDocument document_{};
+    scene::CommandStack command_stack_;
+    OrbitCameraController camera_controller_{};
+    scene::ObjectId selected_object_{};
+
+    DragMode drag_mode_{DragMode::None};
+    double last_cursor_x_{0.0};
+    double last_cursor_y_{0.0};
+    double press_cursor_x_{0.0};
+    double press_cursor_y_{0.0};
+    bool has_cursor_pos_{false};
+
+    bool custom_project_loaded_{false};
+    float rig_angle_radians_{0.0f};
+};
+
+} // namespace finaleffect::app
