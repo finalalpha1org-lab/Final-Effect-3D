@@ -875,7 +875,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await page.evaluate(() => {
       window.__fe3dParentOptRef = document.querySelector("#insp-parent option");
     });
-    await setControlValueAndCommit(page.getByTestId("pos-x"), "0.75");
+    await setControlValueAndCommit(page.getByTestId("tf-pos-x"), "0.75");
     const sameSelectOptionNode = await page.evaluate(
       () => document.querySelector("#insp-parent option") === window.__fe3dParentOptRef
     );
