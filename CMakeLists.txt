@@ -179,6 +179,7 @@ add_library(finaleffect_app STATIC
     src/app/orbit_camera_controller.cpp
     src/app/starter_scene.cpp
     src/app/transform_gizmo.cpp
+    src/app/viewport_scene_helpers.cpp
     src/app/workspace_manager.cpp
     src/app/studio_session.cpp
     src/app/editor_controller.cpp
@@ -387,6 +388,11 @@ if(FINALEFFECT_BUILD_TESTS)
     target_link_libraries(finaleffect_workspace_tests PRIVATE finaleffect::app)
     finaleffect_apply_compiler_settings(finaleffect_workspace_tests)
     add_test(NAME finaleffect.workspace COMMAND finaleffect_workspace_tests)
+
+    add_executable(finaleffect_camera_light_viewport_tests tests/camera_light_viewport_tests.cpp)
+    target_link_libraries(finaleffect_camera_light_viewport_tests PRIVATE finaleffect::app finaleffect::rendering)
+    finaleffect_apply_compiler_settings(finaleffect_camera_light_viewport_tests)
+    add_test(NAME finaleffect.camera_light_viewport COMMAND finaleffect_camera_light_viewport_tests)
 
     if(FINALEFFECT_BUILD_RENDERER_DESKTOP AND FINALEFFECT_PLATFORM_IS_DESKTOP)
         add_executable(finaleffect_opengl33_tests tests/opengl33_device_tests.cpp)

@@ -1052,5 +1052,289 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
 
     await context.close();
   });
+
+  test("8. Stage 5.2 Camera & Directional Light viewport visibility, viewport picking, Move/Rotate/Scale gizmo transforms, multi-camera & multi-light independence, Undo/Redo, .fe3d/.fe3dbin persistence, and viewport screenshots", async ({
+    browser,
+  }) => {
+    const outDir = path.resolve(
+      process.cwd(),
+      "../../build/ci-screenshots/stage5.2-camera-light"
+    );
+    await fs.mkdir(outDir, { recursive: true });
+
+    const context = await browser.newContext({
+      viewport: { width: 1920, height: 1080 },
+      hasTouch: true,
+    });
+    const page = await context.newPage();
+
+    const samplePatchAtFb = async (fbX, fbY, radius = 14) => {
+      return await page.evaluate(
+        ({ fx, fy, r }) => {
+          const canvas = document.getElementById("fe3d-canvas");
+          const gl = canvas.getContext("webgl2");
+          if (!gl) return { hasWebGL2: false, nonClear: 0, hash: 0 };
+          const w = canvas.width;
+          const h = canvas.height;
+          const cx = Math.max(r, Math.min(w - r - 1, Math.round(fx)));
+          const cy = Math.max(r, Math.min(h - r - 1, h - 1 - Math.round(fy)));
+          const side = r * 2 + 1;
+          const buf = new Uint8Array(side * side * 4);
+          gl.readPixels(cx - r, cy - r, side, side, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+
+          const cornerBuf = new Uint8Array(4);
+          gl.readPixels(2, h - 3, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, cornerBuf);
+          const bgR = cornerBuf[0];
+          const bgG = cornerBuf[1];
+          const bgB = cornerBuf[2];
+
+          let nonClear = 0;
+          let hash = 2166136261;
+          for (let i = 0; i < buf.length; i += 4) {
+            const pr = buf[i];
+            const pg = buf[i + 1];
+            const pb = buf[i + 2];
+            if (Math.abs(pr - bgR) + Math.abs(pg - bgG) + Math.abs(pb - bgB) > 22) {
+              nonClear++;
+            }
+            hash ^= pr;
+            hash = Math.imul(hash, 16777619);
+            hash ^= pg;
+            hash = Math.imul(hash, 16777619);
+            hash ^= pb;
+            hash = Math.imul(hash, 16777619);
+          }
+          return { hasWebGL2: true, nonClear, hash: hash >>> 0 };
+        },
+        { fx: fbX, fy: fbY, r: radius }
+      );
+    };
+
+    const fbToClient = async (fbPos) => {
+      return await page.evaluate(([fx, fy]) => {
+        const canvas = document.getElementById("fe3d-canvas");
+        const rect = canvas.getBoundingClientRect();
+        return {
+          x: rect.left + (fx / canvas.width) * rect.width,
+          y: rect.top + (fy / canvas.height) * rect.height,
+        };
+      }, fbPos);
+    };
+
+    // 1 & 2. Default starter scene opens with MainCamera & SunLight immediately visible in the 3D WebGL2 Viewport
+    await bootDirectStudioReady(page);
+    await page.getByTestId("btn-toggle-rig").click();
+    await page.getByTestId("btn-clear-selection").click();
+    await page.waitForTimeout(80);
+
+    const initialObjs = await page.evaluate(() => {
+      const s = window.__FE3D_STUDIO__.getState();
+      return {
+        cameraViewActive: s.viewport.camera_view_active,
+        helpersVisible: s.viewport.editor_helpers_visible,
+        mainCam: s.objects.find((o) => o.name === "MainCamera"),
+        sunLight: s.objects.find((o) => o.name === "SunLight"),
+        heroCube: s.objects.find((o) => o.name === "HeroCube"),
+      };
+    });
+    expect(initialObjs.cameraViewActive).toBe(false);
+    expect(initialObjs.helpersVisible).toBe(true);
+    expect(initialObjs.mainCam?.pick_screen_pos).toBeTruthy();
+    expect(initialObjs.sunLight?.pick_screen_pos).toBeTruthy();
+
+    const mainCamPatchUnselected = await samplePatchAtFb(
+      initialObjs.mainCam.pick_screen_pos[0],
+      initialObjs.mainCam.pick_screen_pos[1],
+      16
+    );
+    const sunLightPatchUnselected = await samplePatchAtFb(
+      initialObjs.sunLight.pick_screen_pos[0],
+      initialObjs.sunLight.pick_screen_pos[1],
+      16
+    );
+    expect(mainCamPatchUnselected.nonClear).toBeGreaterThan(25);
+    expect(sunLightPatchUnselected.nonClear).toBeGreaterThan(25);
+
+    await page.screenshot({
+      path: path.join(outDir, "01-default-scene-camera-and-light-visible-1920x1080.png"),
+    });
+
+    // 9. Toggle Scene Helpers off via View menu -> helpers cleanly disappear from rendered output, then re-enable
+    await page.locator('[data-menu-trigger="view"]').click();
+    await page.getByTestId("cmd-toggle-editor-helpers").click();
+    await page.waitForTimeout(60);
+
+    const camPatchHidden = await samplePatchAtFb(
+      initialObjs.mainCam.pick_screen_pos[0],
+      initialObjs.mainCam.pick_screen_pos[1],
+      12
+    );
+    const sunPatchHidden = await samplePatchAtFb(
+      initialObjs.sunLight.pick_screen_pos[0],
+      initialObjs.sunLight.pick_screen_pos[1],
+      12
+    );
+    expect(camPatchHidden.nonClear).toBe(0);
+    expect(sunPatchHidden.nonClear).toBe(0);
+
+    await page.locator('[data-menu-trigger="view"]').click();
+    await page.getByTestId("cmd-toggle-editor-helpers").click();
+    await page.waitForTimeout(60);
+
+    // Normal mesh picking (HeroCube inside MainCamera's frustum) is NEVER blocked by camera frustum helpers
+    const heroClient = await fbToClient(initialObjs.heroCube.pick_screen_pos);
+    await page.mouse.click(heroClient.x, heroClient.y);
+    await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: HeroCube");
+
+    // 3 & 6. Click MainCamera directly in the 3D Viewport -> selects, highlights, syncs Outliner & Camera Inspector, and exposes Gizmos
+    const camClient = await fbToClient(initialObjs.mainCam.pick_screen_pos);
+    await page.mouse.click(camClient.x, camClient.y);
+    await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: MainCamera");
+    await expect(page.getByTestId("outliner-item-MainCamera")).toHaveClass(/is-selected/);
+    await expect(page.locator("#card-camera")).toBeVisible();
+
+    const mainCamPatchSelected = await samplePatchAtFb(
+      initialObjs.mainCam.pick_screen_pos[0],
+      initialObjs.mainCam.pick_screen_pos[1],
+      16
+    );
+    expect(mainCamPatchSelected.hash).not.toBe(mainCamPatchUnselected.hash);
+
+    await page.screenshot({
+      path: path.join(outDir, "02-camera-selected-with-gizmo-and-inspector-1920x1080.png"),
+    });
+
+    // Drag Move Gizmo (+Y handle) directly on MainCamera in the 3D Viewport
+    const camYBefore = Number(await page.getByTestId("tf-pos-y").inputValue());
+    const camGizmoHandles = await page.evaluate(
+      () => window.__FE3D_STUDIO__.getState().editor.gizmo_handles_screen
+    );
+    expect(camGizmoHandles?.y).toBeTruthy();
+    const gyClient = await fbToClient(camGizmoHandles.y);
+    await page.mouse.move(gyClient.x, gyClient.y);
+    await page.mouse.down({ button: "left" });
+    await page.mouse.move(gyClient.x, gyClient.y - 48, { steps: 6 });
+    await page.mouse.up({ button: "left" });
+
+    await expect
+      .poll(async () => Number(await page.getByTestId("tf-pos-y").inputValue()))
+      .toBeGreaterThan(camYBefore + 0.08);
+
+    // Verify Rotate & Scale gizmo modes also activate cleanly on MainCamera
+    await page.getByTestId("btn-gizmo-rotate").click();
+    await expect(page.getByTestId("vp-mode-pill")).toContainText("ROTATE");
+    await page.getByTestId("btn-gizmo-scale").click();
+    await expect(page.getByTestId("vp-mode-pill")).toContainText("SCALE");
+    await page.getByTestId("btn-gizmo-translate").click();
+
+    // Dynamic Camera Frustum update on FOV change + Active Camera Lens View toggle
+    const vpBeforeFov = await sampleViewportPixels(page);
+    await setControlValueAndCommit(page.getByTestId("cam-fov"), "82");
+    await expect
+      .poll(async () => (await sampleViewportPixels(page)).hash)
+      .not.toBe(vpBeforeFov.hash);
+
+    await page.getByTestId("btn-toggle-camera-view").click();
+    await expect(page.getByTestId("vp-camera-pill")).toContainText("Camera: MainCamera [Lens]");
+    await page.screenshot({
+      path: path.join(outDir, "04-active-camera-lens-view-1920x1080.png"),
+    });
+    await page.getByTestId("btn-toggle-camera-view").click();
+    await expect(page.getByTestId("vp-camera-pill")).not.toContainText("[Lens]");
+
+    // 4. Click SunLight directly in the 3D Viewport -> selects, highlights, stays visible at intensity 0, and updates real PBR lighting
+    const sunScreenNow = await page.evaluate(
+      () => window.__FE3D_STUDIO__.getState().objects.find((o) => o.name === "SunLight").pick_screen_pos
+    );
+    const sunClient = await fbToClient(sunScreenNow);
+    await page.mouse.click(sunClient.x, sunClient.y);
+    await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: SunLight");
+    await expect(page.getByTestId("outliner-item-SunLight")).toHaveClass(/is-selected/);
+    await expect(page.locator("#card-light")).toBeVisible();
+
+    // Even at intensity 0, SunLight helper remains clearly visible in the 3D viewport!
+    await setControlValueAndCommit(page.getByTestId("light-intensity"), "0");
+    await page.waitForTimeout(60);
+    const sunZeroIntensityPatch = await samplePatchAtFb(sunScreenNow[0], sunScreenNow[1], 16);
+    expect(sunZeroIntensityPatch.nonClear).toBeGreaterThan(25);
+
+    // Restoring intensity & rotating SunLight updates actual PBR illumination on HeroCube
+    const heroPatchDark = await samplePatchAtFb(
+      initialObjs.heroCube.pick_screen_pos[0],
+      initialObjs.heroCube.pick_screen_pos[1],
+      18
+    );
+    await setControlValueAndCommit(page.getByTestId("light-intensity"), "1.9");
+    await setControlValueAndCommit(page.getByTestId("tf-rot-y"), "-25");
+    await page.waitForTimeout(60);
+    const heroPatchLit = await samplePatchAtFb(
+      initialObjs.heroCube.pick_screen_pos[0],
+      initialObjs.heroCube.pick_screen_pos[1],
+      18
+    );
+    expect(heroPatchLit.hash).not.toBe(heroPatchDark.hash);
+
+    // 5, 7, & 8. Multiple independent Cameras & Lights + Rename + Delete + Undo/Redo + .fe3d/.fe3dbin persistence without duplication
+    await page.getByTestId("btn-add-camera").click();
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("7 / 3");
+    await setControlValueAndCommit(page.getByTestId("insp-name"), "KeyShotCam");
+    await page.getByTestId("cam-projection").selectOption("orthographic");
+    await expect(page.getByTestId("outliner-item-KeyShotCam")).toBeVisible();
+
+    await page.getByTestId("btn-add-light").click();
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("8 / 3");
+    await setControlValueAndCommit(page.getByTestId("insp-name"), "RimLight");
+    await setControlValueAndCommit(page.getByTestId("light-color"), "#4499ff");
+    await setControlValueAndCommit(page.getByTestId("light-intensity"), "1.6");
+    await expect(page.getByTestId("outliner-item-RimLight")).toBeVisible();
+
+    await page.screenshot({
+      path: path.join(outDir, "03-light-selected-with-gizmo-and-multi-camera-light-1920x1080.png"),
+    });
+
+    // Delete RimLight -> disappears cleanly -> Undo restores RimLight & its 3D helper -> Redo -> Undo
+    await page.getByTestId("btn-delete").click();
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("7 / 3");
+    await page.getByTestId("btn-undo").click();
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("8 / 3");
+    await expect(page.getByTestId("outliner-item-RimLight")).toBeVisible();
+
+    // Save/Export .fe3d + .fe3dbin bundle, reset to New Project, and reopen -> ZERO duplicate cameras/lights!
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "fe3d-s52-"));
+    const downloads = [];
+    const onDl = (dl) => downloads.push(dl);
+    page.on("download", onDl);
+    await page.getByTestId("btn-export-bundle").click();
+    await expect.poll(() => downloads.length, { timeout: 10_000 }).toBe(2);
+    page.off("download", onDl);
+
+    const bundlePaths = [];
+    for (const dl of downloads) {
+      const p = path.join(tmpDir, dl.suggestedFilename());
+      await dl.saveAs(p);
+      bundlePaths.push(p);
+    }
+
+    await page.getByTestId("menu-file").click();
+    await page.getByTestId("btn-new-project").click();
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("6 / 3");
+
+    await page.locator("#file-open-input").setInputFiles(bundlePaths);
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("8 / 3");
+    await expect(page.getByTestId("outliner-item-MainCamera")).toBeVisible();
+    await expect(page.getByTestId("outliner-item-KeyShotCam")).toBeVisible();
+    await expect(page.getByTestId("outliner-item-SunLight")).toBeVisible();
+    await expect(page.getByTestId("outliner-item-RimLight")).toBeVisible();
+
+    // Confirm MainCamera remained Perspective while KeyShotCam stayed Orthographic independently
+    await page.getByTestId("outliner-item-MainCamera").click();
+    await expect(page.getByTestId("cam-projection")).toHaveValue("perspective");
+    await page.getByTestId("outliner-item-KeyShotCam").click();
+    await expect(page.getByTestId("cam-projection")).toHaveValue("orthographic");
+
+    await fs.rm(tmpDir, { recursive: true, force: true });
+    await context.close();
+  });
 });
+
 

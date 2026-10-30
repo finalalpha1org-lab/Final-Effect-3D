@@ -43,11 +43,22 @@ struct FrameClearDesc {
     float clear_depth{1.0f};
 };
 
+struct DirectionalLightLobe {
+    math::Vec3 direction_to_light{0.0f, 1.0f, 0.0f};
+    math::Vec3 radiance{0.0f, 0.0f, 0.0f};
+};
+
 struct DirectionalLightUniforms {
-    // Normalized world-space vector pointing FROM surface TOWARD light source.
+    static constexpr std::size_t kMaxExtraLights = 3;
+
+    // Primary normalized world-space vector pointing FROM surface TOWARD light source.
     math::Vec3 direction_to_light{0.45f, 0.80f, 0.40f};
     math::Vec3 radiance{1.05f, 1.02f, 0.96f};
     math::Vec3 ambient{0.18f, 0.20f, 0.24f};
+
+    // Additional independent directional lights active in the scene (up to kMaxExtraLights).
+    std::uint32_t extra_light_count{0};
+    DirectionalLightLobe extra_lights[kMaxExtraLights]{};
 };
 
 // Metallic-roughness PBR surface & overlay shading parameters.

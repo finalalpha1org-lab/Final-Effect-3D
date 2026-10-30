@@ -97,6 +97,17 @@ math::Vec3 evaluateSoftwarePbrFragment(
     math::Vec3 lo = evalDirectionalLobe(key_l, cmd.lighting.radiance) +
                     evalDirectionalLobe(fill_l, fill_radiance);
 
+    const std::uint32_t extra_count = std::min<std::uint32_t>(
+        cmd.lighting.extra_light_count,
+        static_cast<std::uint32_t>(DirectionalLightUniforms::kMaxExtraLights));
+    for (std::uint32_t li = 0; li < extra_count; ++li) {
+        const auto& extra = cmd.lighting.extra_lights[li];
+        if (extra.radiance.lengthSquared() > math::kStrictEpsilon &&
+            extra.direction_to_light.lengthSquared() > math::kStrictEpsilon) {
+            lo += evalDirectionalLobe(extra.direction_to_light.normalized(), extra.radiance);
+        }
+    }
+
     // Hemispheric studio ambient + Fresnel environment sheen scaled by ambient occlusion.
     const float sky_factor = n.y * 0.5f + 0.5f;
     const math::Vec3 env_irradiance = cmd.lighting.ambient * (0.65f + 0.70f * sky_factor);

@@ -95,6 +95,8 @@ constexpr const char* kFragmentShaderGlslEs300 =
     "uniform vec3 u_camera_pos;\n"
     "uniform vec3 u_light_dir;\n"
     "uniform vec3 u_light_radiance;\n"
+    "uniform vec3 u_extra_light_dirs[3];\n"
+    "uniform vec3 u_extra_light_radiances[3];\n"
     "uniform vec3 u_ambient;\n"
     "uniform vec3 u_selection_tint;\n"
     "uniform vec3 u_base_color;\n"
@@ -152,6 +154,13 @@ constexpr const char* kFragmentShaderGlslEs300 =
     "    vec3 fill_l = normalize(vec3(-0.55, 0.35, -0.65));\n"
     "    vec3 lo = evalCookTorranceLobe(n, v, key_l, u_light_radiance, albedo, f0, metallic, roughness, k_direct)\n"
     "            + evalCookTorranceLobe(n, v, fill_l, u_light_radiance * 0.22, albedo, f0, metallic, roughness, k_direct);\n"
+    "    for (int li = 0; li < 3; ++li) {\n"
+    "        vec3 ex_rad = u_extra_light_radiances[li];\n"
+    "        vec3 ex_dir = u_extra_light_dirs[li];\n"
+    "        if (dot(ex_rad, ex_rad) > 1.0e-8 && dot(ex_dir, ex_dir) > 1.0e-8) {\n"
+    "            lo += evalCookTorranceLobe(n, v, normalize(ex_dir), ex_rad, albedo, f0, metallic, roughness, k_direct);\n"
+    "        }\n"
+    "    }\n"
     "    float sky = n.y * 0.5 + 0.5;\n"
     "    vec3 env_irradiance = u_ambient * (0.65 + 0.70 * sky);\n"
     "    vec3 f_env = fresnelSchlick(ndotv, f0);\n"
@@ -425,6 +434,14 @@ core::Status WebGL2RenderDevice::buildShaderPipeline() {
     loc_camera_pos_ = gl_->GetUniformLocation(shader_program_, "u_camera_pos");
     loc_light_dir_ = gl_->GetUniformLocation(shader_program_, "u_light_dir");
     loc_light_radiance_ = gl_->GetUniformLocation(shader_program_, "u_light_radiance");
+    loc_extra_light_dirs_ = gl_->GetUniformLocation(shader_program_, "u_extra_light_dirs[0]");
+    if (loc_extra_light_dirs_ < 0) {
+        loc_extra_light_dirs_ = gl_->GetUniformLocation(shader_program_, "u_extra_light_dirs");
+    }
+    loc_extra_light_radiances_ = gl_->GetUniformLocation(shader_program_, "u_extra_light_radiances[0]");
+    if (loc_extra_light_radiances_ < 0) {
+        loc_extra_light_radiances_ = gl_->GetUniformLocation(shader_program_, "u_extra_light_radiances");
+    }
     loc_ambient_ = gl_->GetUniformLocation(shader_program_, "u_ambient");
     loc_selection_tint_ = gl_->GetUniformLocation(shader_program_, "u_selection_tint");
     loc_base_color_ = gl_->GetUniformLocation(shader_program_, "u_base_color");
@@ -697,6 +714,29 @@ core::Status WebGL2RenderDevice::drawMesh(const DrawMeshCommand& command) {
             command.lighting.radiance.z,
         };
         gl_->Uniform3fv(loc_light_radiance_, 1, rad);
+    }
+    if (loc_extra_light_dirs_ >= 0 || loc_extra_light_radiances_ >= 0) {
+        float ex_dirs[9] = {0.0f};
+        float ex_rads[9] = {0.0f};
+        const std::uint32_t ex_cnt = std::min<std::uint32_t>(
+            command.lighting.extra_light_count,
+            static_cast<std::uint32_t>(DirectionalLightUniforms::kMaxExtraLights));
+        for (std::uint32_t li = 0; li < ex_cnt; ++li) {
+            const auto& el = command.lighting.extra_lights[li];
+            const math::Vec3 eld = el.direction_to_light.normalized();
+            ex_dirs[li * 3 + 0] = eld.x;
+            ex_dirs[li * 3 + 1] = eld.y;
+            ex_dirs[li * 3 + 2] = eld.z;
+            ex_rads[li * 3 + 0] = el.radiance.x;
+            ex_rads[li * 3 + 1] = el.radiance.y;
+            ex_rads[li * 3 + 2] = el.radiance.z;
+        }
+        if (loc_extra_light_dirs_ >= 0) {
+            gl_->Uniform3fv(loc_extra_light_dirs_, 3, ex_dirs);
+        }
+        if (loc_extra_light_radiances_ >= 0) {
+            gl_->Uniform3fv(loc_extra_light_radiances_, 3, ex_rads);
+        }
     }
     if (loc_ambient_ >= 0) {
         const float amb[3] = {

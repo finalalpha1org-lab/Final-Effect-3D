@@ -3,6 +3,7 @@
 
 #include "finaleffect/app/studio_session.hpp"
 #include "finaleffect/app/starter_scene.hpp"
+#include "finaleffect/app/viewport_scene_helpers.hpp"
 #include "finaleffect/math/constants.hpp"
 
 #include <algorithm>
@@ -23,7 +24,13 @@ StudioSession::StudioSession(
       command_stack_(scene::CommandStackLimits{
           .max_entries = 128,
           .max_memory_bytes = config.command_history_max_bytes,
-      }) {}
+      }) {
+    viewport_camera_.projection = scene::ProjectionType::Perspective;
+    viewport_camera_.fov_y_radians = math::degToRad(48.0f);
+    viewport_camera_.near_plane = 0.1f;
+    viewport_camera_.far_plane = 250.0f;
+    resetEditorViewportCamera();
+}
 
 void StudioSession::syncDocumentState(scene::MaterialId active_material) noexcept {
     document_.editor_state.edit_mode = editor_mode_;
@@ -160,8 +167,50 @@ void StudioSession::setGizmoSpace(GizmoSpace space) noexcept {
     ++interaction_revision_;
 }
 
+void StudioSession::setCameraViewActive(bool active) noexcept {
+    if (camera_view_active_ == active) {
+        return;
+    }
+    if (gizmo_.isDragging()) {
+        (void)cancelActiveGizmoDrag();
+    }
+    camera_view_active_ = active;
+    if (camera_view_active_) {
+        const scene::ObjectId cam_id = document_.scene.activeCamera();
+        if (cam_id.isValid()) {
+            if (const auto* cam_obj = document_.scene.findObject(cam_id); cam_obj != nullptr) {
+                camera_controller_.syncFromCameraTransform(
+                    cam_obj->local_transform,
+                    {0.0f, 0.72f, 0.0f});
+            }
+        }
+    } else {
+        resetEditorViewportCamera();
+    }
+    gizmo_.setHoveredHandle(GizmoHandle::None);
+    ++interaction_revision_;
+}
+
+void StudioSession::setEditorHelpersVisible(bool visible) noexcept {
+    if (editor_helpers_visible_ == visible) {
+        return;
+    }
+    editor_helpers_visible_ = visible;
+    ++interaction_revision_;
+}
+
+void StudioSession::resetEditorViewportCamera() noexcept {
+    math::Transform editor_eye{};
+    editor_eye.position = {0.0f, 2.95f, 6.10f};
+    camera_controller_.syncFromCameraTransform(editor_eye, {0.0f, 0.80f, 0.0f});
+}
+
 void StudioSession::syncCameraControllerFromScene() noexcept {
-    math::Vec3 focus{0.0f, 0.65f, 0.0f};
+    if (!camera_view_active_) {
+        resetEditorViewportCamera();
+        return;
+    }
+    math::Vec3 focus{0.0f, 0.72f, 0.0f};
     if (custom_project_loaded_) {
         focus = math::Vec3::zero();
     }
@@ -174,6 +223,10 @@ void StudioSession::syncCameraControllerFromScene() noexcept {
 }
 
 core::Status StudioSession::applyCameraControllerToScene() {
+    ++interaction_revision_;
+    if (!camera_view_active_) {
+        return core::Status::ok();
+    }
     const scene::ObjectId cam_id = document_.scene.activeCamera();
     if (!cam_id.isValid()) {
         return core::Status::ok();
@@ -182,7 +235,6 @@ core::Status StudioSession::applyCameraControllerToScene() {
     if (cam_obj == nullptr) {
         return core::Status::ok();
     }
-    ++interaction_revision_;
     return document_.scene.setObjectTransform(cam_id, camera_controller_.computeCameraTransform());
 }
 
@@ -215,12 +267,10 @@ core::Status StudioSession::onInitialize(core::Engine& engine) {
 
 StudioSession::ViewportCameraState StudioSession::activeCameraState() const noexcept {
     ViewportCameraState state{};
-    state.camera_world = math::Mat4::lookAtRH(
-        math::Vec3{0.0f, 2.5f, 6.0f},
-        math::Vec3::zero(),
-        math::Vec3::unitY()).inverted().value_or(math::Mat4::identity());
+    state.camera_world = camera_controller_.computeCameraTransform().toMatrix();
+    state.camera = viewport_camera_;
 
-    if (document_.scene.activeCamera().isValid()) {
+    if (camera_view_active_ && document_.scene.activeCamera().isValid()) {
         if (const auto* cam_obj = document_.scene.findObject(document_.scene.activeCamera());
             cam_obj != nullptr && cam_obj->camera.has_value()) {
             if (auto cw = document_.scene.computeWorldMatrix(cam_obj->id); cw.hasValue()) {
@@ -230,6 +280,34 @@ StudioSession::ViewportCameraState StudioSession::activeCameraState() const noex
         }
     }
     return state;
+}
+
+std::optional<math::Vec3> StudioSession::projectWorldPointToScreen(
+    const math::Vec3& world_point) const noexcept {
+    const auto fb = window_.framebufferSize();
+    if (fb.width == 0 || fb.height == 0) {
+        return std::nullopt;
+    }
+    const auto cam_st = activeCameraState();
+    const auto inv_cam = cam_st.camera_world.inverted();
+    if (!inv_cam.has_value()) {
+        return std::nullopt;
+    }
+    const float aspect = static_cast<float>(fb.width) / static_cast<float>(fb.height);
+    const math::Mat4 proj = cam_st.camera.computeProjectionMatrix(
+        aspect,
+        renderer_.device().capabilities().clip_space_depth);
+    const math::Vec4 clip = (proj * inv_cam.value()) * math::Vec4(world_point, 1.0f);
+    if (clip.w <= 1.0e-4f || !std::isfinite(clip.w)) {
+        return std::nullopt;
+    }
+    const float inv_w = 1.0f / clip.w;
+    const float ndc_x = clip.x * inv_w;
+    const float ndc_y = clip.y * inv_w;
+    const float ndc_z = clip.z * inv_w;
+    const float sx = (ndc_x * 0.5f + 0.5f) * static_cast<float>(fb.width);
+    const float sy = (0.5f - ndc_y * 0.5f) * static_cast<float>(fb.height);
+    return math::Vec3{sx, sy, ndc_z};
 }
 
 std::optional<math::Ray> StudioSession::computeViewportRay(
@@ -249,11 +327,15 @@ std::optional<math::Ray> StudioSession::computeViewportRay(
 }
 
 std::optional<GizmoFrame> StudioSession::computeActiveGizmoFrame() const noexcept {
-    if (!selected_object_.isValid() || selected_object_ == document_.scene.activeCamera()) {
+    if (!selected_object_.isValid() ||
+        (camera_view_active_ && selected_object_ == document_.scene.activeCamera())) {
         return std::nullopt;
     }
     const auto* obj = document_.scene.findObject(selected_object_);
-    if (obj == nullptr || !obj->visible) {
+    if (obj == nullptr || !isObjectVisibleInHierarchy(document_.scene, selected_object_)) {
+        return std::nullopt;
+    }
+    if (!editor_helpers_visible_ && !obj->mesh_id.has_value()) {
         return std::nullopt;
     }
     auto obj_world_res = document_.scene.computeWorldMatrix(selected_object_);
@@ -305,9 +387,14 @@ std::optional<scene::RaycastHit> StudioSession::pickAtScreenPosition(float scree
         return std::nullopt;
     }
     const auto cam_st = activeCameraState();
-    auto hit = scene::raycastScene(
+    const bool allow_helpers = editor_helpers_visible_ && (editor_mode_ == scene::EditMode::Object);
+    const scene::ObjectId hidden_cam =
+        camera_view_active_ ? document_.scene.activeCamera() : scene::ObjectId::invalid();
+    auto hit = pickSceneOrViewportHelper(
         document_.scene,
         ray.value(),
+        allow_helpers,
+        hidden_cam,
         scene::RaycastOptions{.max_distance = cam_st.camera.far_plane});
     setSelectedObject(hit.has_value() ? hit->object_id : scene::ObjectId{});
     return hit;
@@ -438,13 +525,7 @@ core::Status StudioSession::commitActiveGizmoDrag() {
 }
 
 core::Status StudioSession::frameSelectionOrScene() {
-    float fov_y = math::degToRad(48.0f);
-    if (document_.scene.activeCamera().isValid()) {
-        if (const auto* cam_obj = document_.scene.findObject(document_.scene.activeCamera());
-            cam_obj != nullptr && cam_obj->camera.has_value()) {
-            fov_y = cam_obj->camera->fov_y_radians;
-        }
-    }
+    const float fov_y = activeCameraState().camera.fov_y_radians;
 
     math::AABB target_bounds = math::AABB::empty();
     if (selected_object_.isValid() && document_.scene.findObject(selected_object_) != nullptr) {
@@ -456,7 +537,13 @@ core::Status StudioSession::frameSelectionOrScene() {
 
     if (!target_bounds.isValid()) {
         for (const auto& obj : document_.scene.objects()) {
-            if (!obj.visible || !obj.mesh_id.has_value()) {
+            if (!isObjectVisibleInHierarchy(document_.scene, obj.id)) {
+                continue;
+            }
+            const bool is_helper =
+                !camera_view_active_ && editor_helpers_visible_ &&
+                (obj.camera.has_value() || obj.directional_light.has_value());
+            if (!obj.mesh_id.has_value() && !is_helper) {
                 continue;
             }
             if (auto b = document_.scene.computeObjectWorldBounds(obj.id); b && b.value().isValid()) {
@@ -480,11 +567,7 @@ core::Status StudioSession::orbitViewportCamera(float delta_pixels_x, float delt
 }
 
 core::Status StudioSession::panViewportCamera(float delta_pixels_x, float delta_pixels_y) {
-    float fov_y = math::degToRad(48.0f);
-    if (const auto* cam_obj = document_.scene.findObject(document_.scene.activeCamera());
-        cam_obj != nullptr && cam_obj->camera.has_value()) {
-        fov_y = cam_obj->camera->fov_y_radians;
-    }
+    const float fov_y = activeCameraState().camera.fov_y_radians;
     camera_controller_.pan(
         delta_pixels_x,
         delta_pixels_y,
@@ -684,11 +767,7 @@ core::Status StudioSession::processInputEvent(const platform::InputEvent& event)
             return applyCameraControllerToScene();
         }
         if (drag_mode_ == DragMode::Pan) {
-            float fov_y = math::degToRad(48.0f);
-            if (const auto* cam_obj = document_.scene.findObject(document_.scene.activeCamera());
-                cam_obj != nullptr && cam_obj->camera.has_value()) {
-                fov_y = cam_obj->camera->fov_y_radians;
-            }
+            const float fov_y = activeCameraState().camera.fov_y_radians;
             camera_controller_.pan(dx, dy, window_.framebufferSize().height, fov_y);
             return applyCameraControllerToScene();
         }
@@ -895,9 +974,37 @@ core::Status StudioSession::onUpdate(core::Engine&, const core::FrameTimings& ti
         }
     }
 
-    // Build 3D viewport overlays (mesh edit wireframe/vertex/face highlights + 3D transform gizmo).
-    std::array<rendering::ViewportOverlayMesh, 2> overlays{};
+    // Build 3D viewport overlays:
+    //  [0] Depth-tested 3D Camera & Directional Light visualization helpers (excluded from final renders).
+    //  [1] Mesh Edit wireframe/vertex/face overlay (foreground pass).
+    //  [2] 3D Transform Gizmo (foreground pass).
+    std::array<rendering::ViewportOverlayMesh, 3> overlays{};
     std::size_t overlay_count = 0;
+
+    const scene::ObjectId highlight_obj =
+        (editor_mode_ == scene::EditMode::Object) ? selected_object_ : scene::ObjectId{};
+    const float vp_aspect = (fb.height > 0)
+                                ? (static_cast<float>(fb.width) / static_cast<float>(fb.height))
+                                : (16.0f / 9.0f);
+
+    if (editor_helpers_visible_) {
+        scene_helpers_overlay_mesh_ = buildViewportSceneHelpersMesh(
+            document_.scene,
+            ViewportHelperBuildOptions{
+                .viewport_aspect = vp_aspect,
+                .selected_object = highlight_obj,
+                .hidden_camera_object =
+                    camera_view_active_ ? document_.scene.activeCamera() : scene::ObjectId::invalid(),
+            });
+        if (!scene_helpers_overlay_mesh_.vertices.empty() &&
+            !scene_helpers_overlay_mesh_.indices.empty()) {
+            overlays[overlay_count++] = rendering::ViewportOverlayMesh{
+                .mesh_data = &scene_helpers_overlay_mesh_,
+                .model_matrix = math::Mat4::identity(),
+                .depth_test_scene = true,
+            };
+        }
+    }
 
     if (editor_mode_ != scene::EditMode::Object && selected_object_.isValid()) {
         const auto* obj = document_.scene.findObject(selected_object_);
@@ -921,6 +1028,7 @@ core::Status StudioSession::onUpdate(core::Engine&, const core::FrameTimings& ti
             overlays[overlay_count++] = rendering::ViewportOverlayMesh{
                 .mesh_data = &edit_overlay_mesh_,
                 .model_matrix = math::Mat4::identity(),
+                .depth_test_scene = false,
             };
         }
     }
@@ -936,16 +1044,25 @@ core::Status StudioSession::onUpdate(core::Engine&, const core::FrameTimings& ti
         overlays[overlay_count++] = rendering::ViewportOverlayMesh{
             .mesh_data = &gizmo_overlay_mesh_,
             .model_matrix = math::Mat4::identity(),
+            .depth_test_scene = false,
         };
     }
 
-    const scene::ObjectId highlight_obj =
-        (editor_mode_ == scene::EditMode::Object) ? selected_object_ : scene::ObjectId{};
+    rendering::ViewportCameraOverride cam_override{};
+    const rendering::ViewportCameraOverride* override_ptr = nullptr;
+    if (!camera_view_active_) {
+        const auto cam_st = activeCameraState();
+        cam_override.camera_world = cam_st.camera_world;
+        cam_override.camera = cam_st.camera;
+        override_ptr = &cam_override;
+    }
+
     auto render_st = renderer_.renderScene(
         document_.scene,
         {},
         highlight_obj,
-        std::span<const rendering::ViewportOverlayMesh>{overlays.data(), overlay_count});
+        std::span<const rendering::ViewportOverlayMesh>{overlays.data(), overlay_count},
+        override_ptr);
     if (!render_st) {
         return render_st;
     }
@@ -990,6 +1107,7 @@ core::Status StudioSession::resetStarterProject() {
     editor_mode_ = scene::EditMode::Object;
     mesh_selection_.clear();
     gizmo_.setHoveredHandle(GizmoHandle::None);
+    camera_view_active_ = false;
     custom_project_loaded_ = false;
     rig_angle_radians_ = 0.0f;
     syncDocumentState();
@@ -1014,6 +1132,7 @@ core::Status StudioSession::loadProjectFromFile(
     document_ = std::move(loaded).value();
     command_stack_.clear();
     restoreFromDocumentState();
+    camera_view_active_ = false;
     custom_project_loaded_ = true;
     rig_angle_radians_ = 0.0f;
     syncCameraControllerFromScene();

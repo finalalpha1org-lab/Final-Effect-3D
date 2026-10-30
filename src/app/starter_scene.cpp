@@ -93,17 +93,20 @@ core::Result<StarterSceneHandles> populateStarterScene(scene::Scene& scene) {
     if (auto st = scene.assignMesh(handles.accent_pyramid, pyramid_mesh.value()); !st) return st.error();
     if (auto st = scene.assignMaterial(handles.accent_pyramid, cobalt_mat.value()); !st) return st.error();
 
-    // Studio camera looking downward toward scene center.
+    // Studio scene camera positioned inside the stage framing the hero rig from a 3/4 angle.
     auto cam_res = scene.createObject("MainCamera");
     if (!cam_res) return cam_res.error();
     handles.camera = cam_res.value();
 
-    const math::Vec3 eye{0.0f, 2.75f, 5.6f};
-    const math::Vec3 target{0.0f, 0.65f, 0.0f};
-    const float pitch = -std::atan2(eye.y - target.y, eye.z - target.z);
+    const math::Vec3 eye{1.55f, 2.05f, 1.95f};
+    const math::Vec3 target{0.0f, 0.72f, 0.0f};
+    const math::Vec3 cam_offset = eye - target;
+    const float cam_horiz = std::sqrt(cam_offset.x * cam_offset.x + cam_offset.z * cam_offset.z);
+    const float cam_yaw = std::atan2(cam_offset.x, cam_offset.z);
+    const float cam_pitch = -std::atan2(cam_offset.y, cam_horiz);
     math::Transform cam_tf;
     cam_tf.position = eye;
-    cam_tf.rotation = math::Quat::fromAxisAngle(math::Vec3::unitX(), pitch);
+    cam_tf.rotation = math::Quat::fromEulerXYZ({cam_pitch, cam_yaw, 0.0f});
     if (auto st = scene.setObjectTransform(handles.camera, cam_tf); !st) return st.error();
 
     scene::CameraComponent cam_comp;
@@ -114,13 +117,14 @@ core::Result<StarterSceneHandles> populateStarterScene(scene::Scene& scene) {
     if (auto st = scene.assignCamera(handles.camera, cam_comp); !st) return st.error();
     if (auto st = scene.setActiveCamera(handles.camera); !st) return st.error();
 
-    // Directional key light angled down and left.
+    // Directional key light elevated on stage-left, shining down-right onto the hero rig.
     auto light_res = scene.createObject("SunLight");
     if (!light_res) return light_res.error();
     handles.sun_light = light_res.value();
     math::Transform light_tf;
+    light_tf.position = {-1.45f, 2.25f, 0.85f};
     light_tf.rotation = math::Quat::fromEulerXYZ(
-        {math::degToRad(-50.0f), math::degToRad(35.0f), 0.0f});
+        {math::degToRad(-42.0f), math::degToRad(-52.0f), 0.0f});
     if (auto st = scene.setObjectTransform(handles.sun_light, light_tf); !st) return st.error();
     if (auto st = scene.assignDirectionalLight(
             handles.sun_light,

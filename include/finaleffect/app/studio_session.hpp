@@ -128,6 +128,22 @@ public:
     [[nodiscard]] rendering::Renderer& renderer() noexcept { return renderer_; }
     [[nodiscard]] const rendering::Renderer& renderer() const noexcept { return renderer_; }
 
+    struct ViewportCameraState {
+        math::Mat4 camera_world{math::Mat4::identity()};
+        scene::CameraComponent camera{};
+    };
+
+    // Active viewport camera pose & projection (free editor perspective by default, or active scene camera lens).
+    [[nodiscard]] ViewportCameraState activeCameraState() const noexcept;
+    [[nodiscard]] std::optional<math::Vec3> projectWorldPointToScreen(
+        const math::Vec3& world_point) const noexcept;
+
+    [[nodiscard]] bool isCameraViewActive() const noexcept { return camera_view_active_; }
+    void setCameraViewActive(bool active) noexcept;
+
+    [[nodiscard]] bool areEditorHelpersVisible() const noexcept { return editor_helpers_visible_; }
+    void setEditorHelpersVisible(bool visible) noexcept;
+
     [[nodiscard]] core::ResourceStats collectResourceStats() const noexcept;
 
 private:
@@ -140,13 +156,8 @@ private:
         GizmoMeshElements,
     };
 
-    struct ViewportCameraState {
-        math::Mat4 camera_world{math::Mat4::identity()};
-        scene::CameraComponent camera{};
-    };
-
-    [[nodiscard]] ViewportCameraState activeCameraState() const noexcept;
     [[nodiscard]] std::optional<math::Ray> computeViewportRay(float screen_x, float screen_y) const noexcept;
+    void resetEditorViewportCamera() noexcept;
     void syncCameraControllerFromScene() noexcept;
     [[nodiscard]] core::Status applyCameraControllerToScene();
     [[nodiscard]] core::Status processInputEvent(const platform::InputEvent& event);
@@ -158,6 +169,9 @@ private:
     project::ProjectDocument document_{};
     scene::CommandStack command_stack_;
     OrbitCameraController camera_controller_{};
+    scene::CameraComponent viewport_camera_{};
+    bool camera_view_active_{false};
+    bool editor_helpers_visible_{true};
     TransformGizmo gizmo_{};
     WorkspaceManager workspace_{};
 
@@ -186,6 +200,7 @@ private:
     math::Mat4 gizmo_drag_obj_world_{math::Mat4::identity()};
 
     // Reusable CPU overlay mesh scratch buffers.
+    scene::MeshData scene_helpers_overlay_mesh_{};
     scene::MeshData edit_overlay_mesh_{};
     scene::MeshData gizmo_overlay_mesh_{};
 

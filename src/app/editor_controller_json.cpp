@@ -157,6 +157,8 @@ std::string EditorController::serializeStateJson() const {
     vp.setKey("backend_name", caps.backend_name);
     vp.setKey("device_name", caps.device_name);
     vp.setKey("rig_playing", session_.isRigAnimationEnabled());
+    vp.setKey("camera_view_active", session_.isCameraViewActive());
+    vp.setKey("editor_helpers_visible", session_.areEditorHelpersVisible());
     vp.setKey("active_camera_id", scene.activeCamera().value);
     vp.setKey("selected_object_id", session_.selectedObject().value);
     vp.setKey("camera_target", vec3ToJson(session_.cameraController().target()));
@@ -173,6 +175,27 @@ std::string EditorController::serializeStateJson() const {
     ed.setKey("gizmo_hovered_handle", std::string(gizmoHandleName(session_.hoveredGizmoHandle())));
     ed.setKey("gizmo_active_handle", std::string(gizmoHandleName(session_.gizmo().activeHandle())));
     ed.setKey("gizmo_dragging", session_.isGizmoDragging());
+    if (const auto gframe = session_.computeActiveGizmoFrame(); gframe.has_value()) {
+        JsonValue gh{JsonObject{}};
+        const float handle_dist =
+            (session_.gizmo().mode() == GizmoMode::Rotate && session_.editorMode() == scene::EditMode::Object)
+                ? (gframe->scale * 0.90f)
+                : (gframe->scale * 0.68f);
+        auto projPt = [&](const math::Vec3& wp) -> JsonValue {
+            if (const auto sp = session_.projectWorldPointToScreen(wp); sp.has_value()) {
+                return JsonArray{
+                    JsonValue(static_cast<double>(sp->x)),
+                    JsonValue(static_cast<double>(sp->y)),
+                };
+            }
+            return JsonValue{};
+        };
+        gh.setKey("origin", projPt(gframe->origin));
+        gh.setKey("x", projPt(gframe->origin + gframe->axes[0] * handle_dist));
+        gh.setKey("y", projPt(gframe->origin + gframe->axes[1] * handle_dist));
+        gh.setKey("z", projPt(gframe->origin + gframe->axes[2] * handle_dist));
+        ed.setKey("gizmo_handles_screen", std::move(gh));
+    }
 
     JsonValue msel{JsonObject{}};
     msel.setKey("vertices", u32SpanToJson(session_.meshSelection().vertices));
@@ -318,6 +341,20 @@ std::string EditorController::serializeStateJson() const {
         item.setKey("has_light", node->directional_light.has_value());
         item.setKey("material_id", node->material_id.has_value() ? node->material_id->value : std::uint64_t{0});
         item.setKey("is_active_camera", node->id == scene.activeCamera());
+        if (const auto wm = scene.computeWorldMatrix(node->id); wm.hasValue()) {
+            const math::Vec3 wpos = wm.value().transformPoint(math::Vec3::zero());
+            item.setKey("world_position", vec3ToJson(wpos));
+            const math::Vec3 pick_anchor =
+                node->camera.has_value()
+                    ? wm.value().transformPoint(math::Vec3{0.0f, 0.04f, 0.18f})
+                    : wpos;
+            if (const auto sp = session_.projectWorldPointToScreen(pick_anchor); sp.has_value()) {
+                item.setKey("pick_screen_pos", JsonArray{
+                    JsonValue(static_cast<double>(sp->x)),
+                    JsonValue(static_cast<double>(sp->y)),
+                });
+            }
+        }
         outliner_arr.push_back(std::move(item));
 
         std::vector<const scene::SceneObject*> kids;
@@ -953,6 +990,38 @@ core::Status EditorController::executeActionJson(std::string_view action_json) {
             return st;
         }
         setRigAnimationPlaying(pv->asBool());
+        return core::Status::ok();
+    }
+
+    if (action == "set_camera_view") {
+        const auto* av = cmd.findKey("active");
+        if (av == nullptr || !av->isBool()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing boolean 'active'");
+            recordStatus(st, {});
+            return st;
+        }
+        setCameraViewActive(av->asBool());
+        return core::Status::ok();
+    }
+
+    if (action == "toggle_camera_view") {
+        setCameraViewActive(!session_.isCameraViewActive());
+        return core::Status::ok();
+    }
+
+    if (action == "set_editor_helpers_visible") {
+        const auto* vv = cmd.findKey("visible");
+        if (vv == nullptr || !vv->isBool()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing boolean 'visible'");
+            recordStatus(st, {});
+            return st;
+        }
+        setEditorHelpersVisible(vv->asBool());
+        return core::Status::ok();
+    }
+
+    if (action == "toggle_editor_helpers") {
+        setEditorHelpersVisible(!session_.areEditorHelpersVisible());
         return core::Status::ok();
     }
 

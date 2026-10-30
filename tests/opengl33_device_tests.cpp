@@ -229,6 +229,12 @@ FE_TEST(OpenGL33Device, FailureHandlingAndZeroLeakLifecycle) {
     const auto mesh_id = scene.registerEditableMesh("Cube", scene::EditableMesh::createCube(1.0f)).value();
     const auto obj_id = scene.createObject("CubeObj").value();
     FE_REQUIRE_TRUE(scene.assignMesh(obj_id, mesh_id).hasValue());
+    const auto l1 = scene.createObject("LightA").value();
+    const auto l2 = scene.createObject("LightB").value();
+    FE_REQUIRE_TRUE(scene.assignDirectionalLight(
+        l1, scene::DirectionalLightComponent{.color = {1.0f, 0.9f, 0.8f}, .intensity = 1.2f}).hasValue());
+    FE_REQUIRE_TRUE(scene.assignDirectionalLight(
+        l2, scene::DirectionalLightComponent{.color = {0.2f, 0.6f, 1.0f}, .intensity = 0.8f}).hasValue());
 
     FE_REQUIRE_TRUE(renderer.renderScene(scene).hasValue());
     FE_EXPECT_EQ(g_gl.live_vaos, 1);
@@ -244,6 +250,17 @@ FE_TEST(OpenGL33Device, FailureHandlingAndZeroLeakLifecycle) {
     FE_EXPECT_EQ(g_gl.live_vaos, 1);
     FE_EXPECT_EQ(g_gl.live_buffers, 2);
     FE_EXPECT_EQ(g_gl.buffer_sub_data_calls, 2);
+
+    // Depth-tested scene-helper overlay subpass + X-ray gizmo overlay subpass
+    const auto& helper_mesh = scene.findMesh(mesh_id)->data;
+    const rendering::ViewportOverlayMesh overlays[2]{
+        {.mesh_data = &helper_mesh, .depth_test_scene = true},
+        {.mesh_data = &helper_mesh, .depth_test_scene = false},
+    };
+    FE_REQUIRE_TRUE(renderer.renderScene(scene, rendering::FrameClearDesc{}, {}, overlays).hasValue());
+    FE_EXPECT_EQ(g_gl.draw_elements_calls, 5); // 2 prior scene draws + 1 scene + 2 overlays
+    FE_EXPECT_EQ(g_gl.live_vaos, 3); // 1 persistent scene mesh + 2 overlay pool slots
+    FE_EXPECT_EQ(g_gl.live_buffers, 6);
 
     FE_REQUIRE_TRUE(renderer.resize(1920, 1080).hasValue());
     FE_EXPECT_EQ(g_gl.last_viewport_w, 1920);

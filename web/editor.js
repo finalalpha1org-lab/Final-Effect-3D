@@ -279,6 +279,7 @@
     cardCamera: document.getElementById("card-camera"),
     cardLight: document.getElementById("card-light"),
     cardDataEmpty: document.getElementById("card-data-empty"),
+    btnToggleCameraView: document.getElementById("btn-toggle-camera-view"),
     btnSetActiveCamera: document.getElementById("btn-set-active-camera"),
     camProjection: document.getElementById("cam-projection"),
     camFov: document.getElementById("cam-fov"),
@@ -342,6 +343,7 @@
   let lastInspParentSig = "";
   let lastInspMatSig = "";
   let lastMatSelectSig = "";
+  let lastAutoInspObjId = 0;
 
   let appPrefs = REG.loadPreferences();
   let selectedStudioId = "3d_studio";
@@ -1199,6 +1201,18 @@
 
     if (ed.mode !== "object" && activeInspTab !== "all" && activeInspTab !== "modifiers") {
       setInspectorCategory("modifiers");
+    } else if (insp && insp.id !== lastAutoInspObjId) {
+      lastAutoInspObjId = insp.id;
+      if (
+        (insp.camera || insp.light) &&
+        !insp.mesh &&
+        activeInspTab !== "all" &&
+        activeInspTab !== "data"
+      ) {
+        setInspectorCategory("all");
+      }
+    } else if (!insp) {
+      lastAutoInspObjId = 0;
     }
 
     [els.btnGizmoTranslate, els.btnGizmoRotate, els.btnGizmoScale].forEach((b) => {
@@ -1222,9 +1236,11 @@
     setInputValueIfUnfocused(els.metaSceneName, state.project.scene_name);
 
     const activeCamObj = state.objects.find((o) => o.id === state.viewport.active_camera_id);
+    const lensSuffix = state.viewport.camera_view_active ? " [Lens]" : "";
     els.vpCameraPill.textContent =
       "Camera: " +
       (activeCamObj ? activeCamObj.name : "None") +
+      lensSuffix +
       " · Dist " +
       formatFloat(state.viewport.camera_distance, 1) +
       "m";
@@ -1668,6 +1684,13 @@
       els.cardCamera.hidden = false;
       els.btnSetActiveCamera.textContent = insp.camera.is_active ? "Active" : "Set Active";
       els.btnSetActiveCamera.disabled = Boolean(insp.camera.is_active);
+      if (els.btnToggleCameraView) {
+        const viewingThisLens = Boolean(
+          insp.camera.is_active && state.viewport && state.viewport.camera_view_active
+        );
+        els.btnToggleCameraView.textContent = viewingThisLens ? "Exit Lens" : "View Lens";
+        els.btnToggleCameraView.classList.toggle("is-active", viewingThisLens);
+      }
       if (!isFocused(els.camProjection)) els.camProjection.value = insp.camera.projection;
       setInputValueIfUnfocused(els.camFov, formatFloat(insp.camera.fov_deg, 1));
       setInputValueIfUnfocused(els.camOrtho, formatFloat(insp.camera.ortho_height, 2));
@@ -2462,6 +2485,10 @@
           appPrefs.showViewportHud = !appPrefs.showViewportHud;
           REG.savePreferences(appPrefs);
           applyPreferencesAndResponsiveMode();
+        } else if (cmd === "toggle_camera_view") {
+          wasmApi.dispatchAction({ action: "toggle_camera_view" });
+        } else if (cmd === "toggle_editor_helpers") {
+          wasmApi.dispatchAction({ action: "toggle_editor_helpers" });
         } else if (cmd === "save_custom_layout") {
           saveNamedCustomWorkspace();
         } else if (cmd === "restore_custom_layout") {
@@ -3023,6 +3050,24 @@
     [els.camProjection, els.camFov, els.camOrtho, els.camNear, els.camFar].forEach((el) => {
       el.addEventListener("change", dispatchCameraFromInputs);
     });
+
+    if (els.btnToggleCameraView) {
+      els.btnToggleCameraView.addEventListener("click", () => {
+        if (!wasmApi || !currentState || !currentState.inspector || !currentState.inspector.camera) {
+          return;
+        }
+        const insp = currentState.inspector;
+        const vp = currentState.viewport || {};
+        if (insp.camera.is_active && vp.camera_view_active) {
+          wasmApi.dispatchAction({ action: "set_camera_view", active: false });
+        } else {
+          if (!insp.camera.is_active) {
+            wasmApi.dispatchAction({ action: "set_active_camera", id: insp.id });
+          }
+          wasmApi.dispatchAction({ action: "set_camera_view", active: true });
+        }
+      });
+    }
 
     els.btnSetActiveCamera.addEventListener("click", () => {
       if (!wasmApi || !currentState || !currentState.inspector) return;

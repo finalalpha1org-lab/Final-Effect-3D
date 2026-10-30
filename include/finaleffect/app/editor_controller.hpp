@@ -62,6 +62,8 @@ public:
     [[nodiscard]] std::optional<scene::RaycastHit> pickViewportPixel(float x, float y);
     [[nodiscard]] core::Status frameSelectionOrScene();
     void setRigAnimationPlaying(bool playing) noexcept;
+    void setCameraViewActive(bool active) noexcept;
+    void setEditorHelpersVisible(bool visible) noexcept;
 
     [[nodiscard]] core::Status setEditorMode(scene::EditMode mode);
     void setGizmoMode(GizmoMode mode) noexcept;

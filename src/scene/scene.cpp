@@ -723,6 +723,13 @@ core::Result<math::AABB> Scene::computeObjectWorldBounds(ObjectId id) const {
         }
     }
 
+    if (obj->camera.has_value() || obj->directional_light.has_value()) {
+        const math::AABB helper_local = math::AABB::fromMinMax(
+            math::Vec3{-0.45f, -0.45f, -0.85f},
+            math::Vec3{0.45f, 0.45f, 0.45f});
+        return core::Result<math::AABB>::ok(helper_local.transformed(world_res.value()));
+    }
+
     const math::Vec3 origin = world_res.value().transformPoint(math::Vec3::zero());
     const math::Vec3 half_pad{0.25f, 0.25f, 0.25f};
     return core::Result<math::AABB>::ok(math::AABB::fromMinMax(origin - half_pad, origin + half_pad));

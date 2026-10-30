@@ -274,6 +274,9 @@
                 <button type="button" data-menu-cmd="toggle_right_dock" data-testid="cmd-toggle-right-dock">Toggle Right Inspector Area</button>
                 <button type="button" data-menu-cmd="toggle_bottom_dock" data-testid="cmd-toggle-bottom-dock">Toggle Bottom Area</button>
                 <button type="button" data-menu-cmd="toggle_hud">Toggle Viewport HUD</button>
+                <div class="menu-sep"></div>
+                <button type="button" data-menu-cmd="toggle_camera_view" data-testid="cmd-toggle-camera-view">Toggle Active Camera View</button>
+                <button type="button" data-menu-cmd="toggle_editor_helpers" data-testid="cmd-toggle-editor-helpers">Toggle Scene Helpers</button>
               </div>
             </div>
           </nav>
@@ -710,7 +713,10 @@
                   <div class="inspector-card" id="card-camera" data-testid="card-camera" hidden>
                     <div class="card-header">
                       <h3>Camera Lens &amp; Clip</h3>
-                      <button type="button" class="ghost-btn" id="btn-set-active-camera" data-testid="btn-set-active-camera">Set Active</button>
+                      <div class="area-header-actions">
+                        <button type="button" class="ghost-btn" id="btn-toggle-camera-view" data-testid="btn-toggle-camera-view" title="Look through active camera lens or return to free perspective">View Lens</button>
+                        <button type="button" class="ghost-btn" id="btn-set-active-camera" data-testid="btn-set-active-camera">Set Active</button>
+                      </div>
                     </div>
                     <div class="form-stack">
                       <label class="field-row">

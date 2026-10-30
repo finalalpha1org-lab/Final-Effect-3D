@@ -20,6 +20,13 @@ namespace finaleffect::rendering {
 struct ViewportOverlayMesh {
     const scene::MeshData* mesh_data{nullptr};
     math::Mat4 model_matrix{math::Mat4::identity()};
+    // When true, draws in the scene depth buffer BEFORE depth is cleared for foreground X-ray gizmos.
+    bool depth_test_scene{false};
+};
+
+struct ViewportCameraOverride {
+    math::Mat4 camera_world{math::Mat4::identity()};
+    scene::CameraComponent camera{};
 };
 
 // High-level portable renderer: bridges Scene data, PBR materials, submeshes, and
@@ -40,7 +47,8 @@ public:
         const scene::Scene& scene,
         const FrameClearDesc& clear = {},
         scene::ObjectId selected_object = {},
-        std::span<const ViewportOverlayMesh> overlays = {});
+        std::span<const ViewportOverlayMesh> overlays = {},
+        const ViewportCameraOverride* camera_override = nullptr);
 
     void releaseSceneResources() noexcept;
 

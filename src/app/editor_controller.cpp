@@ -160,6 +160,24 @@ void EditorController::setRigAnimationPlaying(bool playing) noexcept {
     last_status_message_ = playing ? "Showcase rig animation resumed" : "Showcase rig animation paused";
 }
 
+void EditorController::setCameraViewActive(bool active) noexcept {
+    session_.setCameraViewActive(active);
+    ++state_revision_;
+    last_status_is_error_ = false;
+    last_status_message_ = active
+                               ? "Viewing through active scene camera"
+                               : "Switched to free perspective viewport";
+}
+
+void EditorController::setEditorHelpersVisible(bool visible) noexcept {
+    session_.setEditorHelpersVisible(visible);
+    ++state_revision_;
+    last_status_is_error_ = false;
+    last_status_message_ = visible
+                               ? "Shown camera & light viewport helpers"
+                               : "Hidden camera & light viewport helpers";
+}
+
 core::Status EditorController::setEditorMode(scene::EditMode mode) {
     auto st = session_.setEditorMode(mode);
     recordStatus(st, "Switched editor mode to " + std::string(editModeName(mode)));
@@ -888,9 +906,13 @@ core::Result<scene::ObjectId> EditorController::addPresetObject(
         }
         case ScenePreset::DirectionalLight: {
             base_name = "KeyLight";
-            init_tf.position = {0.0f, 3.0f, 0.0f};
+            init_tf.position = {
+                1.10f + 0.45f * std::sin(ring_angle),
+                2.35f,
+                -0.45f + 0.45f * std::cos(ring_angle),
+            };
             init_tf.rotation = math::Quat::fromEulerXYZ(
-                {math::degToRad(-45.0f), math::degToRad(-30.0f), 0.0f});
+                {math::degToRad(-46.0f), math::degToRad(36.0f), 0.0f});
             light_comp = scene::DirectionalLightComponent{
                 .color = {1.0f, 0.96f, 0.90f},
                 .intensity = 1.4f,
@@ -900,9 +922,17 @@ core::Result<scene::ObjectId> EditorController::addPresetObject(
         }
         case ScenePreset::Camera: {
             base_name = "Camera";
-            init_tf.position = {3.5f, 2.5f, 5.0f};
+            const math::Vec3 cam_eye{
+                -1.55f + 0.40f * std::cos(ring_angle),
+                1.85f,
+                1.95f + 0.35f * std::sin(ring_angle),
+            };
+            const math::Vec3 cam_target{0.0f, 0.72f, 0.0f};
+            const math::Vec3 cam_off = cam_eye - cam_target;
+            const float cam_horiz = std::sqrt(cam_off.x * cam_off.x + cam_off.z * cam_off.z);
+            init_tf.position = cam_eye;
             init_tf.rotation = math::Quat::fromEulerXYZ(
-                {math::degToRad(-22.0f), math::degToRad(32.0f), 0.0f});
+                {-std::atan2(cam_off.y, cam_horiz), std::atan2(cam_off.x, cam_off.z), 0.0f});
             camera_comp = scene::CameraComponent{};
             mat_id = std::nullopt;
             break;
@@ -1047,7 +1077,7 @@ core::Status EditorController::setObjectTransformEulerDegrees(
     auto st = session_.commandStack().execute(
         session_.document().scene,
         std::make_unique<scene::SetTransformCommand>(id, tf, allow_coalesce));
-    if (st && id == session_.document().scene.activeCamera()) {
+    if (st && session_.isCameraViewActive() && id == session_.document().scene.activeCamera()) {
         session_.cameraController().syncFromCameraTransform(tf, session_.cameraController().target());
     }
     recordStatus(st, "Updated transform");
@@ -1074,7 +1104,7 @@ core::Status EditorController::setCameraComponent(
 
 core::Status EditorController::setActiveCamera(scene::ObjectId id) {
     auto st = session_.document().scene.setActiveCamera(id);
-    if (st) {
+    if (st && session_.isCameraViewActive()) {
         if (const auto* cam_obj = session_.document().scene.findObject(id); cam_obj != nullptr) {
             session_.cameraController().syncFromCameraTransform(
                 cam_obj->local_transform,
@@ -1130,7 +1160,7 @@ core::Status EditorController::undo() {
         session_.sanitizeMeshSelection();
         refreshMaterialPreview();
         const auto active_cam = session_.document().scene.activeCamera();
-        if (active_cam.isValid()) {
+        if (session_.isCameraViewActive() && active_cam.isValid()) {
             if (const auto* cam_obj = session_.document().scene.findObject(active_cam); cam_obj != nullptr) {
                 session_.cameraController().syncFromCameraTransform(
                     cam_obj->local_transform,
@@ -1158,7 +1188,7 @@ core::Status EditorController::redo() {
         session_.sanitizeMeshSelection();
         refreshMaterialPreview();
         const auto active_cam = session_.document().scene.activeCamera();
-        if (active_cam.isValid()) {
+        if (session_.isCameraViewActive() && active_cam.isValid()) {
             if (const auto* cam_obj = session_.document().scene.findObject(active_cam); cam_obj != nullptr) {
                 session_.cameraController().syncFromCameraTransform(
                     cam_obj->local_transform,
@@ -1223,15 +1253,17 @@ core::Status EditorController::createNewProject(
     auto& sc = fresh.scene;
     sc.setName("Scene");
 
-    // Standard studio camera + directional key light for every template.
+    // Standard studio camera + directional key light for every template, positioned visibly inside the stage.
     auto cam_res = sc.createObject("MainCamera");
     if (!cam_res) { recordStatus(core::Status(cam_res.error()), {}); return cam_res.error(); }
     math::Transform cam_tf{};
-    const math::Vec3 eye{0.0f, 2.6f, 5.4f};
-    const math::Vec3 target{0.0f, 0.55f, 0.0f};
-    const float pitch = -std::atan2(eye.y - target.y, eye.z - target.z);
+    const math::Vec3 eye{1.55f, 2.05f, 1.95f};
+    const math::Vec3 target{0.0f, 0.72f, 0.0f};
+    const math::Vec3 cam_off = eye - target;
+    const float cam_horiz = std::sqrt(cam_off.x * cam_off.x + cam_off.z * cam_off.z);
     cam_tf.position = eye;
-    cam_tf.rotation = math::Quat::fromAxisAngle(math::Vec3::unitX(), pitch);
+    cam_tf.rotation = math::Quat::fromEulerXYZ(
+        {-std::atan2(cam_off.y, cam_horiz), std::atan2(cam_off.x, cam_off.z), 0.0f});
     (void)sc.setObjectTransform(cam_res.value(), cam_tf);
     scene::CameraComponent cam_comp{};
     cam_comp.projection = scene::ProjectionType::Perspective;
@@ -1242,8 +1274,9 @@ core::Status EditorController::createNewProject(
     auto light_res = sc.createObject("SunLight");
     if (!light_res) { recordStatus(core::Status(light_res.error()), {}); return light_res.error(); }
     math::Transform light_tf{};
+    light_tf.position = {-1.45f, 2.25f, 0.85f};
     light_tf.rotation = math::Quat::fromEulerXYZ(
-        {math::degToRad(-50.0f), math::degToRad(35.0f), 0.0f});
+        {math::degToRad(-42.0f), math::degToRad(-52.0f), 0.0f});
     (void)sc.setObjectTransform(light_res.value(), light_tf);
     (void)sc.assignDirectionalLight(
         light_res.value(),
@@ -1335,7 +1368,10 @@ core::Status EditorController::createNewProject(
     session_.commandStack().clear();
     session_.restoreFromDocumentState();
     session_.setRigAnimationEnabled(false);
-    session_.cameraController().syncFromCameraTransform(cam_tf, target);
+    session_.setCameraViewActive(false);
+    math::Transform editor_eye{};
+    editor_eye.position = {0.0f, 2.95f, 6.10f};
+    session_.cameraController().syncFromCameraTransform(editor_eye, {0.0f, 0.80f, 0.0f});
     spawn_counter_ = 0;
     selected_material_id_ = default_mat;
     refreshMaterialPreview();
@@ -1365,15 +1401,12 @@ core::Status EditorController::importInlineProjectJson(std::string_view json_tex
     session_.commandStack().clear();
     session_.restoreFromDocumentState();
     session_.setRigAnimationEnabled(false);
+    session_.setCameraViewActive(false);
+    math::Transform editor_eye{};
+    editor_eye.position = {0.0f, 2.95f, 6.10f};
+    session_.cameraController().syncFromCameraTransform(editor_eye, {0.0f, 0.80f, 0.0f});
     selected_material_id_ = session_.document().editor_state.active_material_id;
     refreshMaterialPreview();
-
-    const auto active_cam = session_.document().scene.activeCamera();
-    if (active_cam.isValid()) {
-        if (const auto* cam_obj = session_.document().scene.findObject(active_cam); cam_obj != nullptr) {
-            session_.cameraController().syncFromCameraTransform(cam_obj->local_transform, math::Vec3::zero());
-        }
-    }
     for (const auto& warn : session_.document().load_warnings) {
         console_entries_.push_back(EditorConsoleEntry{
             .sequence = ++console_seq_,

@@ -69,6 +69,8 @@ private:
     std::int32_t loc_camera_pos_{-1};
     std::int32_t loc_light_dir_{-1};
     std::int32_t loc_light_radiance_{-1};
+    std::int32_t loc_extra_light_dirs_{-1};
+    std::int32_t loc_extra_light_radiances_{-1};
     std::int32_t loc_ambient_{-1};
     std::int32_t loc_selection_tint_{-1};
     std::int32_t loc_base_color_{-1};

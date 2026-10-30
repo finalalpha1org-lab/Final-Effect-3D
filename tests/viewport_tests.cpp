@@ -111,7 +111,8 @@ FE_TEST(Viewport, InteractivePickingOrbitDeleteAndUndoRedoSession) {
 
     // 2. Press 'F' to frame HeroCube bounds, then Right-drag to orbit camera + scroll wheel to zoom.
     const auto cam_id = session.document().scene.activeCamera();
-    const math::Vec3 initial_cam_pos = session.document().scene.findObject(cam_id)->local_transform.position;
+    const math::Vec3 initial_scene_cam_pos = session.document().scene.findObject(cam_id)->local_transform.position;
+    const math::Vec3 initial_vp_pos = session.cameraController().computeCameraTransform().position;
 
     window.pushInputEvent(platform::KeyEvent{.key = platform::KeyCode::F, .action = platform::KeyAction::Press});
     window.pushInputEvent(platform::MouseButtonEvent{
@@ -130,8 +131,11 @@ FE_TEST(Viewport, InteractivePickingOrbitDeleteAndUndoRedoSession) {
     window.pushInputEvent(platform::ScrollEvent{.delta_x = 0.0, .delta_y = 2.0});
     FE_REQUIRE_TRUE(engine.stepFrame().hasValue());
 
-    const math::Vec3 moved_cam_pos = session.document().scene.findObject(cam_id)->local_transform.position;
-    FE_EXPECT_TRUE((moved_cam_pos - initial_cam_pos).length() > 0.25f);
+    const math::Vec3 moved_vp_pos = session.cameraController().computeCameraTransform().position;
+    FE_EXPECT_TRUE((moved_vp_pos - initial_vp_pos).length() > 0.25f);
+    // Free perspective orbit preserves MainCamera's authored scene transform unless Camera Lens View is active.
+    FE_EXPECT_TRUE(session.document().scene.findObject(cam_id)->local_transform.position.approxEqual(
+        initial_scene_cam_pos, 1e-5f));
 
     // 3. Delete selected HeroCube via Delete key -> recorded in CommandStack, then Ctrl+Z undoes & Ctrl+Y redoes.
     window.pushInputEvent(platform::KeyEvent{
@@ -192,12 +196,10 @@ FE_TEST(Viewport, Stage4InteractiveGizmoDragCancelAndMeshFacePicking) {
     FE_REQUIRE_TRUE(frame.has_value());
     const math::Vec3 handle_world_pt = frame->origin + frame->axes[0] * (frame->scale * 0.65f);
 
-    const auto* cam_obj = session.document().scene.findObject(session.document().scene.activeCamera());
-    const math::Mat4 view = session.document().scene.computeWorldMatrix(cam_obj->id).value().inverted().value();
-    const math::Mat4 proj = cam_obj->camera->computeProjectionMatrix(400.0f / 300.0f);
-    const math::Vec4 clip = (proj * view) * math::Vec4{handle_world_pt.x, handle_world_pt.y, handle_world_pt.z, 1.0f};
-    const float sx = ((clip.x / clip.w) * 0.5f + 0.5f) * 400.0f;
-    const float sy = (0.5f - (clip.y / clip.w) * 0.5f) * 300.0f;
+    const auto proj_pt = session.projectWorldPointToScreen(handle_world_pt);
+    FE_REQUIRE_TRUE(proj_pt.has_value());
+    const float sx = proj_pt->x;
+    const float sy = proj_pt->y;
 
     // 1. Hover over +X handle -> sets hoveredHandle() to TranslateX!
     window.pushInputEvent(platform::CursorMoveEvent{.x = sx, .y = sy});

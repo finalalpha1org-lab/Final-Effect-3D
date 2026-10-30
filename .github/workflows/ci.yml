@@ -171,10 +171,10 @@ jobs:
           FE3D_WEB_DIST_DIR: ../../build/ci-wasm
         run: npx playwright test --reporter=list,github
 
-      - name: Upload Before & After Multi-Viewport Screenshots
+      - name: Upload Multi-Viewport & Stage 5.2 Camera/Light Screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stage-5-1-before-and-after-screenshots
+          name: stage-5-2-viewport-and-ui-screenshots
           path: build/ci-screenshots/
           if-no-files-found: ignore
