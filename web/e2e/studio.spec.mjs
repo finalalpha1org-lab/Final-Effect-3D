@@ -1026,7 +1026,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     });
 
     // Quick-return "Done" button inside Portrait drawer returns cleanly to full Viewport
-    await page.locator("#properties-shell [data-mp-close-drawer]").click();
+    await page.locator("#panel-properties [data-mp-close-drawer]").click();
     await expect(page.locator("body")).toHaveAttribute("data-mp-drawer", "viewport");
 
     // Android Compact Portrait (360x800) & Tablet (1024x768)
