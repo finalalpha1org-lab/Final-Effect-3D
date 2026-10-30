@@ -154,4 +154,4 @@ jobs:
         env:
           CI: "true"
           FE3D_WEB_DIST_DIR: ../../build/ci-wasm
-        run: npx playwright test --reporter=list
+        run: npx playwright test --reporter=list,github
