@@ -607,13 +607,13 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     });
     await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: HeroCube");
 
-    // 1-finger touch DRAG orbits camera while preserving HeroCube selection (zero conflict!)
+    // 1-finger touch DRAG on empty viewport orbits camera while preserving HeroCube selection (zero conflict!)
     const hashBeforeTouchOrbit = (await sampleViewportPixels(page)).hash;
     await page.evaluate(() => {
       const c = document.getElementById("fe3d-canvas");
       const r = c.getBoundingClientRect();
-      const sx = r.left + r.width * 0.5;
-      const sy = r.top + r.height * 0.5;
+      const sx = r.left + r.width * 0.18;
+      const sy = r.top + r.height * 0.24;
       c.dispatchEvent(
         new PointerEvent("pointerdown", {
           pointerId: 12,

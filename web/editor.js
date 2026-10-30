@@ -287,6 +287,10 @@
     matOpacity: document.getElementById("mat-opacity"),
     valMatOpacity: document.getElementById("val-mat-opacity"),
 
+    metaProjectName: document.getElementById("meta-project-name"),
+    metaAuthor: document.getElementById("meta-author"),
+    metaSceneName: document.getElementById("meta-scene-name"),
+
     statObjectsMeshes: document.getElementById("stat-objects-meshes"),
     statMaterialsUpdates: document.getElementById("stat-materials-updates"),
     statTriangles: document.getElementById("stat-triangles"),
