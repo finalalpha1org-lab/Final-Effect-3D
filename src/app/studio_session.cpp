@@ -244,6 +244,8 @@ core::Status StudioSession::onInitialize(core::Engine& engine) {
     if (!render_st) {
         return render_st;
     }
+    last_fb_width_ = fb.width;
+    last_fb_height_ = fb.height;
 
     engine.logger().info(
         "App.Session",
@@ -953,6 +955,11 @@ core::Status StudioSession::onUpdate(core::Engine&, const core::FrameTimings& ti
     auto resize_st = renderer_.resize(fb.width, fb.height);
     if (!resize_st) {
         return resize_st;
+    }
+    if (fb.width != last_fb_width_ || fb.height != last_fb_height_) {
+        last_fb_width_ = fb.width;
+        last_fb_height_ = fb.height;
+        ++interaction_revision_;
     }
 
     for (const auto& ev : window_.consumeInputEvents()) {

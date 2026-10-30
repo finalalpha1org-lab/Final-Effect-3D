@@ -205,6 +205,8 @@ private:
     scene::MeshData gizmo_overlay_mesh_{};
 
     std::uint64_t interaction_revision_{1};
+    std::uint32_t last_fb_width_{0};
+    std::uint32_t last_fb_height_{0};
     bool custom_project_loaded_{false};
     float rig_angle_radians_{0.0f};
 };

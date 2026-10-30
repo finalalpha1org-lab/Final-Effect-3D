@@ -1121,11 +1121,17 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
       }, fbPos);
     };
 
+    const waitRenderedFrames = async () => {
+      await page.evaluate(
+        () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      );
+    };
+
     // 1 & 2. Default starter scene opens with MainCamera & SunLight immediately visible in the 3D WebGL2 Viewport
     await bootDirectStudioReady(page);
     await page.getByTestId("btn-toggle-rig").click();
     await page.getByTestId("btn-clear-selection").click();
-    await page.waitForTimeout(80);
+    await waitRenderedFrames();
 
     const initialObjs = await page.evaluate(() => {
       const s = window.__FE3D_STUDIO__.getState();
@@ -1162,37 +1168,61 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     // 9. Toggle Scene Helpers off via View menu -> helpers cleanly disappear from rendered output, then re-enable pixel-identically
     await page.locator('[data-menu-trigger="view"]').click();
     await page.getByTestId("cmd-toggle-editor-helpers").click();
-    await page.waitForTimeout(60);
+    await waitRenderedFrames();
 
-    const camPatchHidden = await samplePatchAtFb(
-      initialObjs.mainCam.pick_screen_pos[0],
-      initialObjs.mainCam.pick_screen_pos[1],
-      16
-    );
-    const sunPatchHidden = await samplePatchAtFb(
-      initialObjs.sunLight.pick_screen_pos[0],
-      initialObjs.sunLight.pick_screen_pos[1],
-      16
-    );
-    expect(camPatchHidden.hash).not.toBe(mainCamPatchUnselected.hash);
-    expect(sunPatchHidden.hash).not.toBe(sunLightPatchUnselected.hash);
+    await expect
+      .poll(
+        async () =>
+          (
+            await samplePatchAtFb(
+              initialObjs.mainCam.pick_screen_pos[0],
+              initialObjs.mainCam.pick_screen_pos[1],
+              16
+            )
+          ).hash
+      )
+      .not.toBe(mainCamPatchUnselected.hash);
+    await expect
+      .poll(
+        async () =>
+          (
+            await samplePatchAtFb(
+              initialObjs.sunLight.pick_screen_pos[0],
+              initialObjs.sunLight.pick_screen_pos[1],
+              16
+            )
+          ).hash
+      )
+      .not.toBe(sunLightPatchUnselected.hash);
 
     await page.locator('[data-menu-trigger="view"]').click();
     await page.getByTestId("cmd-toggle-editor-helpers").click();
-    await page.waitForTimeout(60);
+    await waitRenderedFrames();
 
-    const camPatchRestored = await samplePatchAtFb(
-      initialObjs.mainCam.pick_screen_pos[0],
-      initialObjs.mainCam.pick_screen_pos[1],
-      16
-    );
-    const sunPatchRestored = await samplePatchAtFb(
-      initialObjs.sunLight.pick_screen_pos[0],
-      initialObjs.sunLight.pick_screen_pos[1],
-      16
-    );
-    expect(camPatchRestored.hash).toBe(mainCamPatchUnselected.hash);
-    expect(sunPatchRestored.hash).toBe(sunLightPatchUnselected.hash);
+    await expect
+      .poll(
+        async () =>
+          (
+            await samplePatchAtFb(
+              initialObjs.mainCam.pick_screen_pos[0],
+              initialObjs.mainCam.pick_screen_pos[1],
+              16
+            )
+          ).hash
+      )
+      .toBe(mainCamPatchUnselected.hash);
+    await expect
+      .poll(
+        async () =>
+          (
+            await samplePatchAtFb(
+              initialObjs.sunLight.pick_screen_pos[0],
+              initialObjs.sunLight.pick_screen_pos[1],
+              16
+            )
+          ).hash
+      )
+      .toBe(sunLightPatchUnselected.hash);
 
     // Normal mesh picking (HeroCube inside MainCamera's frustum) is NEVER blocked by camera frustum helpers
     const heroClient = await fbToClient(initialObjs.heroCube.pick_screen_pos);
@@ -1205,13 +1235,20 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: MainCamera");
     await expect(page.getByTestId("outliner-item-MainCamera")).toHaveClass(/is-selected/);
     await expect(page.locator("#card-camera")).toBeVisible();
+    await waitRenderedFrames();
 
-    const mainCamPatchSelected = await samplePatchAtFb(
-      initialObjs.mainCam.pick_screen_pos[0],
-      initialObjs.mainCam.pick_screen_pos[1],
-      16
-    );
-    expect(mainCamPatchSelected.hash).not.toBe(mainCamPatchUnselected.hash);
+    await expect
+      .poll(
+        async () =>
+          (
+            await samplePatchAtFb(
+              initialObjs.mainCam.pick_screen_pos[0],
+              initialObjs.mainCam.pick_screen_pos[1],
+              16
+            )
+          ).hash
+      )
+      .not.toBe(mainCamPatchUnselected.hash);
 
     await page.screenshot({
       path: path.join(outDir, "02-camera-selected-with-gizmo-and-inspector-1920x1080.png"),
@@ -1259,11 +1296,13 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
 
     await page.getByTestId("btn-toggle-camera-view").click();
     await expect(page.getByTestId("vp-camera-pill")).toContainText("Camera: MainCamera [Lens]");
+    await waitRenderedFrames();
     await page.screenshot({
       path: path.join(outDir, "04-active-camera-lens-view-1920x1080.png"),
     });
     await page.getByTestId("btn-toggle-camera-view").click();
     await expect(page.getByTestId("vp-camera-pill")).not.toContainText("[Lens]");
+    await waitRenderedFrames();
 
     // 4. Click SunLight directly in the 3D Viewport -> selects, highlights, stays visible at intensity 0, and updates real PBR lighting
     const sunScreenNow = await page.evaluate(
@@ -1277,18 +1316,19 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
 
     // Even at intensity 0, SunLight helper remains clearly visible in the 3D viewport!
     await setControlValueAndCommit(page.getByTestId("light-intensity"), "0");
-    await page.waitForTimeout(60);
+    await waitRenderedFrames();
     const sunZeroWithHelpers = await samplePatchAtFb(sunScreenNow[0], sunScreenNow[1], 18);
     await page.evaluate(() =>
       window.__FE3D_STUDIO__.dispatch({ action: "set_editor_helpers_visible", visible: false })
     );
-    await page.waitForTimeout(60);
-    const sunZeroWithoutHelpers = await samplePatchAtFb(sunScreenNow[0], sunScreenNow[1], 18);
-    expect(sunZeroWithHelpers.hash).not.toBe(sunZeroWithoutHelpers.hash);
+    await waitRenderedFrames();
+    await expect
+      .poll(async () => (await samplePatchAtFb(sunScreenNow[0], sunScreenNow[1], 18)).hash)
+      .not.toBe(sunZeroWithHelpers.hash);
     await page.evaluate(() =>
       window.__FE3D_STUDIO__.dispatch({ action: "set_editor_helpers_visible", visible: true })
     );
-    await page.waitForTimeout(60);
+    await waitRenderedFrames();
 
     // Restoring intensity & rotating SunLight updates actual PBR illumination on HeroCube
     const heroPatchDark = await samplePatchAtFb(
@@ -1298,13 +1338,19 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     );
     await setControlValueAndCommit(page.getByTestId("light-intensity"), "1.9");
     await setControlValueAndCommit(page.getByTestId("tf-rot-y"), "-25");
-    await page.waitForTimeout(60);
-    const heroPatchLit = await samplePatchAtFb(
-      initialObjs.heroCube.pick_screen_pos[0],
-      initialObjs.heroCube.pick_screen_pos[1],
-      18
-    );
-    expect(heroPatchLit.hash).not.toBe(heroPatchDark.hash);
+    await waitRenderedFrames();
+    await expect
+      .poll(
+        async () =>
+          (
+            await samplePatchAtFb(
+              initialObjs.heroCube.pick_screen_pos[0],
+              initialObjs.heroCube.pick_screen_pos[1],
+              18
+            )
+          ).hash
+      )
+      .not.toBe(heroPatchDark.hash);
 
     // 5, 7, & 8. Multiple independent Cameras & Lights + Rename + Delete + Undo/Redo + .fe3d/.fe3dbin persistence without duplication
     await page.getByTestId("btn-add-camera").click();
