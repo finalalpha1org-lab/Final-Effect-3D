@@ -1366,7 +1366,9 @@
       }
     }
 
-    const menuToggleShelf = document.querySelector('[data-menu-cmd="toggle_tool_shelf"]');
+    const menuToggleShelf = document.querySelector(
+      '[data-menu-cmd="toggle_toolshelf"], [data-menu-cmd="toggle_tool_shelf"]'
+    );
     if (menuToggleShelf && els.toolShelf) {
       menuToggleShelf.classList.toggle("is-on", !els.toolShelf.hidden);
     }

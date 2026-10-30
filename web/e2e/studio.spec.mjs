@@ -948,7 +948,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     expect(vpAfterExtremeDrag.width).toBeGreaterThan(1366 * 0.5);
 
     // Reset workspace layout to crisp defaults
-    await page.locator('[data-menu-trigger="view"]').click();
+    await page.locator('[data-menu-trigger="workspace"]').click();
     await page.locator('[data-menu-cmd="reset_layout"]').click();
 
     // 4. Stationary RMB Viewport Context Menu (clamped at extreme bottom-right edge) vs RMB Orbit Drag
@@ -987,17 +987,17 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
       window.__fe3dCanvasIdentity = document.getElementById("fe3d-canvas");
     });
 
-    // iPhone Safari "Request Desktop Website" (980x430) + clamped Help dropdown check
+    // iPhone Safari "Request Desktop Website" (980x430) + clamped Workspace dropdown check
     await page.setViewportSize({ width: 980, height: 430 });
     await expect(page.locator("body")).toHaveAttribute("data-layout-mode", "desktop");
     await assertNoHorizontalOverflow(page);
     await assertZeroOverlayCollisions("Safari Request Desktop Website 980x430");
-    await page.locator('[data-menu-trigger="help"]').click();
-    const helpDropdown = page.locator('.menu-item.is-open .menu-dropdown');
-    await expect(helpDropdown).toBeVisible();
-    const helpBox = await helpDropdown.boundingBox();
-    expect(helpBox.x + helpBox.width).toBeLessThanOrEqual(980);
-    expect(helpBox.y + helpBox.height).toBeLessThanOrEqual(430);
+    await page.locator('[data-menu-trigger="workspace"]').click();
+    const wsDropdown = page.locator('.menu-item.is-open .menu-dropdown');
+    await expect(wsDropdown).toBeVisible();
+    const wsBox = await wsDropdown.boundingBox();
+    expect(wsBox.x + wsBox.width).toBeLessThanOrEqual(980);
+    expect(wsBox.y + wsBox.height).toBeLessThanOrEqual(430);
     await page.keyboard.press("Escape");
     await page.screenshot({ path: path.join(outDir, "04-studio-safari-desktop-980x430.png") });
 
