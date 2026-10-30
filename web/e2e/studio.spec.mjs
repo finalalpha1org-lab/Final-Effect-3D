@@ -1456,10 +1456,21 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await page.getByTestId("btn-toggle-rig").click();
     await waitRenderedFrames();
 
-    // Select HeroCube and reset rotation to clean axes so axis & plane handle deltas are crisp
+    // Select HeroCube and reset RigPivot + HeroCube transforms to clean world-aligned axes so axis & plane deltas are exact
     await page.getByTestId("outliner-item-HeroCube").click();
     await page.evaluate(() => {
-      const hero = window.__FE3D_STUDIO__.getState().objects.find((o) => o.name === "HeroCube");
+      const objs = window.__FE3D_STUDIO__.getState().objects;
+      const pivot = objs.find((o) => o.name === "RigPivot");
+      const hero = objs.find((o) => o.name === "HeroCube");
+      if (pivot) {
+        window.__FE3D_STUDIO__.dispatch({
+          action: "set_transform",
+          id: pivot.id,
+          position: [0, 0, 0],
+          rotation_deg: [0, 0, 0],
+          scale: [1, 1, 1],
+        });
+      }
       window.__FE3D_STUDIO__.dispatch({
         action: "set_transform",
         id: hero.id,
