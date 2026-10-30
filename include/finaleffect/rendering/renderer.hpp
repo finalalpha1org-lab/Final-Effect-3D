@@ -5,6 +5,7 @@
 
 #include "finaleffect/core/resource_stats.hpp"
 #include "finaleffect/core/result.hpp"
+#include "finaleffect/rendering/lighting_system.hpp"
 #include "finaleffect/rendering/render_device.hpp"
 #include "finaleffect/scene/object_id.hpp"
 #include "finaleffect/scene/scene.hpp"
@@ -58,6 +59,10 @@ public:
     [[nodiscard]] const IRenderDevice& device() const noexcept { return *device_; }
 
     [[nodiscard]] core::ResourceStats collectResourceStats(const scene::Scene& scene) const noexcept;
+    [[nodiscard]] const LightingDiagnostics& lastLightingDiagnostics() const noexcept {
+        return last_lighting_diagnostics_;
+    }
+    void invalidateShadowCache() noexcept { cached_shadow_tile_signatures_.clear(); }
 
 private:
     struct CachedGpuMesh {
@@ -74,6 +79,9 @@ private:
     std::uint32_t viewport_height_{0};
     std::unordered_map<scene::MeshId, CachedGpuMesh> gpu_mesh_cache_;
     std::vector<GpuMeshHandle> overlay_gpu_pool_;
+    std::uint32_t cached_shadow_atlas_size_{0};
+    std::unordered_map<std::uint32_t, std::uint64_t> cached_shadow_tile_signatures_;
+    LightingDiagnostics last_lighting_diagnostics_{};
 };
 
 } // namespace finaleffect::rendering

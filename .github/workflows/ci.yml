@@ -171,10 +171,10 @@ jobs:
           FE3D_WEB_DIST_DIR: ../../build/ci-wasm
         run: npx playwright test --reporter=list,github
 
-      - name: Upload Multi-Viewport, Stage 5.2 Camera/Light & Stage 5.3 Gizmo/Nav Screenshots
+      - name: Upload Multi-Viewport, Gizmo, Grid & Stage 5.4 Lighting Screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stage-5-3-viewport-gizmos-and-ui-screenshots
+          name: stage-5-4-lighting-engine-and-ui-screenshots
           path: build/ci-screenshots/
           if-no-files-found: ignore

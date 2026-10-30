@@ -151,21 +151,24 @@ FE_TEST(Editor, InlineJsonAndBinaryBundleProjectRoundTrip) {
         added_light.value(),
         scene::DirectionalLightComponent{.color = {0.8f, 0.9f, 1.0f}, .intensity = 2.25f}).hasValue());
 
-    // Export inline JSON (v1.2), verify backward-compatible v1.0 and v1.1 schema loads as well as v1.2 load.
+    // Export inline JSON (v1.3), verify backward-compatible v1.0, v1.1, and v1.2 schema loads as well as v1.3 load.
     const auto inline_json_res = rig.editor->exportInlineProjectJson();
     FE_REQUIRE_TRUE(inline_json_res.hasValue());
 
     std::string legacy_v10_json = inline_json_res.value();
-    const auto minor_pos = legacy_v10_json.find("\"minor\": 2");
+    const auto minor_pos = legacy_v10_json.find("\"minor\": 3");
     FE_REQUIRE_TRUE(minor_pos != std::string::npos);
     std::string legacy_v11_json = legacy_v10_json;
+    std::string legacy_v12_json = legacy_v10_json;
     legacy_v10_json.replace(minor_pos, 10, "\"minor\": 0");
     legacy_v11_json.replace(minor_pos, 10, "\"minor\": 1");
+    legacy_v12_json.replace(minor_pos, 10, "\"minor\": 2");
 
     FE_REQUIRE_TRUE(rig.editor->newStarterProject().hasValue());
     FE_EXPECT_EQ(rig.session->document().metadata.project_name, std::string("Final Effect 3D Starter Project"));
     FE_EXPECT_EQ(rig.session->document().scene.objectCount(), static_cast<std::size_t>(5));
 
+    FE_REQUIRE_TRUE(rig.editor->importInlineProjectJson(legacy_v12_json).hasValue());
     FE_REQUIRE_TRUE(rig.editor->importInlineProjectJson(legacy_v11_json).hasValue());
     FE_REQUIRE_TRUE(rig.editor->importInlineProjectJson(legacy_v10_json).hasValue());
     FE_EXPECT_EQ(rig.session->document().metadata.project_name, std::string("Studio Stage 3 Test"));

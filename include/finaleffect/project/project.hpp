@@ -48,7 +48,7 @@ struct ProjectDocument {
     std::vector<std::string> load_warnings{};
 };
 
-// Versioned Final Effect 3D (.fe3d) JSON project serializer and validator (v1.0..v1.2).
+// Versioned Final Effect 3D (.fe3d) JSON project serializer and validator (v1.0..v1.3).
 class ProjectSerializer {
 public:
     static constexpr std::string_view kFormatIdentifier = "finaleffect.project";

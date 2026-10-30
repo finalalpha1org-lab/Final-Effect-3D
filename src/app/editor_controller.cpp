@@ -898,7 +898,7 @@ core::Result<scene::ObjectId> EditorController::addPresetObject(
     std::string base_name = "Object";
     std::optional<scene::MeshId> mesh_id;
     std::optional<scene::CameraComponent> camera_comp;
-    std::optional<scene::DirectionalLightComponent> light_comp;
+    scene::AnyLightComponent any_light{std::monostate{}};
     std::optional<scene::MaterialId> mat_id;
     if (selectedMaterial().isValid()) {
         mat_id = selectedMaterial();
@@ -958,9 +958,78 @@ core::Result<scene::ObjectId> EditorController::addPresetObject(
             };
             init_tf.rotation = math::Quat::fromEulerXYZ(
                 {math::degToRad(-46.0f), math::degToRad(36.0f), 0.0f});
-            light_comp = scene::DirectionalLightComponent{
+            any_light = scene::DirectionalLightComponent{
                 .color = {1.0f, 0.96f, 0.90f},
                 .intensity = 1.4f,
+            };
+            mat_id = std::nullopt;
+            break;
+        }
+        case ScenePreset::PointLight: {
+            base_name = "PointLight";
+            init_tf.position = {
+                1.25f * std::cos(ring_angle),
+                1.85f,
+                1.25f * std::sin(ring_angle),
+            };
+            any_light = scene::PointLightComponent{
+                .color = {1.0f, 0.92f, 0.80f},
+                .intensity = 8.0f,
+                .enabled = true,
+                .range = 12.0f,
+                .attenuation = 2.0f,
+            };
+            mat_id = std::nullopt;
+            break;
+        }
+        case ScenePreset::SpotLight: {
+            base_name = "SpotLight";
+            const math::Vec3 spot_eye{
+                1.65f + 0.35f * std::cos(ring_angle),
+                2.55f,
+                1.55f + 0.35f * std::sin(ring_angle),
+            };
+            const math::Vec3 spot_target{0.0f, 0.65f, 0.0f};
+            const math::Vec3 off = spot_eye - spot_target;
+            const float horiz = std::sqrt(off.x * off.x + off.z * off.z);
+            init_tf.position = spot_eye;
+            init_tf.rotation = math::Quat::fromEulerXYZ(
+                {-std::atan2(off.y, horiz), std::atan2(off.x, off.z), 0.0f});
+            any_light = scene::SpotLightComponent{
+                .color = {0.96f, 0.98f, 1.0f},
+                .intensity = 14.0f,
+                .enabled = true,
+                .range = 16.0f,
+                .attenuation = 2.0f,
+                .inner_cone_radians = math::degToRad(18.0f),
+                .outer_cone_radians = math::degToRad(34.0f),
+                .cone_falloff = 1.0f,
+            };
+            mat_id = std::nullopt;
+            break;
+        }
+        case ScenePreset::AreaLight: {
+            base_name = "AreaLight";
+            const math::Vec3 area_eye{
+                -1.55f + 0.35f * std::sin(ring_angle),
+                2.15f,
+                1.55f + 0.35f * std::cos(ring_angle),
+            };
+            const math::Vec3 area_target{0.0f, 0.70f, 0.0f};
+            const math::Vec3 off = area_eye - area_target;
+            const float horiz = std::sqrt(off.x * off.x + off.z * off.z);
+            init_tf.position = area_eye;
+            init_tf.rotation = math::Quat::fromEulerXYZ(
+                {-std::atan2(off.y, horiz), std::atan2(off.x, off.z), 0.0f});
+            any_light = scene::AreaLightComponent{
+                .shape = scene::AreaLightShape::Rectangle,
+                .color = {1.0f, 0.96f, 0.90f},
+                .intensity = 10.0f,
+                .enabled = true,
+                .width = 1.6f,
+                .height = 1.0f,
+                .range = 16.0f,
+                .two_sided = false,
             };
             mat_id = std::nullopt;
             break;
@@ -991,8 +1060,9 @@ core::Result<scene::ObjectId> EditorController::addPresetObject(
         init_tf,
         mesh_id,
         camera_comp,
-        light_comp,
+        std::nullopt,
         mat_id);
+    create_cmd->setAnyLightComponent(std::move(any_light));
     const auto* raw_cmd = create_cmd.get();
 
     auto st = session_.commandStack().execute(scene, std::move(create_cmd));
@@ -1031,8 +1101,9 @@ core::Result<scene::ObjectId> EditorController::duplicateSelectedObject() {
         dup_tf,
         src->mesh_id,
         src->camera,
-        src->directional_light,
+        std::nullopt,
         src->material_id);
+    cmd->setAnyLightComponent(src->anyLightComponent());
     const auto* raw = cmd.get();
 
     auto st = session_.commandStack().execute(session_.document().scene, std::move(cmd));
@@ -1166,8 +1237,299 @@ core::Status EditorController::setDirectionalLightComponent(
     bool allow_coalesce) {
     auto st = session_.commandStack().execute(
         session_.document().scene,
-        std::make_unique<scene::SetDirectionalLightCommand>(id, light, allow_coalesce));
+        std::make_unique<scene::SetLightComponentCommand>(id, light, allow_coalesce, "Edit Directional Light"));
     recordStatus(st, "Updated directional light");
+    return st;
+}
+
+core::Status EditorController::setPointLightComponent(
+    scene::ObjectId id,
+    const scene::PointLightComponent& light,
+    bool allow_coalesce) {
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetLightComponentCommand>(id, light, allow_coalesce, "Edit Point Light"));
+    recordStatus(st, "Updated point light");
+    return st;
+}
+
+core::Status EditorController::setSpotLightComponent(
+    scene::ObjectId id,
+    const scene::SpotLightComponent& light,
+    bool allow_coalesce) {
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetLightComponentCommand>(id, light, allow_coalesce, "Edit Spot Light"));
+    recordStatus(st, "Updated spot light");
+    return st;
+}
+
+core::Status EditorController::setAreaLightComponent(
+    scene::ObjectId id,
+    const scene::AreaLightComponent& light,
+    bool allow_coalesce) {
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetLightComponentCommand>(id, light, allow_coalesce, "Edit Area Light"));
+    recordStatus(st, "Updated area light");
+    return st;
+}
+
+core::Status EditorController::setAnyLightComponent(
+    scene::ObjectId id,
+    scene::AnyLightComponent light,
+    bool allow_coalesce,
+    std::string label) {
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetLightComponentCommand>(
+            id, std::move(light), allow_coalesce, std::move(label)));
+    recordStatus(st, "Updated light settings");
+    return st;
+}
+
+core::Status EditorController::convertObjectLightType(
+    scene::ObjectId id,
+    scene::LightType target_type) {
+    const auto* obj = session_.document().scene.findObject(id);
+    if (obj == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Object not found");
+        recordStatus(st, {});
+        return st;
+    }
+
+    scene::AnyLightComponent converted =
+        scene::convertLightComponentType(obj->anyLightComponent(), target_type);
+
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetLightComponentCommand>(
+            id, std::move(converted), false, "Change Light Type"));
+    recordStatus(st, "Changed light type to " + std::string(scene::lightTypeSlug(target_type)));
+    return st;
+}
+
+core::Status EditorController::setLightLinking(
+    scene::ObjectId light_id,
+    scene::LightLinkingSettings linking) {
+    const auto* obj = session_.document().scene.findObject(light_id);
+    if (obj == nullptr || !obj->hasAnyLight()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Target object has no light component");
+        recordStatus(st, {});
+        return st;
+    }
+
+    // Keep only valid existing scene object IDs.
+    scene::LightLinkingSettings cleaned{};
+    cleaned.mode = linking.mode;
+    cleaned.include_descendants = linking.include_descendants;
+    for (const auto tid : linking.linked_objects) {
+        if (tid.isValid() && session_.document().scene.findObject(tid) != nullptr) {
+            cleaned.linked_objects.push_back(tid);
+        }
+    }
+    cleaned.normalize();
+
+    scene::AnyLightComponent updated = obj->anyLightComponent();
+    if (auto* d = std::get_if<scene::DirectionalLightComponent>(&updated)) d->linking = std::move(cleaned);
+    else if (auto* p = std::get_if<scene::PointLightComponent>(&updated)) p->linking = std::move(cleaned);
+    else if (auto* s = std::get_if<scene::SpotLightComponent>(&updated)) s->linking = std::move(cleaned);
+    else if (auto* a = std::get_if<scene::AreaLightComponent>(&updated)) a->linking = std::move(cleaned);
+
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetLightComponentCommand>(
+            light_id, std::move(updated), false, "Update Light Linking"));
+    recordStatus(st, "Updated light linking");
+    return st;
+}
+
+core::Status EditorController::toggleLightLinkTarget(
+    scene::ObjectId light_id,
+    scene::ObjectId target_id,
+    bool linked) {
+    const auto* obj = session_.document().scene.findObject(light_id);
+    if (obj == nullptr || !obj->hasAnyLight()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Target object has no light component");
+        recordStatus(st, {});
+        return st;
+    }
+    if (!target_id.isValid() || session_.document().scene.findObject(target_id) == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Linked target object not found");
+        recordStatus(st, {});
+        return st;
+    }
+
+    const auto* link_ptr = obj->lightLinking();
+    if (link_ptr == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Target object has no light linking state");
+        recordStatus(st, {});
+        return st;
+    }
+    scene::LightLinkingSettings next = *link_ptr;
+    if (linked) {
+        next.linked_objects.push_back(target_id);
+        next.normalize();
+    } else {
+        next.removeObjectReference(target_id);
+    }
+    return setLightLinking(light_id, std::move(next));
+}
+
+core::Status EditorController::setEnvironmentSettings(
+    const scene::EnvironmentLighting& env,
+    bool allow_coalesce,
+    std::string label) {
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetEnvironmentLightingCommand>(env, allow_coalesce, std::move(label)));
+    recordStatus(st, "Updated environment lighting");
+    return st;
+}
+
+core::Status EditorController::loadEnvironmentHdriFromMemory(
+    std::span<const std::uint8_t> bytes,
+    std::string source_name) {
+    const std::string resolved_name = source_name.empty() ? "Environment.hdr" : source_name;
+    auto asset_res = scene::HdriEnvironmentAsset::loadFromMemory(bytes, resolved_name);
+    if (!asset_res) {
+        core::Status err = asset_res.error();
+        recordStatus(err, {});
+        return err;
+    }
+
+    scene::EnvironmentLighting next = session_.document().scene.environment();
+    next.enabled = true;
+    next.source_path = resolved_name;
+    next.hdri_asset = std::move(asset_res.value());
+
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetEnvironmentLightingCommand>(
+            std::move(next), false, "Assign HDRI Environment"));
+    recordStatus(st, "Loaded HDRI environment '" + resolved_name + "'");
+    return st;
+}
+
+core::Status EditorController::loadEnvironmentHdriFromFile(
+    const std::filesystem::path& path,
+    const platform::IFileSystem& file_system) {
+    auto asset_res = scene::HdriEnvironmentAsset::loadFromFile(path, file_system);
+    if (!asset_res) {
+        core::Status err = asset_res.error();
+        recordStatus(err, {});
+        return err;
+    }
+
+    scene::EnvironmentLighting next = session_.document().scene.environment();
+    next.enabled = true;
+    next.source_path = path.string();
+    next.hdri_asset = std::move(asset_res.value());
+
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetEnvironmentLightingCommand>(
+            std::move(next), false, "Assign HDRI Environment"));
+    recordStatus(st, "Loaded HDRI environment '" + path.filename().string() + "'");
+    return st;
+}
+
+core::Status EditorController::loadBuiltInHdriPreset(std::string_view preset_slug) {
+    scene::HdriImage img{};
+    img.width = 64;
+    img.height = 32;
+    img.pixels.resize(static_cast<std::size_t>(img.width) * static_cast<std::size_t>(img.height));
+
+    std::string label_name;
+    if (preset_slug == "studio_softbox") {
+        label_name = "Studio_Softbox_Rig.hdr";
+    } else if (preset_slug == "warm_sunset") {
+        label_name = "Golden_Sunset_Horizon.hdr";
+    } else if (preset_slug == "cool_courtyard") {
+        label_name = "Overcast_Courtyard_Dome.hdr";
+    } else {
+        auto st = core::Status::fail(
+            core::ErrorCode::InvalidArgument,
+            "Unknown studio HDRI preset: " + std::string(preset_slug));
+        recordStatus(st, {});
+        return st;
+    }
+
+    for (std::uint32_t y = 0; y < img.height; ++y) {
+        const float v = (static_cast<float>(y) + 0.5f) / static_cast<float>(img.height);
+        const float theta = v * math::kPi;
+        const float sin_t = std::sin(theta);
+        const float cos_t = std::cos(theta);
+        for (std::uint32_t x = 0; x < img.width; ++x) {
+            const float u = (static_cast<float>(x) + 0.5f) / static_cast<float>(img.width);
+            const float phi = (u - 0.5f) * math::kTwoPi;
+            const math::Vec3 dir{
+                sin_t * std::sin(phi),
+                cos_t,
+                sin_t * std::cos(phi),
+            };
+
+            math::Vec3 rad{};
+            if (preset_slug == "studio_softbox") {
+                const float sky = std::clamp(dir.y * 0.5f + 0.5f, 0.0f, 1.0f);
+                rad = math::Vec3{0.10f, 0.12f, 0.16f} * (1.0f - sky) +
+                      math::Vec3{0.28f, 0.32f, 0.40f} * sky;
+                const math::Vec3 key_dir = math::Vec3{-0.55f, 0.62f, 0.56f}.normalized();
+                const math::Vec3 rim_dir = math::Vec3{0.70f, 0.38f, -0.60f}.normalized();
+                const float key_lobe = std::pow(std::max(0.0f, dir.dot(key_dir)), 14.0f);
+                const float rim_lobe = std::pow(std::max(0.0f, dir.dot(rim_dir)), 18.0f);
+                rad += math::Vec3{11.5f, 10.6f, 9.4f} * key_lobe;
+                rad += math::Vec3{3.8f, 5.4f, 8.2f} * rim_lobe;
+            } else if (preset_slug == "warm_sunset") {
+                const float horizon = std::exp(-std::fabs(dir.y) * 5.0f);
+                const float upper = std::max(0.0f, dir.y);
+                rad = math::Vec3{0.12f, 0.09f, 0.08f} +
+                      math::Vec3{0.26f, 0.36f, 0.68f} * upper +
+                      math::Vec3{1.85f, 0.78f, 0.28f} * horizon;
+                const math::Vec3 sun_dir = math::Vec3{0.72f, 0.22f, 0.66f}.normalized();
+                const float sun_lobe = std::pow(std::max(0.0f, dir.dot(sun_dir)), 36.0f);
+                rad += math::Vec3{16.0f, 9.2f, 3.6f} * sun_lobe;
+            } else {
+                const float zenith = std::clamp(dir.y * 0.5f + 0.5f, 0.0f, 1.0f);
+                rad = math::Vec3{0.14f, 0.16f, 0.18f} * (1.0f - zenith) +
+                      math::Vec3{0.85f, 1.05f, 1.35f} * (zenith * zenith);
+                const math::Vec3 sky_open = math::Vec3{0.0f, 0.94f, 0.34f}.normalized();
+                rad += math::Vec3{3.4f, 3.9f, 4.6f} * std::pow(std::max(0.0f, dir.dot(sky_open)), 8.0f);
+            }
+            img.pixels[static_cast<std::size_t>(y) * img.width + x] = rad;
+        }
+    }
+
+    auto asset_res = scene::HdriEnvironmentAsset::buildFromImage(img, label_name);
+    if (!asset_res) {
+        core::Status err = asset_res.error();
+        recordStatus(err, {});
+        return err;
+    }
+
+    scene::EnvironmentLighting next = session_.document().scene.environment();
+    next.enabled = true;
+    next.source_path.clear(); // Portable generated HDRI embeds RGBE directly when saved
+    next.hdri_asset = std::move(asset_res.value());
+
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetEnvironmentLightingCommand>(
+            std::move(next), false, "Assign Studio HDRI"));
+    recordStatus(st, "Assigned HDRI preset '" + label_name + "'");
+    return st;
+}
+
+core::Status EditorController::clearEnvironmentHdri() {
+    scene::EnvironmentLighting next = session_.document().scene.environment();
+    next.source_path.clear();
+    next.hdri_asset = nullptr;
+
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetEnvironmentLightingCommand>(
+            std::move(next), false, "Remove HDRI Environment"));
+    recordStatus(st, "Removed HDRI map (reverted to studio sky IBL)");
     return st;
 }
 

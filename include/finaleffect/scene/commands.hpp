@@ -70,6 +70,16 @@ public:
         std::optional<DirectionalLightComponent> directional_light = std::nullopt,
         std::optional<MaterialId> material_id = std::nullopt);
 
+    CreateObjectCommand(
+        std::string object_name,
+        ObjectId parent_id,
+        math::Transform initial_transform,
+        AnyLightComponent light_component);
+
+    void setAnyLightComponent(AnyLightComponent light_component) {
+        light_component_ = std::move(light_component);
+    }
+
     [[nodiscard]] std::string_view description() const noexcept override { return "Create Object"; }
     [[nodiscard]] std::size_t estimatedBytes() const noexcept override;
 
@@ -84,7 +94,7 @@ private:
     math::Transform initial_transform_;
     std::optional<MeshId> mesh_id_;
     std::optional<CameraComponent> camera_;
-    std::optional<DirectionalLightComponent> directional_light_;
+    AnyLightComponent light_component_{std::monostate{}};
     std::optional<MaterialId> material_id_;
     ObjectId created_id_{ObjectId::invalid()};
 };
@@ -109,13 +119,19 @@ private:
         std::optional<MeshId> mesh_id;
         std::optional<MaterialId> material_id;
         std::optional<CameraComponent> camera;
-        std::optional<DirectionalLightComponent> directional_light;
+        AnyLightComponent light;
+    };
+
+    struct RemovedLightLinkRef {
+        ObjectId light_object_id;
+        ObjectId linked_target_id;
     };
 
     ObjectId target_id_;
     RemovalMode mode_;
     std::vector<ObjectSnapshot> deleted_snapshots_;
     std::vector<ObjectId> reparented_children_;
+    std::vector<RemovedLightLinkRef> removed_light_links_;
     ObjectId previous_active_camera_{ObjectId::invalid()};
 };
 
@@ -206,6 +222,52 @@ private:
     ObjectId object_id_;
     std::optional<DirectionalLightComponent> new_light_;
     std::optional<DirectionalLightComponent> previous_light_;
+    bool captured_previous_{false};
+    bool allow_coalesce_{false};
+};
+
+class SetLightComponentCommand final : public ISceneCommand {
+public:
+    SetLightComponentCommand(
+        ObjectId object_id,
+        AnyLightComponent light,
+        bool allow_coalesce = false,
+        std::string label = "Edit Light");
+
+    [[nodiscard]] std::string_view description() const noexcept override { return label_; }
+    [[nodiscard]] std::size_t estimatedBytes() const noexcept override;
+
+    [[nodiscard]] core::Status execute(Scene& scene) override;
+    [[nodiscard]] core::Status undo(Scene& scene) override;
+    [[nodiscard]] bool tryCoalesceWith(const ISceneCommand& incoming) noexcept override;
+
+private:
+    ObjectId object_id_;
+    AnyLightComponent new_light_;
+    AnyLightComponent previous_light_{std::monostate{}};
+    std::string label_;
+    bool captured_previous_{false};
+    bool allow_coalesce_{false};
+};
+
+class SetEnvironmentLightingCommand final : public ISceneCommand {
+public:
+    SetEnvironmentLightingCommand(
+        EnvironmentLighting new_environment,
+        bool allow_coalesce = false,
+        std::string label = "Edit Environment");
+
+    [[nodiscard]] std::string_view description() const noexcept override { return label_; }
+    [[nodiscard]] std::size_t estimatedBytes() const noexcept override;
+
+    [[nodiscard]] core::Status execute(Scene& scene) override;
+    [[nodiscard]] core::Status undo(Scene& scene) override;
+    [[nodiscard]] bool tryCoalesceWith(const ISceneCommand& incoming) noexcept override;
+
+private:
+    EnvironmentLighting new_environment_;
+    EnvironmentLighting previous_environment_{};
+    std::string label_;
     bool captured_previous_{false};
     bool allow_coalesce_{false};
 };

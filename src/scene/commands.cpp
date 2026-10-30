@@ -70,8 +70,20 @@ CreateObjectCommand::CreateObjectCommand(
       initial_transform_(initial_transform),
       mesh_id_(mesh_id),
       camera_(camera),
-      directional_light_(directional_light),
+      light_component_(directional_light.has_value()
+                           ? AnyLightComponent{*directional_light}
+                           : AnyLightComponent{std::monostate{}}),
       material_id_(material_id) {}
+
+CreateObjectCommand::CreateObjectCommand(
+    std::string object_name,
+    ObjectId parent_id,
+    math::Transform initial_transform,
+    AnyLightComponent light_component)
+    : object_name_(std::move(object_name)),
+      parent_id_(parent_id),
+      initial_transform_(initial_transform),
+      light_component_(std::move(light_component)) {}
 
 std::size_t CreateObjectCommand::estimatedBytes() const noexcept {
     return sizeof(*this) + object_name_.capacity();
@@ -131,8 +143,8 @@ core::Status CreateObjectCommand::execute(Scene& scene) {
         }
     }
 
-    if (directional_light_.has_value()) {
-        auto l_st = scene.assignDirectionalLight(created_id_, directional_light_);
+    if (!std::holds_alternative<std::monostate>(light_component_)) {
+        auto l_st = scene.assignAnyLight(created_id_, light_component_);
         if (!l_st) {
             (void)scene.removeObject(created_id_, RemovalMode::Recursive);
             return l_st;
@@ -170,6 +182,7 @@ core::Status DeleteObjectCommand::execute(Scene& scene) {
 
     deleted_snapshots_.clear();
     reparented_children_.clear();
+    removed_light_links_.clear();
     previous_active_camera_ = scene.activeCamera();
 
     auto makeSnapshot = [](const SceneObject& obj) -> ObjectSnapshot {
@@ -182,7 +195,7 @@ core::Status DeleteObjectCommand::execute(Scene& scene) {
             .mesh_id = obj.mesh_id,
             .material_id = obj.material_id,
             .camera = obj.camera,
-            .directional_light = obj.directional_light,
+            .light = obj.anyLightComponent(),
         };
     };
 
@@ -202,6 +215,22 @@ core::Status DeleteObjectCommand::execute(Scene& scene) {
             deleted_snapshots_.push_back(makeSnapshot(*node));
             for (auto it = node->children.rbegin(); it != node->children.rend(); ++it) {
                 stack.push_back(*it);
+            }
+        }
+    }
+
+    // Capture any LightLinkingSettings references pointing to soon-to-be-deleted objects so Undo restores them.
+    for (const auto& obj : scene.objects()) {
+        const auto* link = obj.lightLinking();
+        if (link == nullptr || link->linked_objects.empty()) {
+            continue;
+        }
+        for (const auto& snap : deleted_snapshots_) {
+            if (link->containsDirect(snap.id)) {
+                removed_light_links_.push_back(RemovedLightLinkRef{
+                    .light_object_id = obj.id,
+                    .linked_target_id = snap.id,
+                });
             }
         }
     }
@@ -229,9 +258,28 @@ core::Status DeleteObjectCommand::undo(Scene& scene) {
         if (snap.camera.has_value()) {
             if (auto c_st = scene.assignCamera(snap.id, snap.camera); !c_st) return c_st;
         }
-        if (snap.directional_light.has_value()) {
-            if (auto l_st = scene.assignDirectionalLight(snap.id, snap.directional_light); !l_st) return l_st;
+        if (!std::holds_alternative<std::monostate>(snap.light)) {
+            if (auto l_st = scene.assignAnyLight(snap.id, snap.light); !l_st) return l_st;
         }
+    }
+
+    // Restore external light-linking references that pointed to the restored objects.
+    for (const auto& ref : removed_light_links_) {
+        const auto* light_obj = scene.findObject(ref.light_object_id);
+        if (light_obj == nullptr || scene.findObject(ref.linked_target_id) == nullptr) {
+            continue;
+        }
+        AnyLightComponent updated = light_obj->anyLightComponent();
+        std::visit(
+            [&](auto& l) {
+                using T = std::decay_t<decltype(l)>;
+                if constexpr (!std::is_same_v<T, std::monostate>) {
+                    l.linking.linked_objects.push_back(ref.linked_target_id);
+                    l.linking.normalize();
+                }
+            },
+            updated);
+        (void)scene.assignAnyLight(ref.light_object_id, updated);
     }
 
     if (mode_ == RemovalMode::ReparentChildren) {
@@ -402,6 +450,103 @@ bool SetDirectionalLightCommand::tryCoalesceWith(const ISceneCommand& incoming) 
         return false;
     }
     new_light_ = next_light->new_light_;
+    return true;
+}
+
+// -----------------------------------------------------------------------------
+// SetLightComponentCommand
+// -----------------------------------------------------------------------------
+SetLightComponentCommand::SetLightComponentCommand(
+    ObjectId object_id,
+    AnyLightComponent light,
+    bool allow_coalesce,
+    std::string label)
+    : object_id_(object_id),
+      new_light_(std::move(light)),
+      label_(label.empty() ? "Edit Light" : std::move(label)),
+      allow_coalesce_(allow_coalesce) {}
+
+std::size_t SetLightComponentCommand::estimatedBytes() const noexcept {
+    return sizeof(*this) + label_.capacity();
+}
+
+core::Status SetLightComponentCommand::execute(Scene& scene) {
+    const auto* obj = scene.findObject(object_id_);
+    if (obj == nullptr) {
+        return core::Status::fail(core::ErrorCode::NotFound, "SetLightComponentCommand target object not found");
+    }
+    if (!captured_previous_) {
+        previous_light_ = obj->anyLightComponent();
+        captured_previous_ = true;
+    }
+    return scene.assignAnyLight(object_id_, new_light_);
+}
+
+core::Status SetLightComponentCommand::undo(Scene& scene) {
+    if (!captured_previous_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "SetLightComponentCommand was never executed");
+    }
+    return scene.assignAnyLight(object_id_, previous_light_);
+}
+
+bool SetLightComponentCommand::tryCoalesceWith(const ISceneCommand& incoming) noexcept {
+    if (!allow_coalesce_) {
+        return false;
+    }
+    const auto* next_cmd = dynamic_cast<const SetLightComponentCommand*>(&incoming);
+    if (next_cmd == nullptr || !next_cmd->allow_coalesce_ ||
+        next_cmd->object_id_ != object_id_ ||
+        next_cmd->new_light_.index() != new_light_.index()) {
+        return false;
+    }
+    new_light_ = next_cmd->new_light_;
+    return true;
+}
+
+// -----------------------------------------------------------------------------
+// SetEnvironmentLightingCommand
+// -----------------------------------------------------------------------------
+SetEnvironmentLightingCommand::SetEnvironmentLightingCommand(
+    EnvironmentLighting new_environment,
+    bool allow_coalesce,
+    std::string label)
+    : new_environment_(std::move(new_environment)),
+      label_(label.empty() ? "Edit Environment" : std::move(label)),
+      allow_coalesce_(allow_coalesce) {}
+
+std::size_t SetEnvironmentLightingCommand::estimatedBytes() const noexcept {
+    return sizeof(*this) + label_.capacity() +
+           new_environment_.source_path.capacity() +
+           previous_environment_.source_path.capacity();
+}
+
+core::Status SetEnvironmentLightingCommand::execute(Scene& scene) {
+    if (!captured_previous_) {
+        previous_environment_ = scene.environment();
+        captured_previous_ = true;
+    }
+    return scene.setEnvironment(new_environment_);
+}
+
+core::Status SetEnvironmentLightingCommand::undo(Scene& scene) {
+    if (!captured_previous_) {
+        return core::Status::fail(
+            core::ErrorCode::InvalidState,
+            "SetEnvironmentLightingCommand was never executed");
+    }
+    return scene.setEnvironment(previous_environment_);
+}
+
+bool SetEnvironmentLightingCommand::tryCoalesceWith(const ISceneCommand& incoming) noexcept {
+    if (!allow_coalesce_) {
+        return false;
+    }
+    const auto* next_cmd = dynamic_cast<const SetEnvironmentLightingCommand*>(&incoming);
+    if (next_cmd == nullptr || !next_cmd->allow_coalesce_ ||
+        next_cmd->new_environment_.hdri_asset != new_environment_.hdri_asset) {
+        return false;
+    }
+    new_environment_ = next_cmd->new_environment_;
     return true;
 }
 

@@ -8,6 +8,7 @@
 #include "finaleffect/math/mat4.hpp"
 #include "finaleffect/math/transform.hpp"
 #include "finaleffect/scene/editable_mesh.hpp"
+#include "finaleffect/scene/environment.hpp"
 #include "finaleffect/scene/material.hpp"
 #include "finaleffect/scene/mesh.hpp"
 #include "finaleffect/scene/object_id.hpp"
@@ -91,6 +92,34 @@ public:
     [[nodiscard]] core::Status assignDirectionalLight(
         ObjectId id,
         std::optional<DirectionalLightComponent> light);
+    [[nodiscard]] core::Status assignPointLight(
+        ObjectId id,
+        std::optional<PointLightComponent> light);
+    [[nodiscard]] core::Status assignSpotLight(
+        ObjectId id,
+        std::optional<SpotLightComponent> light);
+    [[nodiscard]] core::Status assignAreaLight(
+        ObjectId id,
+        std::optional<AreaLightComponent> light);
+    [[nodiscard]] core::Status assignAnyLight(
+        ObjectId id,
+        const AnyLightComponent& light);
+
+    // Evaluates whether a light's LightLinkingSettings include or exclude `target_id` (respecting hierarchy).
+    [[nodiscard]] bool doesLightAffectObject(
+        const LightLinkingSettings& linking,
+        ObjectId target_id) const noexcept;
+
+    // Scene-level HDRI & Image-Based Lighting (IBL) environment.
+    [[nodiscard]] const EnvironmentLighting& environment() const noexcept { return environment_; }
+    [[nodiscard]] core::Status setEnvironment(EnvironmentLighting updated);
+    [[nodiscard]] core::Status loadEnvironmentHdriFromMemory(
+        std::span<const std::uint8_t> bytes,
+        std::string source_name = "Environment.hdr");
+    [[nodiscard]] core::Status loadEnvironmentHdriFromFile(
+        const std::filesystem::path& path,
+        const platform::IFileSystem& file_system);
+    void clearEnvironmentHdri() noexcept;
 
     [[nodiscard]] core::Status setActiveCamera(ObjectId camera_object_id);
     [[nodiscard]] ObjectId activeCamera() const noexcept { return active_camera_id_; }
@@ -127,6 +156,7 @@ private:
     std::unordered_map<ObjectId, std::size_t> object_index_;
 
     ObjectId active_camera_id_{ObjectId::invalid()};
+    EnvironmentLighting environment_{};
 };
 
 } // namespace finaleffect::scene

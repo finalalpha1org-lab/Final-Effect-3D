@@ -291,8 +291,61 @@
     camOrtho: document.getElementById("cam-ortho"),
     camNear: document.getElementById("cam-near"),
     camFar: document.getElementById("cam-far"),
+    lightCardTitle: document.getElementById("light-card-title"),
+    lightEnabled: document.getElementById("light-enabled"),
+    lightType: document.getElementById("light-type"),
     lightColor: document.getElementById("light-color"),
     lightIntensity: document.getElementById("light-intensity"),
+    lightShapeBlock: document.getElementById("light-shape-block"),
+    lightRowAreaShape: document.getElementById("light-row-area-shape"),
+    lightAreaShape: document.getElementById("light-area-shape"),
+    lightRowAreaWidth: document.getElementById("light-row-area-width"),
+    lblLightAreaWidth: document.getElementById("lbl-light-area-width"),
+    lightAreaWidth: document.getElementById("light-area-width"),
+    lightRowAreaHeight: document.getElementById("light-row-area-height"),
+    lightAreaHeight: document.getElementById("light-area-height"),
+    lightRowAreaTwoSided: document.getElementById("light-row-area-twosided"),
+    lightAreaTwoSided: document.getElementById("light-area-twosided"),
+    lightRowAreaSamples: document.getElementById("light-row-area-samples"),
+    lightAreaSamples: document.getElementById("light-area-samples"),
+    lightRowRange: document.getElementById("light-row-range"),
+    lightRange: document.getElementById("light-range"),
+    lightRowFalloff: document.getElementById("light-row-falloff"),
+    lightFalloff: document.getElementById("light-falloff"),
+    lightRowAttenuation: document.getElementById("light-row-attenuation"),
+    lightAttenuation: document.getElementById("light-attenuation"),
+    lightRowSourceRadius: document.getElementById("light-row-source-radius"),
+    lightSourceRadius: document.getElementById("light-source-radius"),
+    lightRowSpotCones: document.getElementById("light-row-spot-cones"),
+    lightInnerCone: document.getElementById("light-inner-cone"),
+    lightOuterCone: document.getElementById("light-outer-cone"),
+    lightRowConeFalloff: document.getElementById("light-row-cone-falloff"),
+    lightConeFalloff: document.getElementById("light-cone-falloff"),
+    lightShadowEnabled: document.getElementById("light-shadow-enabled"),
+    lightShadowQuality: document.getElementById("light-shadow-quality"),
+    lightShadowFilter: document.getElementById("light-shadow-filter"),
+    lightShadowStrength: document.getElementById("light-shadow-strength"),
+    lightShadowBias: document.getElementById("light-shadow-bias"),
+    lightShadowNormalBias: document.getElementById("light-shadow-normal-bias"),
+    lightShadowSoftness: document.getElementById("light-shadow-softness"),
+    lightLinkMode: document.getElementById("light-link-mode"),
+    lightLinkListWrap: document.getElementById("light-link-list-wrap"),
+    lightLinkDescendants: document.getElementById("light-link-descendants"),
+    lightLinkTargets: document.getElementById("light-link-targets"),
+
+    fileOpenHdri: document.getElementById("file-open-hdri"),
+    envEnabled: document.getElementById("env-enabled"),
+    envHdriStatus: document.getElementById("env-hdri-status"),
+    btnLoadHdri: document.getElementById("btn-load-hdri"),
+    btnClearHdri: document.getElementById("btn-clear-hdri"),
+    envIntensity: document.getElementById("env-intensity"),
+    valEnvIntensity: document.getElementById("val-env-intensity"),
+    envRotation: document.getElementById("env-rotation"),
+    valEnvRotation: document.getElementById("val-env-rotation"),
+    envDiffuseScale: document.getElementById("env-diffuse-scale"),
+    valEnvDiffuse: document.getElementById("val-env-diffuse"),
+    envSpecularScale: document.getElementById("env-specular-scale"),
+    valEnvSpecular: document.getElementById("val-env-specular"),
 
     btnMatNew: document.getElementById("btn-mat-new"),
     btnMatDup: document.getElementById("btn-mat-dup"),
@@ -318,8 +371,11 @@
 
     statObjectsMeshes: document.getElementById("stat-objects-meshes"),
     statMaterialsUpdates: document.getElementById("stat-materials-updates"),
+    statLightsShadows: document.getElementById("stat-lights-shadows"),
     statTriangles: document.getElementById("stat-triangles"),
     statMemory: document.getElementById("stat-memory"),
+    statLightingGpu: document.getElementById("stat-lighting-gpu"),
+    statLightingWarning: document.getElementById("stat-lighting-warning"),
     statHistory: document.getElementById("stat-history"),
 
     mobilePortraitNav: document.getElementById("mobile-portrait-nav"),
@@ -348,6 +404,7 @@
   let lastInspParentSig = "";
   let lastInspMatSig = "";
   let lastMatSelectSig = "";
+  let lastLightLinkSig = "";
   let lastAutoInspObjId = 0;
 
   let appPrefs = REG.loadPreferences();
@@ -905,6 +962,32 @@
         syncFromEngine(true);
         return ok;
       },
+      loadHdriBytes: function (bytesInput, sourceLabel) {
+        if (typeof M._fe3d_load_hdri_bytes !== "function") return false;
+        const bytes =
+          bytesInput instanceof Uint8Array
+            ? bytesInput
+            : new Uint8Array(bytesInput || []);
+        const labelStr = String(sourceLabel || "Uploaded.hdr");
+        const labelUtf8 = new TextEncoder().encode(labelStr + "\0");
+        const dataPtr = M._malloc(Math.max(1, bytes.length));
+        const labelPtr = M._malloc(labelUtf8.length);
+        if (!dataPtr || !labelPtr) {
+          if (dataPtr) M._free(dataPtr);
+          if (labelPtr) M._free(labelPtr);
+          return false;
+        }
+        try {
+          if (bytes.length > 0) M.HEAPU8.set(bytes, dataPtr);
+          M.HEAPU8.set(labelUtf8, labelPtr);
+          const ok = M._fe3d_load_hdri_bytes(dataPtr, bytes.length, labelPtr) === 1;
+          syncFromEngine(true);
+          return ok;
+        } finally {
+          M._free(dataPtr);
+          M._free(labelPtr);
+        }
+      },
       hitTestGizmo: function (cssX, cssY) {
         return typeof M._fe3d_hit_test_gizmo === "function"
           ? M._fe3d_hit_test_gizmo(cssX, cssY) === 1
@@ -994,6 +1077,7 @@
       },
       getNavGizmoLayout: getNavGizmoLayout,
       renderFinalFrame: wasmApi.renderFinalFrame,
+      loadHdriBytes: wasmApi.loadHdriBytes,
       exportInlineProject: wasmApi.exportInlineProject,
       importInlineProject: function (jsonText) {
         return wasmApi.dispatchAction({ action: "load_inline_json", json_text: jsonText });
@@ -1291,15 +1375,34 @@
     renderWorkspaceAndBottomDock(state);
     renderOutliner(state);
     renderInspector(state, ed);
+    renderEnvironmentCard(state);
     renderMaterialEditor(state);
 
     els.statObjectsMeshes.textContent =
       state.stats.object_count + " / " + state.stats.mesh_count;
     els.statMaterialsUpdates.textContent =
       (state.stats.material_count || 0) + " / " + (state.stats.gpu_buffer_updates || 0);
+    const ld = state.lighting_diagnostics || {};
+    if (els.statLightsShadows) {
+      els.statLightsShadows.textContent =
+        (ld.active_lights ?? ld.active_realtime_lights ?? 0) +
+        " / " +
+        (ld.active_shadow_lights ?? 0);
+    }
     els.statTriangles.textContent = String(state.stats.total_triangles);
     els.statMemory.textContent =
       formatBytes(state.stats.cpu_mesh_bytes) + " / " + formatBytes(state.stats.gpu_mesh_bytes);
+    if (els.statLightingGpu) {
+      els.statLightingGpu.textContent =
+        formatBytes(ld.shadow_gpu_bytes || 0) +
+        " / " +
+        formatBytes(ld.ibl_gpu_bytes ?? ld.environment_gpu_bytes ?? 0);
+    }
+    if (els.statLightingWarning) {
+      const warnMsg = ld.warning_message || "";
+      els.statLightingWarning.hidden = !warnMsg;
+      els.statLightingWarning.textContent = warnMsg;
+    }
     els.statHistory.textContent =
       state.history.undo_count + " steps (" + formatBytes(state.history.memory_bytes) + ")";
 
@@ -1470,15 +1573,18 @@
       els.assetBrowserList.innerHTML = "";
 
       [
-        { preset: "cube", label: "Primitive: Cube" },
-        { preset: "sphere", label: "Primitive: UV Sphere" },
-        { preset: "pyramid", label: "Primitive: Pyramid" },
+        { preset: "cube", label: "Primitive: Cube", icon: "cube" },
+        { preset: "sphere", label: "Primitive: UV Sphere", icon: "cube" },
+        { preset: "pyramid", label: "Primitive: Pyramid", icon: "cube" },
+        { preset: "point_light", label: "Light: Point", icon: "light" },
+        { preset: "spot_light", label: "Light: Spot", icon: "light" },
+        { preset: "area_light", label: "Light: Area", icon: "light" },
       ].forEach((pr) => {
         const chip = document.createElement("button");
         chip.type = "button";
         chip.className = "asset-chip";
         chip.innerHTML =
-          '<span class="btn-ic">' + REG.ICONS.cube + "</span><span>" + pr.label + "</span>";
+          '<span class="btn-ic">' + REG.ICONS[pr.icon] + "</span><span>" + pr.label + "</span>";
         chip.addEventListener("click", () => {
           if (wasmApi) wasmApi.dispatchAction({ action: "add_preset", preset: pr.preset });
         });
@@ -1555,10 +1661,19 @@
 
       const tagSpan = document.createElement("span");
       tagSpan.className = "outliner-tag";
+      const lt = obj.light_type || "directional";
+      const lightTag =
+        lt === "point"
+          ? "PT"
+          : lt === "spot"
+          ? "SPOT"
+          : lt === "area"
+          ? "AREA"
+          : "SUN";
       tagSpan.textContent = obj.has_camera
         ? "CAM"
         : obj.has_light
-        ? "SUN"
+        ? lightTag
         : obj.has_mesh
         ? "MESH"
         : "PIVOT";
@@ -1742,14 +1857,217 @@
 
     if (insp.light) {
       els.cardLight.hidden = false;
+      const lt = insp.light.type || "directional";
+      if (els.lightCardTitle) {
+        els.lightCardTitle.textContent =
+          lt === "point"
+            ? "Point Light"
+            : lt === "spot"
+            ? "Spot Light"
+            : lt === "area"
+            ? "Area Light"
+            : "Directional Light";
+      }
+      if (els.lightEnabled && !isFocused(els.lightEnabled)) {
+        els.lightEnabled.checked = insp.light.enabled !== false;
+      }
+      if (els.lightType && !isFocused(els.lightType)) {
+        els.lightType.value = lt;
+      }
       if (!isFocused(els.lightColor)) els.lightColor.value = rgbFloatToHex(insp.light.color);
       setInputValueIfUnfocused(els.lightIntensity, formatFloat(insp.light.intensity, 2));
+
+      const isPoint = lt === "point";
+      const isSpot = lt === "spot";
+      const isArea = lt === "area";
+      const isRanged = isPoint || isSpot || isArea;
+      if (els.lightShapeBlock) els.lightShapeBlock.hidden = !isRanged;
+      if (els.lightRowRange) els.lightRowRange.hidden = !isRanged;
+      if (els.lightRowFalloff) els.lightRowFalloff.hidden = !(isPoint || isSpot);
+      if (els.lightRowAttenuation) els.lightRowAttenuation.hidden = !(isPoint || isSpot);
+      if (els.lightRowSourceRadius) els.lightRowSourceRadius.hidden = !isPoint;
+      if (els.lightRowSpotCones) els.lightRowSpotCones.hidden = !isSpot;
+      if (els.lightRowConeFalloff) els.lightRowConeFalloff.hidden = !isSpot;
+      if (els.lightRowAreaShape) els.lightRowAreaShape.hidden = !isArea;
+      if (els.lightRowAreaWidth) els.lightRowAreaWidth.hidden = !isArea;
+      if (els.lightRowAreaTwoSided) els.lightRowAreaTwoSided.hidden = !isArea;
+      if (els.lightRowAreaSamples) els.lightRowAreaSamples.hidden = !isArea;
+
+      if (isRanged && insp.light.range !== undefined) {
+        setInputValueIfUnfocused(els.lightRange, formatFloat(insp.light.range, 2));
+      }
+      if (isPoint || isSpot) {
+        if (els.lightFalloff && !isFocused(els.lightFalloff) && insp.light.falloff) {
+          els.lightFalloff.value = insp.light.falloff;
+        }
+        if (els.lightAttenuation && insp.light.attenuation !== undefined) {
+          setInputValueIfUnfocused(els.lightAttenuation, formatFloat(insp.light.attenuation, 2));
+        }
+      }
+      if (isPoint && els.lightSourceRadius && insp.light.source_radius !== undefined) {
+        setInputValueIfUnfocused(els.lightSourceRadius, formatFloat(insp.light.source_radius, 3));
+      }
+      if (isSpot) {
+        if (els.lightInnerCone && insp.light.inner_cone_deg !== undefined) {
+          setInputValueIfUnfocused(els.lightInnerCone, formatFloat(insp.light.inner_cone_deg, 1));
+        }
+        if (els.lightOuterCone && insp.light.outer_cone_deg !== undefined) {
+          setInputValueIfUnfocused(els.lightOuterCone, formatFloat(insp.light.outer_cone_deg, 1));
+        }
+        if (els.lightConeFalloff && insp.light.cone_falloff !== undefined) {
+          setInputValueIfUnfocused(els.lightConeFalloff, formatFloat(insp.light.cone_falloff, 2));
+        }
+      }
+      if (isArea) {
+        const areaShape = insp.light.shape || "rectangle";
+        if (els.lightAreaShape && !isFocused(els.lightAreaShape)) {
+          els.lightAreaShape.value = areaShape;
+        }
+        if (els.lblLightAreaWidth) {
+          els.lblLightAreaWidth.textContent = areaShape === "disk" ? "Diameter" : "Width";
+        }
+        if (els.lightRowAreaHeight) {
+          els.lightRowAreaHeight.hidden = areaShape === "disk";
+        }
+        if (els.lightAreaWidth && insp.light.width !== undefined) {
+          setInputValueIfUnfocused(els.lightAreaWidth, formatFloat(insp.light.width, 2));
+        }
+        if (els.lightAreaHeight && insp.light.height !== undefined) {
+          setInputValueIfUnfocused(els.lightAreaHeight, formatFloat(insp.light.height, 2));
+        }
+        if (els.lightAreaTwoSided && !isFocused(els.lightAreaTwoSided)) {
+          els.lightAreaTwoSided.checked = Boolean(insp.light.two_sided);
+        }
+        if (els.lightAreaSamples && !isFocused(els.lightAreaSamples) && insp.light.sample_quality) {
+          els.lightAreaSamples.value = String(insp.light.sample_quality);
+        }
+      }
+
+      const sh = insp.light.shadow || {};
+      if (els.lightShadowEnabled && !isFocused(els.lightShadowEnabled)) {
+        els.lightShadowEnabled.checked = Boolean(sh.enabled);
+      }
+      if (els.lightShadowQuality && !isFocused(els.lightShadowQuality) && sh.quality) {
+        els.lightShadowQuality.value = sh.quality;
+      }
+      if (els.lightShadowFilter && !isFocused(els.lightShadowFilter) && sh.filter) {
+        els.lightShadowFilter.value = sh.filter;
+      }
+      if (els.lightShadowStrength && sh.strength !== undefined) {
+        setInputValueIfUnfocused(els.lightShadowStrength, formatFloat(sh.strength, 2));
+      }
+      if (els.lightShadowBias && sh.bias !== undefined) {
+        setInputValueIfUnfocused(els.lightShadowBias, formatFloat(sh.bias, 4));
+      }
+      if (els.lightShadowNormalBias && sh.normal_bias !== undefined) {
+        setInputValueIfUnfocused(els.lightShadowNormalBias, formatFloat(sh.normal_bias, 3));
+      }
+      if (els.lightShadowSoftness && sh.softness !== undefined) {
+        setInputValueIfUnfocused(els.lightShadowSoftness, formatFloat(sh.softness, 2));
+      }
+
+      const ll =
+        insp.light.linking ||
+        insp.light_linking || { mode: "all", include_descendants: true, object_ids: [] };
+      const linkMode = ll.mode || "all";
+      if (els.lightLinkMode && !isFocused(els.lightLinkMode)) {
+        els.lightLinkMode.value = linkMode;
+      }
+      if (els.lightLinkListWrap) {
+        els.lightLinkListWrap.hidden = linkMode === "all";
+      }
+      if (els.lightLinkDescendants && !isFocused(els.lightLinkDescendants)) {
+        els.lightLinkDescendants.checked = ll.include_descendants !== false;
+      }
+      if (els.lightLinkTargets && linkMode !== "all") {
+        const eligibleObjs = (state.objects || []).filter(
+          (o) => o.id !== insp.id && (o.has_mesh || (!o.has_camera && !o.has_light))
+        );
+        const rawLinkedIds = ll.object_ids || ll.linked_objects || [];
+        const linkedSet = new Set(rawLinkedIds);
+        const linkSig = JSON.stringify([
+          insp.id,
+          linkMode,
+          rawLinkedIds,
+          eligibleObjs.map((o) => [o.id, o.name]),
+        ]);
+        if (linkSig !== lastLightLinkSig) {
+          lastLightLinkSig = linkSig;
+          els.lightLinkTargets.innerHTML = "";
+          eligibleObjs.forEach((o) => {
+            const lbl = document.createElement("label");
+            lbl.className = "light-link-item";
+            const cb = document.createElement("input");
+            cb.type = "checkbox";
+            cb.dataset.objId = String(o.id);
+            cb.dataset.testid = "light-link-target-" + o.name;
+            cb.checked = linkedSet.has(o.id);
+            cb.addEventListener("change", () => {
+              if (!wasmApi || !currentState || !currentState.inspector) return;
+              wasmApi.dispatchAction({
+                action: "toggle_light_link_target",
+                id: currentState.inspector.id,
+                target_id: o.id,
+                linked: Boolean(cb.checked),
+              });
+            });
+            const sp = document.createElement("span");
+            sp.textContent = o.name;
+            lbl.appendChild(cb);
+            lbl.appendChild(sp);
+            els.lightLinkTargets.appendChild(lbl);
+          });
+        }
+      }
     } else {
       els.cardLight.hidden = true;
     }
 
     if (els.cardDataEmpty) {
       els.cardDataEmpty.hidden = Boolean(insp.camera || insp.light);
+    }
+  }
+
+  function renderEnvironmentCard(state) {
+    const env = state.environment;
+    if (!env || !els.envEnabled) return;
+    if (!isFocused(els.envEnabled)) {
+      els.envEnabled.checked = env.enabled !== false;
+    }
+    if (els.envHdriStatus) {
+      if (env.has_hdri) {
+        const hName = env.hdri_name || (env.hdri && env.hdri.name) || env.source_path || "HDRI";
+        const hW = env.hdri_width || (env.hdri && env.hdri.width) || 0;
+        const hH = env.hdri_height || (env.hdri && env.hdri.height) || 0;
+        els.envHdriStatus.textContent = hW > 0 ? hName + " (" + hW + "×" + hH + ")" : hName;
+      } else {
+        els.envHdriStatus.textContent = "Studio Sky (Fallback)";
+      }
+    }
+    if (els.btnClearHdri) {
+      els.btnClearHdri.disabled = !env.has_hdri;
+    }
+    if (els.envIntensity) {
+      setInputValueIfUnfocused(els.envIntensity, Number(env.intensity).toFixed(2));
+      if (els.valEnvIntensity) els.valEnvIntensity.textContent = Number(env.intensity).toFixed(2);
+    }
+    if (els.envRotation) {
+      setInputValueIfUnfocused(els.envRotation, String(Math.round(Number(env.rotation_deg || 0))));
+      if (els.valEnvRotation) {
+        els.valEnvRotation.textContent = Math.round(Number(env.rotation_deg || 0)) + "°";
+      }
+    }
+    if (els.envDiffuseScale) {
+      setInputValueIfUnfocused(els.envDiffuseScale, Number(env.diffuse_ibl_scale).toFixed(2));
+      if (els.valEnvDiffuse) {
+        els.valEnvDiffuse.textContent = Number(env.diffuse_ibl_scale).toFixed(2);
+      }
+    }
+    if (els.envSpecularScale) {
+      setInputValueIfUnfocused(els.envSpecularScale, Number(env.specular_ibl_scale).toFixed(2));
+      if (els.valEnvSpecular) {
+        els.valEnvSpecular.textContent = Number(env.specular_ibl_scale).toFixed(2);
+      }
     }
   }
 
@@ -1839,13 +2157,100 @@
 
   function dispatchLightFromInputs(coalesce) {
     if (!wasmApi || !currentState || !currentState.inspector || !currentState.inspector.light) return;
-    wasmApi.dispatchAction({
+    const lt = currentState.inspector.light.type || (els.lightType ? els.lightType.value : "directional");
+    const payload = {
       action: "set_light",
       id: currentState.inspector.id,
+      type: lt,
+      enabled: els.lightEnabled ? Boolean(els.lightEnabled.checked) : true,
       color: hexToRgbFloat(els.lightColor.value),
       intensity: Number(els.lightIntensity.value),
+      shadow: {
+        enabled: els.lightShadowEnabled ? Boolean(els.lightShadowEnabled.checked) : false,
+        quality: els.lightShadowQuality ? els.lightShadowQuality.value : "medium",
+        filter: els.lightShadowFilter ? els.lightShadowFilter.value : "pcf3x3",
+        strength: els.lightShadowStrength ? Number(els.lightShadowStrength.value) : 1.0,
+        bias: els.lightShadowBias ? Number(els.lightShadowBias.value) : 0.0025,
+        normal_bias: els.lightShadowNormalBias ? Number(els.lightShadowNormalBias.value) : 0.02,
+        softness: els.lightShadowSoftness ? Number(els.lightShadowSoftness.value) : 1.0,
+      },
+      coalesce: Boolean(coalesce),
+    };
+    if (lt === "point" || lt === "spot" || lt === "area") {
+      if (els.lightRange) payload.range = Number(els.lightRange.value);
+    }
+    if (lt === "point" || lt === "spot") {
+      if (els.lightFalloff) payload.falloff = els.lightFalloff.value;
+      if (els.lightAttenuation) payload.attenuation = Number(els.lightAttenuation.value);
+    }
+    if (lt === "point" && els.lightSourceRadius) {
+      payload.source_radius = Number(els.lightSourceRadius.value);
+    }
+    if (lt === "spot") {
+      if (els.lightInnerCone) payload.inner_cone_deg = Number(els.lightInnerCone.value);
+      if (els.lightOuterCone) payload.outer_cone_deg = Number(els.lightOuterCone.value);
+      if (els.lightConeFalloff) payload.cone_falloff = Number(els.lightConeFalloff.value);
+    }
+    if (lt === "area") {
+      if (els.lightAreaShape) payload.shape = els.lightAreaShape.value;
+      if (els.lightAreaWidth) payload.width = Number(els.lightAreaWidth.value);
+      if (els.lightAreaHeight) payload.height = Number(els.lightAreaHeight.value);
+      if (els.lightAreaTwoSided) payload.two_sided = Boolean(els.lightAreaTwoSided.checked);
+      if (els.lightAreaSamples) payload.sample_quality = Number(els.lightAreaSamples.value);
+    }
+    wasmApi.dispatchAction(payload);
+  }
+
+  function dispatchLightLinkingFromInputs() {
+    if (!wasmApi || !currentState || !currentState.inspector || !currentState.inspector.light) return;
+    const mode = els.lightLinkMode ? els.lightLinkMode.value : "all";
+    const includeDesc = els.lightLinkDescendants ? Boolean(els.lightLinkDescendants.checked) : true;
+    const prevLinking =
+      currentState.inspector.light.linking || currentState.inspector.light_linking || {};
+    let linkedIds = prevLinking.object_ids || prevLinking.linked_objects || [];
+    if (mode === "all") {
+      linkedIds = [];
+    } else if (els.lightLinkTargets && els.lightLinkTargets.children.length > 0 && !els.lightLinkListWrap.hidden) {
+      const checkedInputs = els.lightLinkTargets.querySelectorAll('input[type="checkbox"]:checked');
+      linkedIds = Array.from(checkedInputs)
+        .map((cb) => Number(cb.dataset.objId))
+        .filter((v) => Number.isFinite(v) && v > 0);
+    }
+    wasmApi.dispatchAction({
+      action: "set_light_linking",
+      id: currentState.inspector.id,
+      mode: mode,
+      include_descendants: includeDesc,
+      object_ids: linkedIds,
+    });
+  }
+
+  function dispatchEnvironmentFromInputs(coalesce) {
+    if (!wasmApi || !els.envEnabled) return;
+    const intensity = Number(els.envIntensity ? els.envIntensity.value : 1);
+    const rotation = Number(els.envRotation ? els.envRotation.value : 0);
+    const diffScale = Number(els.envDiffuseScale ? els.envDiffuseScale.value : 1);
+    const specScale = Number(els.envSpecularScale ? els.envSpecularScale.value : 1);
+    if (els.valEnvIntensity) els.valEnvIntensity.textContent = intensity.toFixed(2);
+    if (els.valEnvRotation) els.valEnvRotation.textContent = Math.round(rotation) + "°";
+    if (els.valEnvDiffuse) els.valEnvDiffuse.textContent = diffScale.toFixed(2);
+    if (els.valEnvSpecular) els.valEnvSpecular.textContent = specScale.toFixed(2);
+
+    wasmApi.dispatchAction({
+      action: "set_environment",
+      enabled: Boolean(els.envEnabled.checked),
+      intensity: intensity,
+      rotation_deg: rotation,
+      diffuse_ibl_scale: diffScale,
+      specular_ibl_scale: specScale,
       coalesce: Boolean(coalesce),
     });
+  }
+
+  async function importHdriFile(file) {
+    if (!wasmApi || !file) return false;
+    const buf = new Uint8Array(await file.arrayBuffer());
+    return wasmApi.loadHdriBytes(buf, file.name);
   }
 
   function dispatchMaterialFromInputs(coalesce) {
@@ -1889,13 +2294,23 @@
     } catch (_) {}
 
     let fe3dTargetPath = null;
+    let hdriCandidateFile = null;
     for (const file of files) {
+      const lower = file.name.toLowerCase();
+      if ((lower.endsWith(".hdr") || lower.endsWith(".pfm")) && !hdriCandidateFile) {
+        hdriCandidateFile = file;
+      }
       const buf = new Uint8Array(await file.arrayBuffer());
       const vfsPath = "/fe3d_import/" + file.name;
       wasmApi.fs.writeFile(vfsPath, buf);
-      if (file.name.toLowerCase().endsWith(".fe3d") || file.name.toLowerCase().endsWith(".json")) {
+      if (lower.endsWith(".fe3d") || lower.endsWith(".json")) {
         fe3dTargetPath = vfsPath;
       }
+    }
+
+    if (!fe3dTargetPath && hdriCandidateFile) {
+      await importHdriFile(hdriCandidateFile);
+      return;
     }
 
     if (!fe3dTargetPath) {
@@ -1935,7 +2350,7 @@
     triggerDownload(stem + ".fe3d", jsonText, "application/json");
     snapshotActiveProjectToRecent("Saved .fe3d");
     els.statusDot.classList.remove("is-error");
-    els.statusMessage.textContent = "Saved " + stem + ".fe3d (inline schema 1.2)";
+    els.statusMessage.textContent = "Saved " + stem + ".fe3d (inline schema 1.3)";
   }
 
   function exportBinaryBundle() {
@@ -3662,10 +4077,94 @@
       });
     });
 
-    els.lightColor.addEventListener("input", () => dispatchLightFromInputs(true));
-    els.lightColor.addEventListener("change", () => dispatchLightFromInputs(false));
-    els.lightIntensity.addEventListener("input", () => dispatchLightFromInputs(true));
-    els.lightIntensity.addEventListener("change", () => dispatchLightFromInputs(false));
+    if (els.lightType) {
+      els.lightType.addEventListener("change", () => {
+        if (!wasmApi || !currentState || !currentState.inspector || !currentState.inspector.light) {
+          return;
+        }
+        wasmApi.dispatchAction({
+          action: "change_light_type",
+          id: currentState.inspector.id,
+          light_type: els.lightType.value,
+        });
+      });
+    }
+
+    [
+      els.lightEnabled,
+      els.lightAreaShape,
+      els.lightAreaTwoSided,
+      els.lightAreaSamples,
+      els.lightFalloff,
+      els.lightShadowEnabled,
+      els.lightShadowQuality,
+      els.lightShadowFilter,
+    ].forEach((el) => {
+      if (el) el.addEventListener("change", () => dispatchLightFromInputs(false));
+    });
+
+    [
+      els.lightColor,
+      els.lightIntensity,
+      els.lightRange,
+      els.lightAttenuation,
+      els.lightSourceRadius,
+      els.lightInnerCone,
+      els.lightOuterCone,
+      els.lightConeFalloff,
+      els.lightAreaWidth,
+      els.lightAreaHeight,
+      els.lightShadowStrength,
+      els.lightShadowBias,
+      els.lightShadowNormalBias,
+      els.lightShadowSoftness,
+    ].forEach((el) => {
+      if (!el) return;
+      el.addEventListener("input", () => dispatchLightFromInputs(true));
+      el.addEventListener("change", () => dispatchLightFromInputs(false));
+    });
+
+    if (els.lightLinkMode) {
+      els.lightLinkMode.addEventListener("change", () => dispatchLightLinkingFromInputs());
+    }
+    if (els.lightLinkDescendants) {
+      els.lightLinkDescendants.addEventListener("change", () => dispatchLightLinkingFromInputs());
+    }
+
+    if (els.envEnabled) {
+      els.envEnabled.addEventListener("change", () => dispatchEnvironmentFromInputs(false));
+    }
+    [els.envIntensity, els.envRotation, els.envDiffuseScale, els.envSpecularScale].forEach((el) => {
+      if (!el) return;
+      el.addEventListener("input", () => dispatchEnvironmentFromInputs(true));
+      el.addEventListener("change", () => dispatchEnvironmentFromInputs(false));
+    });
+    if (els.btnLoadHdri && els.fileOpenHdri) {
+      els.btnLoadHdri.addEventListener("click", () => {
+        els.fileOpenHdri.value = "";
+        els.fileOpenHdri.click();
+      });
+      els.fileOpenHdri.addEventListener("change", async () => {
+        if (els.fileOpenHdri.files && els.fileOpenHdri.files.length > 0) {
+          await importHdriFile(els.fileOpenHdri.files[0]);
+        }
+      });
+    }
+    if (els.btnClearHdri) {
+      els.btnClearHdri.addEventListener("click", () => {
+        if (wasmApi) wasmApi.dispatchAction({ action: "clear_hdri" });
+      });
+    }
+    document.querySelectorAll("[data-hdri-preset]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (wasmApi) {
+          wasmApi.dispatchAction({
+            action: "load_hdri_preset",
+            preset: btn.dataset.hdriPreset,
+          });
+        }
+      });
+    });
 
     window.addEventListener("mouseup", () => setTimeout(() => syncFromEngine(false), 20));
     window.addEventListener("keyup", () => setTimeout(() => syncFromEngine(false), 20));

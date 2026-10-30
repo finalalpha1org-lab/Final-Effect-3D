@@ -9,6 +9,7 @@
 #include "finaleffect/platform/file_system.hpp"
 #include "finaleffect/rendering/material_preview.hpp"
 #include "finaleffect/scene/camera.hpp"
+#include "finaleffect/scene/environment.hpp"
 #include "finaleffect/scene/light.hpp"
 #include "finaleffect/scene/material.hpp"
 #include "finaleffect/scene/object_id.hpp"
@@ -19,6 +20,7 @@
 #include <deque>
 #include <filesystem>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -32,6 +34,9 @@ enum class ScenePreset : std::uint8_t {
     DirectionalLight = 4,
     Camera = 5,
     Sphere = 6,
+    PointLight = 7,
+    SpotLight = 8,
+    AreaLight = 9,
 };
 
 enum class ProjectTemplate : std::uint8_t {
@@ -160,6 +165,47 @@ public:
         scene::ObjectId id,
         const scene::DirectionalLightComponent& light,
         bool allow_coalesce = false);
+    [[nodiscard]] core::Status setPointLightComponent(
+        scene::ObjectId id,
+        const scene::PointLightComponent& light,
+        bool allow_coalesce = false);
+    [[nodiscard]] core::Status setSpotLightComponent(
+        scene::ObjectId id,
+        const scene::SpotLightComponent& light,
+        bool allow_coalesce = false);
+    [[nodiscard]] core::Status setAreaLightComponent(
+        scene::ObjectId id,
+        const scene::AreaLightComponent& light,
+        bool allow_coalesce = false);
+    [[nodiscard]] core::Status setAnyLightComponent(
+        scene::ObjectId id,
+        scene::AnyLightComponent light,
+        bool allow_coalesce = false,
+        std::string label = "Edit Light");
+    [[nodiscard]] core::Status convertObjectLightType(
+        scene::ObjectId id,
+        scene::LightType target_type);
+    [[nodiscard]] core::Status setLightLinking(
+        scene::ObjectId light_id,
+        scene::LightLinkingSettings linking);
+    [[nodiscard]] core::Status toggleLightLinkTarget(
+        scene::ObjectId light_id,
+        scene::ObjectId target_id,
+        bool linked);
+
+    // Scene Environment, HDRI (.hdr/.pfm) & Image-Based Lighting (IBL) operations.
+    [[nodiscard]] core::Status setEnvironmentSettings(
+        const scene::EnvironmentLighting& env,
+        bool allow_coalesce = false,
+        std::string label = "Update Environment");
+    [[nodiscard]] core::Status loadEnvironmentHdriFromMemory(
+        std::span<const std::uint8_t> bytes,
+        std::string source_name = "Environment.hdr");
+    [[nodiscard]] core::Status loadEnvironmentHdriFromFile(
+        const std::filesystem::path& path,
+        const platform::IFileSystem& file_system);
+    [[nodiscard]] core::Status loadBuiltInHdriPreset(std::string_view preset_slug);
+    [[nodiscard]] core::Status clearEnvironmentHdri();
 
     [[nodiscard]] core::Status updateProjectMetadata(
         std::string project_name,

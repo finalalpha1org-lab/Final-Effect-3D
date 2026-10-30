@@ -5,6 +5,7 @@
 #include "finaleffect/rendering/editor_grid.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <utility>
 #include <vector>
 
@@ -38,6 +39,76 @@ PbrSurfaceParams surfaceFromMaterial(const scene::PbrMaterial* mat) noexcept {
     };
 }
 
+bool isObjectEffectivelyVisible(const scene::Scene& scene, scene::ObjectId id) noexcept {
+    scene::ObjectId cur = id;
+    std::size_t guard = 0;
+    const std::size_t max_depth = scene.objectCount() + 1;
+    while (cur.isValid() && guard++ < max_depth) {
+        const auto* obj = scene.findObject(cur);
+        if (obj == nullptr || !obj->visible) {
+            return false;
+        }
+        cur = obj->parent_id;
+    }
+    return true;
+}
+
+math::Mat4 computeOrthonormalCameraViewMatrix(const math::Mat4& cam_world) noexcept {
+    math::Vec3 right{cam_world(0, 0), cam_world(1, 0), cam_world(2, 0)};
+    math::Vec3 up{cam_world(0, 1), cam_world(1, 1), cam_world(2, 1)};
+    math::Vec3 back{cam_world(0, 2), cam_world(1, 2), cam_world(2, 2)};
+    const math::Vec3 eye = cam_world.transformPoint(math::Vec3::zero());
+
+    if (right.lengthSquared() > math::kStrictEpsilon &&
+        up.lengthSquared() > math::kStrictEpsilon &&
+        back.lengthSquared() > math::kStrictEpsilon) {
+        back = back.normalized();
+        right = up.cross(back);
+        if (right.lengthSquared() > math::kStrictEpsilon) {
+            right = right.normalized();
+            up = back.cross(right).normalized();
+
+            math::Mat4 view = math::Mat4::identity();
+            view(0, 0) = right.x; view(0, 1) = right.y; view(0, 2) = right.z; view(0, 3) = -right.dot(eye);
+            view(1, 0) = up.x;    view(1, 1) = up.y;    view(1, 2) = up.z;    view(1, 3) = -up.dot(eye);
+            view(2, 0) = back.x;  view(2, 1) = back.y;  view(2, 2) = back.z;  view(2, 3) = -back.dot(eye);
+            return view;
+        }
+    }
+    if (const auto inv = cam_world.inverted(); inv.has_value()) {
+        return inv.value();
+    }
+    return math::Mat4::identity();
+}
+
+DirectionalLightUniforms buildLegacyLightUniforms(const PreparedSceneLighting& prepared) noexcept {
+    DirectionalLightUniforms u{};
+    u.ambient = prepared.environment.enabled
+                    ? (prepared.environment.fallback_ambient * prepared.environment.intensity)
+                    : math::Vec3::zero();
+    if (prepared.light_count == 0u) {
+        u.direction_to_light = {0.0f, 1.0f, 0.0f};
+        u.radiance = {0.0f, 0.0f, 0.0f};
+        return u;
+    }
+    bool has_primary = false;
+    for (std::uint32_t i = 0; i < prepared.light_count; ++i) {
+        const auto& l = prepared.lights[i];
+        const math::Vec3 dir_to = -l.direction;
+        if (!has_primary) {
+            u.direction_to_light = dir_to;
+            u.radiance = l.radiance;
+            has_primary = true;
+        } else if (u.extra_light_count < DirectionalLightUniforms::kMaxExtraLights) {
+            u.extra_lights[u.extra_light_count++] = DirectionalLightLobe{
+                .direction_to_light = dir_to,
+                .radiance = l.radiance,
+            };
+        }
+    }
+    return u;
+}
+
 } // namespace
 
 Renderer::Renderer(std::unique_ptr<IRenderDevice> device) : device_(std::move(device)) {}
@@ -69,6 +140,8 @@ void Renderer::releaseSceneResources() noexcept {
     if (!device_) {
         gpu_mesh_cache_.clear();
         overlay_gpu_pool_.clear();
+        cached_shadow_tile_signatures_.clear();
+        cached_shadow_atlas_size_ = 0u;
         return;
     }
     for (const auto& [mesh_id, cached] : gpu_mesh_cache_) {
@@ -85,6 +158,10 @@ void Renderer::releaseSceneResources() noexcept {
         }
     }
     overlay_gpu_pool_.clear();
+    cached_shadow_tile_signatures_.clear();
+    cached_shadow_atlas_size_ = 0u;
+    (void)device_->syncEnvironmentMap(nullptr, 0u);
+    (void)device_->ensureShadowAtlas(0u);
 }
 
 void Renderer::shutdown() noexcept {
@@ -158,52 +235,6 @@ core::Result<GpuMeshHandle> Renderer::uploadOverlaySlot(std::size_t slot_index, 
     return core::Result<GpuMeshHandle>::ok(slot);
 }
 
-namespace {
-
-bool isObjectEffectivelyVisible(const scene::Scene& scene, scene::ObjectId id) noexcept {
-    scene::ObjectId cur = id;
-    std::size_t guard = 0;
-    const std::size_t max_depth = scene.objectCount() + 1;
-    while (cur.isValid() && guard++ < max_depth) {
-        const auto* obj = scene.findObject(cur);
-        if (obj == nullptr || !obj->visible) {
-            return false;
-        }
-        cur = obj->parent_id;
-    }
-    return true;
-}
-
-math::Mat4 computeOrthonormalCameraViewMatrix(const math::Mat4& cam_world) noexcept {
-    math::Vec3 right{cam_world(0, 0), cam_world(1, 0), cam_world(2, 0)};
-    math::Vec3 up{cam_world(0, 1), cam_world(1, 1), cam_world(2, 1)};
-    math::Vec3 back{cam_world(0, 2), cam_world(1, 2), cam_world(2, 2)};
-    const math::Vec3 eye = cam_world.transformPoint(math::Vec3::zero());
-
-    if (right.lengthSquared() > math::kStrictEpsilon &&
-        up.lengthSquared() > math::kStrictEpsilon &&
-        back.lengthSquared() > math::kStrictEpsilon) {
-        back = back.normalized();
-        right = up.cross(back);
-        if (right.lengthSquared() > math::kStrictEpsilon) {
-            right = right.normalized();
-            up = back.cross(right).normalized();
-
-            math::Mat4 view = math::Mat4::identity();
-            view(0, 0) = right.x; view(0, 1) = right.y; view(0, 2) = right.z; view(0, 3) = -right.dot(eye);
-            view(1, 0) = up.x;    view(1, 1) = up.y;    view(1, 2) = up.z;    view(1, 3) = -up.dot(eye);
-            view(2, 0) = back.x;  view(2, 1) = back.y;  view(2, 2) = back.z;  view(2, 3) = -back.dot(eye);
-            return view;
-        }
-    }
-    if (const auto inv = cam_world.inverted(); inv.has_value()) {
-        return inv.value();
-    }
-    return math::Mat4::identity();
-}
-
-} // namespace
-
 core::Status Renderer::renderScene(
     const scene::Scene& scene,
     const FrameClearDesc& clear,
@@ -215,13 +246,103 @@ core::Status Renderer::renderScene(
         return core::Status::fail(core::ErrorCode::InvalidState, "Renderer::renderScene called before initialize");
     }
 
+    const auto frame_start = std::chrono::steady_clock::now();
+
+    // Minimized window (0x0 framebuffer): complete frame cleanly without projecting 0-aspect camera.
+    if (viewport_width_ == 0 || viewport_height_ == 0) {
+        auto begin_st = device_->beginFrame(clear);
+        if (!begin_st) {
+            return begin_st;
+        }
+        return device_->endFrame();
+    }
+
+    PreparedSceneLighting scene_lighting = prepareSceneLighting(scene);
+
+    // 1. Synchronize HDRI prefiltered cubemap resource (cached by revision; zero upload when unchanged).
+    if (auto env_st = device_->syncEnvironmentMap(
+            scene_lighting.environment.hdri_asset,
+            scene_lighting.environment.hdri_revision);
+        !env_st) {
+        return env_st;
+    }
+
+    // 2. Render ONLY dirty Shadow Atlas tiles BEFORE binding/clearing the main viewport framebuffer.
+    if (!scene_lighting.shadow_tiles.empty()) {
+        if (scene_lighting.shadow_atlas_size != cached_shadow_atlas_size_) {
+            if (auto st = device_->ensureShadowAtlas(scene_lighting.shadow_atlas_size); !st) {
+                return st;
+            }
+            cached_shadow_atlas_size_ = scene_lighting.shadow_atlas_size;
+            cached_shadow_tile_signatures_.clear();
+        }
+
+        for (auto it = cached_shadow_tile_signatures_.begin(); it != cached_shadow_tile_signatures_.end();) {
+            const bool active = std::any_of(
+                scene_lighting.shadow_tiles.begin(),
+                scene_lighting.shadow_tiles.end(),
+                [&](const ShadowTileDescriptor& t) { return t.tile_id == it->first; });
+            if (!active) {
+                it = cached_shadow_tile_signatures_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+
+        bool rendered_any_tile = false;
+        for (const auto& tile : scene_lighting.shadow_tiles) {
+            const auto sig_it = cached_shadow_tile_signatures_.find(tile.tile_id);
+            if (sig_it != cached_shadow_tile_signatures_.end() &&
+                sig_it->second == tile.caster_signature) {
+                ++scene_lighting.diagnostics.shadow_tiles_cached_last_frame;
+                continue;
+            }
+
+            if (auto st = device_->beginShadowTilePass(tile.x, tile.y, tile.width, tile.height); !st) {
+                return st;
+            }
+            rendered_any_tile = true;
+
+            for (const auto& caster : tile.casters) {
+                const auto* caster_mesh = scene.findMesh(caster.mesh_id);
+                if (caster_mesh == nullptr) {
+                    continue;
+                }
+                auto handle_res = ensureMeshUploaded(*caster_mesh);
+                if (!handle_res) {
+                    (void)device_->endShadowPass();
+                    return handle_res.error();
+                }
+                if (auto st = device_->drawShadowMesh(
+                        handle_res.value(),
+                        tile.light_view_proj * caster.world_matrix,
+                        0u,
+                        0u);
+                    !st) {
+                    (void)device_->endShadowPass();
+                    return st;
+                }
+            }
+
+            cached_shadow_tile_signatures_[tile.tile_id] = tile.caster_signature;
+            ++scene_lighting.diagnostics.shadow_tiles_rendered_last_frame;
+        }
+
+        if (rendered_any_tile) {
+            if (auto st = device_->endShadowPass(); !st) {
+                return st;
+            }
+        }
+    } else if (cached_shadow_atlas_size_ != 0u) {
+        (void)device_->ensureShadowAtlas(0u);
+        cached_shadow_atlas_size_ = 0u;
+        cached_shadow_tile_signatures_.clear();
+    }
+
+    // 3. Main Viewport Frame Pass.
     auto begin_st = device_->beginFrame(clear);
     if (!begin_st) {
         return begin_st;
-    }
-
-    if (viewport_width_ == 0 || viewport_height_ == 0) {
-        return device_->endFrame();
     }
 
     math::Mat4 view_matrix = math::Mat4::lookAtRH(
@@ -258,60 +379,7 @@ core::Status Renderer::renderScene(
     }
 
     const math::Mat4 view_proj = proj_matrix * view_matrix;
-
-    DirectionalLightUniforms light_uniforms{};
-    bool scene_has_any_light_component = false;
-    std::size_t active_light_count = 0;
-
-    for (const auto& obj : scene.objects()) {
-        if (!obj.directional_light.has_value()) {
-            continue;
-        }
-        scene_has_any_light_component = true;
-        if (!isObjectEffectivelyVisible(scene, obj.id)) {
-            continue;
-        }
-        auto light_world = scene.computeWorldMatrix(obj.id);
-        if (!light_world) {
-            continue;
-        }
-        math::Vec3 dir_to_light{0.45f, 0.80f, 0.40f};
-        const math::Vec3 ray_dir =
-            light_world.value().transformDirection(math::Vec3{0.0f, 0.0f, -1.0f}).normalized();
-        if (ray_dir.lengthSquared() > math::kStrictEpsilon) {
-            dir_to_light = -ray_dir;
-        }
-        // Subtle positional falloff boost near origin is avoided for true directional light;
-        // however, world position & rotation of the light node update world transform & helper rays.
-        const math::Vec3 rad = obj.directional_light->color * obj.directional_light->intensity;
-
-        if (active_light_count == 0) {
-            light_uniforms.direction_to_light = dir_to_light;
-            light_uniforms.radiance = rad;
-        } else if ((active_light_count - 1) < DirectionalLightUniforms::kMaxExtraLights) {
-            const std::size_t slot = active_light_count - 1;
-            light_uniforms.extra_lights[slot] = DirectionalLightLobe{
-                .direction_to_light = dir_to_light,
-                .radiance = rad,
-            };
-            light_uniforms.extra_light_count = static_cast<std::uint32_t>(slot + 1);
-        } else {
-            // Fold overflow directional lights into the last extra lobe so >4 lights still contribute illumination.
-            auto& last = light_uniforms.extra_lights[DirectionalLightUniforms::kMaxExtraLights - 1];
-            const float w_prev = last.radiance.length();
-            const float w_add = rad.length();
-            if ((w_prev + w_add) > math::kStrictEpsilon) {
-                last.direction_to_light =
-                    (last.direction_to_light * w_prev + dir_to_light * w_add).normalized();
-            }
-            last.radiance += rad;
-        }
-        ++active_light_count;
-    }
-
-    if (scene_has_any_light_component && active_light_count == 0) {
-        light_uniforms.radiance = math::Vec3::zero();
-    }
+    const DirectionalLightUniforms light_uniforms = buildLegacyLightUniforms(scene_lighting);
 
     struct TranslucentDrawItem {
         DrawMeshCommand cmd;
@@ -345,6 +413,7 @@ core::Status Renderer::renderScene(
         const bool is_sel = (selected_object.isValid() && obj.id == selected_object);
         const math::Vec3 world_center = world_res.value().transformPoint(mesh_asset->local_bounds.center());
         const float cam_dist_sq = (world_center - camera_pos).lengthSquared();
+        const std::uint32_t obj_light_mask = scene_lighting.computeObjectLightMask(scene, obj.id);
 
         auto submitSubmesh = [&](std::uint32_t offset, std::uint32_t count, const scene::PbrMaterial* mat) -> core::Status {
             DrawMeshCommand cmd{
@@ -357,6 +426,8 @@ core::Status Renderer::renderScene(
                 .surface = surfaceFromMaterial(mat),
                 .index_offset = offset,
                 .index_count = count,
+                .scene_lighting = &scene_lighting,
+                .light_mask = obj_light_mask,
             };
             if (cmd.surface.opacity < 0.999f) {
                 translucent_queue.push_back(TranslucentDrawItem{std::move(cmd), cam_dist_sq});
@@ -422,7 +493,6 @@ core::Status Renderer::renderScene(
     }
 
     // Pass 1 of Overlays: Scene-depth-tested 3D editor helpers (Camera bodies/frustums & Light gizmos).
-    // Drawn while the scene depth buffer is still intact so foreground scene meshes occlude helpers properly.
     std::size_t overlay_slot = 0;
     auto submitOverlayItem = [&](const ViewportOverlayMesh& ov) -> core::Status {
         auto ov_handle = uploadOverlaySlot(overlay_slot++, *ov.mesh_data);
@@ -480,7 +550,14 @@ core::Status Renderer::renderScene(
         }
     }
 
-    return device_->endFrame();
+    auto end_st = device_->endFrame();
+    const auto frame_end = std::chrono::steady_clock::now();
+    scene_lighting.diagnostics.shadow_gpu_bytes = device_->liveShadowBytes();
+    scene_lighting.diagnostics.environment_gpu_bytes = device_->liveEnvironmentBytes();
+    scene_lighting.diagnostics.last_frame_render_ms =
+        std::chrono::duration<double, std::milli>(frame_end - frame_start).count();
+    last_lighting_diagnostics_ = std::move(scene_lighting.diagnostics);
+    return end_st;
 }
 
 core::ResourceStats Renderer::collectResourceStats(const scene::Scene& scene) const noexcept {

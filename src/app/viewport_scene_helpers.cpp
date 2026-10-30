@@ -488,6 +488,249 @@ void buildDirectionalLightHelperInto(
     }
 }
 
+math::Vec3 computeVisibleLightTint(const math::Vec3& color, bool enabled, const math::Vec3& base_fallback) noexcept {
+    const math::Vec3 raw_tint = clampColor01(color);
+    const float lum = std::max(raw_tint.x, std::max(raw_tint.y, raw_tint.z));
+    math::Vec3 vis = (lum > 0.22f) ? mixColor(base_fallback, raw_tint, 0.72f) : base_fallback;
+    if (!enabled) {
+        vis = vis * 0.45f;
+    }
+    return vis;
+}
+
+void appendOctahedronCore(
+    scene::MeshData& mesh,
+    const math::Mat4& world,
+    float radius,
+    const math::Vec3& core_col) {
+    const math::Vec3 px = world.transformPoint({radius, 0.0f, 0.0f});
+    const math::Vec3 nx = world.transformPoint({-radius, 0.0f, 0.0f});
+    const math::Vec3 py = world.transformPoint({0.0f, radius, 0.0f});
+    const math::Vec3 ny = world.transformPoint({0.0f, -radius, 0.0f});
+    const math::Vec3 pz = world.transformPoint({0.0f, 0.0f, radius});
+    const math::Vec3 nz = world.transformPoint({0.0f, 0.0f, -radius});
+
+    appendTriangleWorld(mesh, pz, px, py, core_col * 1.06f, true);
+    appendTriangleWorld(mesh, pz, py, nx, core_col * 0.98f, true);
+    appendTriangleWorld(mesh, pz, nx, ny, core_col * 0.88f, true);
+    appendTriangleWorld(mesh, pz, ny, px, core_col * 0.94f, true);
+    appendTriangleWorld(mesh, nz, py, px, core_col * 1.02f, true);
+    appendTriangleWorld(mesh, nz, nx, py, core_col * 0.95f, true);
+    appendTriangleWorld(mesh, nz, ny, nx, core_col * 0.85f, true);
+    appendTriangleWorld(mesh, nz, px, ny, core_col * 0.90f, true);
+}
+
+void buildPointLightHelperInto(
+    scene::MeshData& mesh,
+    const math::Mat4& world,
+    const scene::PointLightComponent& light,
+    bool is_selected,
+    bool compact_pick_only) {
+    const math::Vec3 vis_col = computeVisibleLightTint(light.color, light.enabled, {0.42f, 0.86f, 1.00f});
+    const math::Vec3 core_col = is_selected ? math::Vec3{1.00f, 0.76f, 0.18f} : vis_col;
+    const math::Vec3 ring_col = is_selected ? math::Vec3{1.00f, 0.68f, 0.14f}
+                                            : mixColor(vis_col, {0.85f, 0.95f, 1.0f}, 0.25f);
+
+    const auto pose = extractOrthonormalPose(world);
+    const float wire_r = (is_selected ? 0.0110f : 0.0080f) * pose.avg_scale;
+
+    // 1. Omnidirectional glowing bulb core (enlarged in compact_pick_only for reliable click picking).
+    appendOctahedronCore(mesh, world, compact_pick_only ? 0.22f : 0.125f, core_col);
+    if (compact_pick_only) {
+        return;
+    }
+
+    // 2. Three orthogonal 3D spherical latitude/meridian rings (XY, XZ, YZ).
+    constexpr std::uint32_t kSegs = 16;
+    const float r_bulb = 0.23f * pose.avg_scale;
+    for (std::uint32_t i = 0; i < kSegs; ++i) {
+        const float a0 = (static_cast<float>(i) / static_cast<float>(kSegs)) * math::kTwoPi;
+        const float a1 = (static_cast<float>(i + 1u) / static_cast<float>(kSegs)) * math::kTwoPi;
+        const float c0 = std::cos(a0);
+        const float s0 = std::sin(a0);
+        const float c1 = std::cos(a1);
+        const float s1 = std::sin(a1);
+
+        appendStrutWorld(
+            mesh,
+            pose.origin + (pose.right * c0 + pose.up * s0) * r_bulb,
+            pose.origin + (pose.right * c1 + pose.up * s1) * r_bulb,
+            wire_r,
+            ring_col);
+        appendStrutWorld(
+            mesh,
+            pose.origin + (pose.right * c0 + pose.back * s0) * r_bulb,
+            pose.origin + (pose.right * c1 + pose.back * s1) * r_bulb,
+            wire_r * 0.85f,
+            ring_col * 0.92f);
+        appendStrutWorld(
+            mesh,
+            pose.origin + (pose.up * c0 + pose.back * s0) * r_bulb,
+            pose.origin + (pose.up * c1 + pose.back * s1) * r_bulb,
+            wire_r * 0.85f,
+            ring_col * 0.92f);
+    }
+
+    // 3. Selected Point Light range indicator ring (segmented so it stays visually lightweight).
+    if (is_selected && light.range > 0.35f) {
+        const float range_vis = std::clamp(light.range, 0.35f, 12.0f);
+        constexpr std::uint32_t kRangeSegs = 24;
+        for (std::uint32_t i = 0; i < kRangeSegs; i += 2u) {
+            const float a0 = (static_cast<float>(i) / static_cast<float>(kRangeSegs)) * math::kTwoPi;
+            const float a1 = (static_cast<float>(i + 1u) / static_cast<float>(kRangeSegs)) * math::kTwoPi;
+            appendStrutWorld(
+                mesh,
+                pose.origin + (pose.right * std::cos(a0) + pose.back * std::sin(a0)) * range_vis,
+                pose.origin + (pose.right * std::cos(a1) + pose.back * std::sin(a1)) * range_vis,
+                wire_r * 0.65f,
+                ring_col * 0.72f);
+        }
+    }
+}
+
+void buildSpotLightHelperInto(
+    scene::MeshData& mesh,
+    const math::Mat4& world,
+    const scene::SpotLightComponent& light,
+    bool is_selected,
+    bool compact_pick_only) {
+    const math::Vec3 vis_col = computeVisibleLightTint(light.color, light.enabled, {0.98f, 0.74f, 0.36f});
+    const math::Vec3 core_col = is_selected ? math::Vec3{1.00f, 0.76f, 0.18f} : vis_col;
+    const math::Vec3 cone_col = is_selected ? math::Vec3{1.00f, 0.66f, 0.14f}
+                                            : mixColor(vis_col, {0.82f, 0.88f, 0.96f}, 0.22f);
+
+    const auto pose = extractOrthonormalPose(world);
+    const math::Vec3 forward = -pose.back;
+    const float wire_r = (is_selected ? 0.0110f : 0.0080f) * pose.avg_scale;
+
+    // 1. Compact Spot emitter housing apex + central forward (-Z) direction arrow.
+    appendOctahedronCore(mesh, world, compact_pick_only ? 0.21f : 0.105f, core_col);
+    const float arrow_len = 0.72f * pose.avg_scale;
+    const math::Vec3 shaft_end = pose.origin + forward * arrow_len;
+    appendStrutWorld(
+        mesh,
+        pose.origin + forward * (0.10f * pose.avg_scale),
+        shaft_end,
+        compact_pick_only ? (wire_r * 3.0f) : (wire_r * 1.15f),
+        core_col);
+    appendConeWorld(
+        mesh,
+        shaft_end,
+        pose.origin + forward * (arrow_len + 0.16f * pose.avg_scale),
+        (compact_pick_only ? 0.070f : 0.044f) * pose.avg_scale,
+        10,
+        core_col);
+
+    if (compact_pick_only) {
+        return;
+    }
+
+    // 2. 3D Outer & Inner Spot Cone wireframes aligned to local -Z direction.
+    const float cone_dist = std::clamp(light.range * 0.24f, 0.85f, 3.4f) * pose.avg_scale;
+    const float clamped_outer = std::clamp(light.outer_cone_radians, math::degToRad(2.0f), math::degToRad(82.0f));
+    const float clamped_inner = std::clamp(light.inner_cone_radians, 0.0f, clamped_outer);
+    const float outer_r = cone_dist * std::tan(clamped_outer);
+    const float inner_r = cone_dist * std::tan(clamped_inner);
+    const math::Vec3 disk_center = pose.origin + forward * cone_dist;
+
+    constexpr std::uint32_t kConeSegs = 16;
+    for (std::uint32_t i = 0; i < kConeSegs; ++i) {
+        const float a0 = (static_cast<float>(i) / static_cast<float>(kConeSegs)) * math::kTwoPi;
+        const float a1 = (static_cast<float>(i + 1u) / static_cast<float>(kConeSegs)) * math::kTwoPi;
+        const math::Vec3 dir0 = pose.right * std::cos(a0) + pose.up * std::sin(a0);
+        const math::Vec3 dir1 = pose.right * std::cos(a1) + pose.up * std::sin(a1);
+
+        appendStrutWorld(mesh, disk_center + dir0 * outer_r, disk_center + dir1 * outer_r, wire_r, cone_col);
+        if (inner_r > 0.02f && (clamped_outer - clamped_inner) > math::degToRad(1.0f)) {
+            appendStrutWorld(
+                mesh,
+                disk_center + dir0 * inner_r,
+                disk_center + dir1 * inner_r,
+                wire_r * 0.72f,
+                core_col * 0.92f);
+        }
+        if ((i % 4u) == 0u) {
+            appendStrutWorld(mesh, pose.origin, disk_center + dir0 * outer_r, wire_r * 0.85f, cone_col * 0.90f);
+        }
+    }
+}
+
+void buildAreaLightHelperInto(
+    scene::MeshData& mesh,
+    const math::Mat4& world,
+    const scene::AreaLightComponent& light,
+    bool is_selected,
+    bool compact_pick_only) {
+    const math::Vec3 vis_col = computeVisibleLightTint(light.color, light.enabled, {0.62f, 0.90f, 0.72f});
+    const math::Vec3 core_col = is_selected ? math::Vec3{1.00f, 0.76f, 0.18f} : vis_col;
+    const math::Vec3 frame_col = is_selected ? math::Vec3{1.00f, 0.68f, 0.14f}
+                                             : mixColor(vis_col, {0.90f, 0.96f, 1.0f}, 0.25f);
+
+    const auto pose = extractOrthonormalPose(world);
+    const math::Vec3 raw_x{world(0, 0), world(1, 0), world(2, 0)};
+    const math::Vec3 raw_y{world(0, 1), world(1, 1), world(2, 1)};
+    const float sx = std::clamp(raw_x.length(), 0.05f, 32.0f);
+    const float sy = std::clamp(raw_y.length(), 0.05f, 32.0f);
+    const float hw = std::max(0.05f, 0.5f * light.width * sx);
+    const float hh = (light.shape == scene::AreaLightShape::Disk)
+                         ? hw
+                         : std::max(0.05f, 0.5f * light.height * sy);
+    const float wire_r = (is_selected ? 0.0120f : 0.0090f) * pose.avg_scale;
+    const float pick_r = compact_pick_only ? (wire_r * 3.2f) : wire_r;
+
+    // 1. Central hub + forward (-Z) normal emission arrow (and +Z arrow when two_sided).
+    appendOctahedronCore(mesh, world, compact_pick_only ? 0.18f : 0.075f, core_col);
+    const math::Vec3 forward = -pose.back;
+    const float norm_len = 0.58f * pose.avg_scale;
+    appendStrutWorld(mesh, pose.origin, pose.origin + forward * norm_len, pick_r, core_col);
+    appendConeWorld(
+        mesh,
+        pose.origin + forward * norm_len,
+        pose.origin + forward * (norm_len + 0.14f * pose.avg_scale),
+        (compact_pick_only ? 0.065f : 0.042f) * pose.avg_scale,
+        10,
+        core_col);
+
+    if (light.two_sided && !compact_pick_only) {
+        const math::Vec3 back_end = pose.origin + pose.back * (norm_len * 0.85f);
+        appendStrutWorld(mesh, pose.origin, back_end, wire_r * 0.90f, core_col * 0.88f);
+        appendConeWorld(
+            mesh,
+            back_end,
+            pose.origin + pose.back * (norm_len * 0.85f + 0.12f * pose.avg_scale),
+            0.036f * pose.avg_scale,
+            8,
+            core_col * 0.88f);
+    }
+
+    // 2. Physical Emitter Boundary (Rectangle softbox frame or Disk ring) + interior crosshairs.
+    if (light.shape == scene::AreaLightShape::Disk) {
+        constexpr std::uint32_t kDiskSegs = 20;
+        for (std::uint32_t i = 0; i < kDiskSegs; ++i) {
+            const float a0 = (static_cast<float>(i) / static_cast<float>(kDiskSegs)) * math::kTwoPi;
+            const float a1 = (static_cast<float>(i + 1u) / static_cast<float>(kDiskSegs)) * math::kTwoPi;
+            const math::Vec3 p0 = pose.origin + (pose.right * std::cos(a0) + pose.up * std::sin(a0)) * hw;
+            const math::Vec3 p1 = pose.origin + (pose.right * std::cos(a1) + pose.up * std::sin(a1)) * hw;
+            appendStrutWorld(mesh, p0, p1, pick_r, frame_col);
+        }
+        appendStrutWorld(mesh, pose.origin - pose.right * hw, pose.origin + pose.right * hw, pick_r * 0.65f, frame_col * 0.80f);
+        appendStrutWorld(mesh, pose.origin - pose.up * hw, pose.origin + pose.up * hw, pick_r * 0.65f, frame_col * 0.80f);
+    } else {
+        const math::Vec3 c00 = pose.origin - pose.right * hw - pose.up * hh;
+        const math::Vec3 c10 = pose.origin + pose.right * hw - pose.up * hh;
+        const math::Vec3 c11 = pose.origin + pose.right * hw + pose.up * hh;
+        const math::Vec3 c01 = pose.origin - pose.right * hw + pose.up * hh;
+
+        appendStrutWorld(mesh, c00, c10, pick_r, frame_col);
+        appendStrutWorld(mesh, c10, c11, pick_r, frame_col);
+        appendStrutWorld(mesh, c11, c01, pick_r, frame_col);
+        appendStrutWorld(mesh, c01, c00, pick_r, frame_col);
+
+        appendStrutWorld(mesh, pose.origin - pose.right * hw, pose.origin + pose.right * hw, pick_r * 0.62f, frame_col * 0.78f);
+        appendStrutWorld(mesh, pose.origin - pose.up * hh, pose.origin + pose.up * hh, pick_r * 0.62f, frame_col * 0.78f);
+    }
+}
+
 std::optional<scene::RaycastHit> raycastHelperMesh(
     scene::ObjectId obj_id,
     const scene::MeshData& helper_mesh,
@@ -562,7 +805,7 @@ scene::MeshData buildViewportSceneHelpersMesh(
     std::vector<const scene::SceneObject*> helper_objs;
     helper_objs.reserve(scene.objectCount());
     for (const auto& obj : scene.objects()) {
-        if (!obj.camera.has_value() && !obj.directional_light.has_value()) {
+        if (!obj.camera.has_value() && !obj.hasAnyLight()) {
             continue;
         }
         if (!isObjectVisibleInHierarchy(scene, obj.id)) {
@@ -598,6 +841,27 @@ scene::MeshData buildViewportSceneHelpersMesh(
                 obj->directional_light.value(),
                 is_sel,
                 false);
+        } else if (obj->point_light.has_value()) {
+            buildPointLightHelperInto(
+                combined,
+                world_res.value(),
+                obj->point_light.value(),
+                is_sel,
+                false);
+        } else if (obj->spot_light.has_value()) {
+            buildSpotLightHelperInto(
+                combined,
+                world_res.value(),
+                obj->spot_light.value(),
+                is_sel,
+                false);
+        } else if (obj->area_light.has_value()) {
+            buildAreaLightHelperInto(
+                combined,
+                world_res.value(),
+                obj->area_light.value(),
+                is_sel,
+                false);
         }
     }
 
@@ -622,11 +886,11 @@ std::optional<scene::RaycastHit> pickSceneOrViewportHelper(
         return best_hit;
     }
 
-    // 2. Compact 3D Camera body/lens/up-triangle & DirectionalLight sun-core/arrow raycast.
-    // Frustum rays are intentionally excluded from picking so normal mesh picking is NEVER blocked.
+    // 2. Compact 3D Camera body/lens/up-triangle & Light (Directional/Point/Spot/Area) helper raycast.
+    // Frustum & wide cone rays are intentionally excluded from picking so normal mesh picking is NEVER blocked.
     scene::MeshData pick_proxy;
     for (const auto& obj : scene.objects()) {
-        if (!obj.camera.has_value() && !obj.directional_light.has_value()) {
+        if (!obj.camera.has_value() && !obj.hasAnyLight()) {
             continue;
         }
         if (options.ignore_invisible && !isObjectVisibleInHierarchy(scene, obj.id)) {
@@ -656,7 +920,28 @@ std::optional<scene::RaycastHit> pickSceneOrViewportHelper(
                 world_res.value(),
                 obj.directional_light.value(),
                 false,
-                true /* compact sun core + shaft pick proxy */);
+                true);
+        } else if (obj.point_light.has_value()) {
+            buildPointLightHelperInto(
+                pick_proxy,
+                world_res.value(),
+                obj.point_light.value(),
+                false,
+                true);
+        } else if (obj.spot_light.has_value()) {
+            buildSpotLightHelperInto(
+                pick_proxy,
+                world_res.value(),
+                obj.spot_light.value(),
+                false,
+                true);
+        } else if (obj.area_light.has_value()) {
+            buildAreaLightHelperInto(
+                pick_proxy,
+                world_res.value(),
+                obj.area_light.value(),
+                false,
+                true);
         }
 
         if (const auto h = raycastHelperMesh(obj.id, pick_proxy, world_ray, closest_t);

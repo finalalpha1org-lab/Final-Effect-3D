@@ -25,6 +25,7 @@ void Scene::clear() {
     objects_.clear();
     object_index_.clear();
     active_camera_id_ = ObjectId::invalid();
+    environment_ = EnvironmentLighting{};
     next_object_id_ = 1;
     next_mesh_id_ = 1;
     next_material_id_ = 1;
@@ -394,6 +395,9 @@ core::Status Scene::createObjectWithId(ObjectId id, std::string object_name, Obj
         .material_id = std::nullopt,
         .camera = std::nullopt,
         .directional_light = std::nullopt,
+        .point_light = std::nullopt,
+        .spot_light = std::nullopt,
+        .area_light = std::nullopt,
     });
     object_index_.emplace(id, idx);
 
@@ -471,6 +475,12 @@ void Scene::eraseSingleObject(ObjectId id) noexcept {
 
     if (active_camera_id_ == id) {
         active_camera_id_ = ObjectId::invalid();
+    }
+
+    for (auto& remaining : objects_) {
+        if (auto* link = remaining.lightLinkingMutable(); link != nullptr) {
+            link->removeObjectReference(id);
+        }
     }
 
     const std::size_t remove_idx = it->second;
@@ -646,9 +656,178 @@ core::Status Scene::assignDirectionalLight(
         if (!valid) {
             return valid;
         }
+        light->linking.normalize();
+        obj->point_light = std::nullopt;
+        obj->spot_light = std::nullopt;
+        obj->area_light = std::nullopt;
     }
-    obj->directional_light = light;
+    obj->directional_light = std::move(light);
     return core::Status::ok();
+}
+
+core::Status Scene::assignPointLight(
+    ObjectId id,
+    std::optional<PointLightComponent> light) {
+    auto* obj = findObjectMutable(id);
+    if (obj == nullptr) {
+        return core::Status::fail(core::ErrorCode::NotFound, "Scene object not found");
+    }
+    if (light.has_value()) {
+        auto valid = light->validate();
+        if (!valid) {
+            return valid;
+        }
+        light->linking.normalize();
+        obj->directional_light = std::nullopt;
+        obj->spot_light = std::nullopt;
+        obj->area_light = std::nullopt;
+    }
+    obj->point_light = std::move(light);
+    return core::Status::ok();
+}
+
+core::Status Scene::assignSpotLight(
+    ObjectId id,
+    std::optional<SpotLightComponent> light) {
+    auto* obj = findObjectMutable(id);
+    if (obj == nullptr) {
+        return core::Status::fail(core::ErrorCode::NotFound, "Scene object not found");
+    }
+    if (light.has_value()) {
+        auto valid = light->validate();
+        if (!valid) {
+            return valid;
+        }
+        light->linking.normalize();
+        obj->directional_light = std::nullopt;
+        obj->point_light = std::nullopt;
+        obj->area_light = std::nullopt;
+    }
+    obj->spot_light = std::move(light);
+    return core::Status::ok();
+}
+
+core::Status Scene::assignAreaLight(
+    ObjectId id,
+    std::optional<AreaLightComponent> light) {
+    auto* obj = findObjectMutable(id);
+    if (obj == nullptr) {
+        return core::Status::fail(core::ErrorCode::NotFound, "Scene object not found");
+    }
+    if (light.has_value()) {
+        auto valid = light->validate();
+        if (!valid) {
+            return valid;
+        }
+        light->linking.normalize();
+        obj->directional_light = std::nullopt;
+        obj->point_light = std::nullopt;
+        obj->spot_light = std::nullopt;
+    }
+    obj->area_light = std::move(light);
+    return core::Status::ok();
+}
+
+core::Status Scene::assignAnyLight(ObjectId id, const AnyLightComponent& light) {
+    auto* obj = findObjectMutable(id);
+    if (obj == nullptr) {
+        return core::Status::fail(core::ErrorCode::NotFound, "Scene object not found");
+    }
+    return std::visit(
+        [&](const auto& l) -> core::Status {
+            using T = std::decay_t<decltype(l)>;
+            if constexpr (std::is_same_v<T, std::monostate>) {
+                obj->directional_light = std::nullopt;
+                obj->point_light = std::nullopt;
+                obj->spot_light = std::nullopt;
+                obj->area_light = std::nullopt;
+                return core::Status::ok();
+            } else if constexpr (std::is_same_v<T, DirectionalLightComponent>) {
+                return assignDirectionalLight(id, l);
+            } else if constexpr (std::is_same_v<T, PointLightComponent>) {
+                return assignPointLight(id, l);
+            } else if constexpr (std::is_same_v<T, SpotLightComponent>) {
+                return assignSpotLight(id, l);
+            } else if constexpr (std::is_same_v<T, AreaLightComponent>) {
+                return assignAreaLight(id, l);
+            }
+        },
+        light);
+}
+
+bool Scene::doesLightAffectObject(
+    const LightLinkingSettings& linking,
+    ObjectId target_id) const noexcept {
+    if (linking.mode == LightLinkMode::AllObjects) {
+        return true;
+    }
+    if (!target_id.isValid()) {
+        return linking.mode == LightLinkMode::ExcludeList;
+    }
+
+    bool matched = linking.containsDirect(target_id);
+    if (!matched && linking.include_descendants) {
+        ObjectId cur = target_id;
+        std::size_t guard = 0;
+        const std::size_t max_depth = objects_.size() + 1;
+        while (cur.isValid() && guard++ < max_depth) {
+            const auto* obj = findObject(cur);
+            if (obj == nullptr || !obj->parent_id.isValid()) {
+                break;
+            }
+            cur = obj->parent_id;
+            if (linking.containsDirect(cur)) {
+                matched = true;
+                break;
+            }
+        }
+    }
+
+    return (linking.mode == LightLinkMode::IncludeOnly) ? matched : !matched;
+}
+
+core::Status Scene::setEnvironment(EnvironmentLighting updated) {
+    auto valid = updated.validate();
+    if (!valid) {
+        return valid;
+    }
+    updated.revision = environment_.revision + 1u;
+    environment_ = std::move(updated);
+    return core::Status::ok();
+}
+
+core::Status Scene::loadEnvironmentHdriFromMemory(
+    std::span<const std::uint8_t> bytes,
+    std::string source_name) {
+    auto asset_res = HdriEnvironmentAsset::loadFromMemory(bytes, source_name);
+    if (!asset_res) {
+        return asset_res.error();
+    }
+    EnvironmentLighting next = environment_;
+    next.hdri_asset = std::move(asset_res).value();
+    next.source_path = std::move(source_name);
+    next.enabled = true;
+    return setEnvironment(std::move(next));
+}
+
+core::Status Scene::loadEnvironmentHdriFromFile(
+    const std::filesystem::path& path,
+    const platform::IFileSystem& file_system) {
+    auto asset_res = HdriEnvironmentAsset::loadFromFile(path, file_system);
+    if (!asset_res) {
+        return asset_res.error();
+    }
+    EnvironmentLighting next = environment_;
+    next.hdri_asset = std::move(asset_res).value();
+    next.source_path = path.generic_string();
+    next.enabled = true;
+    return setEnvironment(std::move(next));
+}
+
+void Scene::clearEnvironmentHdri() noexcept {
+    environment_.hdri_asset.reset();
+    environment_.source_path.clear();
+    ++environment_.revision;
 }
 
 core::Status Scene::setActiveCamera(ObjectId camera_object_id) {
@@ -723,7 +902,18 @@ core::Result<math::AABB> Scene::computeObjectWorldBounds(ObjectId id) const {
         }
     }
 
-    if (obj->camera.has_value() || obj->directional_light.has_value()) {
+    if (obj->area_light.has_value()) {
+        const float hw = std::max(0.35f, 0.5f * obj->area_light->width);
+        const float hh = (obj->area_light->shape == AreaLightShape::Disk)
+                             ? hw
+                             : std::max(0.35f, 0.5f * obj->area_light->height);
+        const math::AABB area_local = math::AABB::fromMinMax(
+            math::Vec3{-hw, -hh, -0.75f},
+            math::Vec3{hw, hh, 0.25f});
+        return core::Result<math::AABB>::ok(area_local.transformed(world_res.value()));
+    }
+
+    if (obj->camera.has_value() || obj->hasAnyLight()) {
         const math::AABB helper_local = math::AABB::fromMinMax(
             math::Vec3{-0.45f, -0.45f, -0.85f},
             math::Vec3{0.45f, 0.45f, 0.45f});

@@ -9,8 +9,9 @@
 </head>
 <body data-app-view="splash" data-layout-mode="desktop" data-ui-density="comfortable">
 
-  <!-- Hidden global file input shared by Project Launcher & 3D Studio File menu -->
+  <!-- Hidden global file inputs shared by Project Launcher, 3D Studio File menu & HDRI Environment loader -->
   <input type="file" id="file-open-input" data-testid="file-open-input" accept=".fe3d,.fe3dbin,.json" multiple hidden />
+  <input type="file" id="file-open-hdri" data-testid="file-open-hdri" accept=".hdr,.pfm" hidden />
 
   <!-- ===================================================================== -->
   <!-- LEVEL 1: REAL ENGINE & WEBGPU/WEBGL2 INITIALIZATION SPLASH SCREEN     -->
@@ -97,7 +98,7 @@
         <div class="home-rail-footer">
           <div class="rail-arch-note">
             <strong>Unified C++20 Architecture</strong>
-            <span>Studios share <code>finaleffect::scene</code>, PBR renderer &amp; <code>.fe3d</code> v1.2 serializer.</span>
+            <span>Studios share <code>finaleffect::scene</code>, PBR renderer &amp; <code>.fe3d</code> v1.3 serializer.</span>
           </div>
         </div>
       </aside>
@@ -244,8 +245,12 @@
                 <button type="button" data-preset="pyramid">Mesh &rarr; Pyramid</button>
                 <button type="button" data-preset="plane">Mesh &rarr; Grid Plane</button>
                 <div class="menu-sep"></div>
+                <button type="button" data-preset="light" data-testid="menu-add-directional-light">Light &rarr; Directional Light</button>
+                <button type="button" data-preset="point_light" data-testid="menu-add-point-light">Light &rarr; Point Light</button>
+                <button type="button" data-preset="spot_light" data-testid="menu-add-spot-light">Light &rarr; Spot Light</button>
+                <button type="button" data-preset="area_light" data-testid="menu-add-area-light">Light &rarr; Area Light</button>
+                <div class="menu-sep"></div>
                 <button type="button" data-preset="pivot">Empty Pivot</button>
-                <button type="button" data-preset="light">Directional Light</button>
                 <button type="button" data-preset="camera">Camera</button>
               </div>
             </div>
@@ -759,22 +764,163 @@
 
                   <div class="inspector-card" id="card-light" data-testid="card-light" hidden>
                     <div class="card-header">
-                      <h3>Directional Light</h3>
+                      <h3 id="light-card-title">Light</h3>
+                      <label class="checkbox-inline" title="Enable or disable light contribution">
+                        <input type="checkbox" id="light-enabled" data-testid="light-enabled" checked />
+                        <span>Enabled</span>
+                      </label>
                     </div>
                     <div class="form-stack">
+                      <label class="field-row">
+                        <span>Type</span>
+                        <select id="light-type" data-testid="light-type">
+                          <option value="directional">Directional (Sun)</option>
+                          <option value="point">Point (Omni)</option>
+                          <option value="spot">Spot (Cone)</option>
+                          <option value="area">Area (Emitter)</option>
+                        </select>
+                      </label>
                       <label class="field-row">
                         <span>Color</span>
                         <input type="color" id="light-color" data-testid="light-color" value="#ffffff" />
                       </label>
                       <label class="field-row">
                         <span>Intensity</span>
-                        <input type="number" step="0.1" min="0" max="20" id="light-intensity" data-testid="light-intensity" />
+                        <input type="number" step="0.2" min="0" max="500" id="light-intensity" data-testid="light-intensity" />
                       </label>
+
+                      <!-- Contextual Shape, Range, Falloff & Cone Parameters -->
+                      <div class="light-sub-block" id="light-shape-block" data-testid="light-shape-block" hidden>
+                        <div class="inspector-subhead">Light Shape &amp; Falloff</div>
+                        <label class="field-row" id="light-row-area-shape" hidden>
+                          <span>Emitter</span>
+                          <select id="light-area-shape" data-testid="light-area-shape">
+                            <option value="rectangle">Rectangle</option>
+                            <option value="disk">Disk</option>
+                          </select>
+                        </label>
+                        <label class="field-row" id="light-row-area-width" hidden>
+                          <span id="lbl-light-area-width">Width</span>
+                          <input type="number" step="0.1" min="0.05" max="100" id="light-area-width" data-testid="light-area-width" value="1.6" />
+                        </label>
+                        <label class="field-row" id="light-row-area-height" hidden>
+                          <span>Height</span>
+                          <input type="number" step="0.1" min="0.05" max="100" id="light-area-height" data-testid="light-area-height" value="1.0" />
+                        </label>
+                        <label class="checkbox-row" id="light-row-area-twosided" hidden>
+                          <input type="checkbox" id="light-area-twosided" data-testid="light-area-twosided" />
+                          <span>Two-Sided Emission</span>
+                        </label>
+                        <label class="field-row" id="light-row-area-samples" hidden>
+                          <span>Sampling</span>
+                          <select id="light-area-samples" data-testid="light-area-samples">
+                            <option value="1">Low (4x)</option>
+                            <option value="2">Medium (9x)</option>
+                            <option value="3">High (16x)</option>
+                          </select>
+                        </label>
+                        <label class="field-row" id="light-row-range" hidden>
+                          <span>Range (m)</span>
+                          <input type="number" step="0.5" min="0.2" max="500" id="light-range" data-testid="light-range" value="12" />
+                        </label>
+                        <label class="field-row" id="light-row-falloff" hidden>
+                          <span>Falloff</span>
+                          <select id="light-falloff" data-testid="light-falloff">
+                            <option value="inverse_square_windowed">Inverse Square</option>
+                            <option value="smooth_quadratic">Smooth Quadratic</option>
+                            <option value="smooth_linear">Smooth Linear</option>
+                          </select>
+                        </label>
+                        <label class="field-row" id="light-row-attenuation" hidden>
+                          <span>Exponent</span>
+                          <input type="number" step="0.1" min="0" max="4" id="light-attenuation" data-testid="light-attenuation" value="2.0" />
+                        </label>
+                        <label class="field-row" id="light-row-source-radius" hidden>
+                          <span>Radius</span>
+                          <input type="number" step="0.02" min="0.01" max="10" id="light-source-radius" data-testid="light-source-radius" value="0.08" />
+                        </label>
+                        <label class="field-row" id="light-row-spot-cones" hidden>
+                          <span>Cone In/Out°</span>
+                          <div class="inline-pair">
+                            <input type="number" step="1" min="0" max="88" id="light-inner-cone" data-testid="light-inner-cone" value="18" title="Inner full-brightness cone angle (°)" />
+                            <input type="number" step="1" min="1" max="89" id="light-outer-cone" data-testid="light-outer-cone" value="34" title="Outer cutoff cone angle (°)" />
+                          </div>
+                        </label>
+                        <label class="field-row" id="light-row-cone-falloff" hidden>
+                          <span>Cone Edge</span>
+                          <input type="number" step="0.1" min="0.1" max="16" id="light-cone-falloff" data-testid="light-cone-falloff" value="1.0" />
+                        </label>
+                      </div>
+
+                      <!-- Real-Time Shadow Mapping Controls -->
+                      <div class="light-sub-block" data-testid="light-shadow-block">
+                        <div class="inspector-subhead">
+                          <span>Shadows</span>
+                          <label class="checkbox-inline">
+                            <input type="checkbox" id="light-shadow-enabled" data-testid="light-shadow-enabled" />
+                            <span>Cast</span>
+                          </label>
+                        </div>
+                        <div class="form-stack" id="light-shadow-params">
+                          <label class="field-row">
+                            <span>Quality</span>
+                            <select id="light-shadow-quality" data-testid="light-shadow-quality">
+                              <option value="low">Low (256)</option>
+                              <option value="medium">Medium (512)</option>
+                              <option value="high">High (1024)</option>
+                              <option value="ultra">Ultra (2048)</option>
+                            </select>
+                          </label>
+                          <label class="field-row">
+                            <span>Filter</span>
+                            <select id="light-shadow-filter" data-testid="light-shadow-filter">
+                              <option value="hard">Hard</option>
+                              <option value="pcf3x3">PCF 3&times;3</option>
+                              <option value="pcf5x5">PCF 5&times;5</option>
+                            </select>
+                          </label>
+                          <label class="field-row">
+                            <span>Strength</span>
+                            <input type="number" step="0.05" min="0" max="1" id="light-shadow-strength" data-testid="light-shadow-strength" value="1.0" />
+                          </label>
+                          <label class="field-row">
+                            <span>Bias / Nrm</span>
+                            <div class="inline-pair">
+                              <input type="number" step="0.0005" min="0" max="0.2" id="light-shadow-bias" data-testid="light-shadow-bias" value="0.0025" title="Depth bias" />
+                              <input type="number" step="0.005" min="0" max="0.5" id="light-shadow-normal-bias" data-testid="light-shadow-normal-bias" value="0.02" title="Normal offset bias" />
+                            </div>
+                          </label>
+                          <label class="field-row">
+                            <span>Softness</span>
+                            <input type="number" step="0.1" min="0.1" max="8" id="light-shadow-softness" data-testid="light-shadow-softness" value="1.0" />
+                          </label>
+                        </div>
+                      </div>
+
+                      <!-- Per-Light Object Light Linking -->
+                      <div class="light-sub-block" data-testid="light-linking-block">
+                        <div class="inspector-subhead">Light Linking</div>
+                        <label class="field-row">
+                          <span>Mode</span>
+                          <select id="light-link-mode" data-testid="light-link-mode">
+                            <option value="all">Affect All Objects</option>
+                            <option value="include_only">Include Only</option>
+                            <option value="exclude">Exclude Selected</option>
+                          </select>
+                        </label>
+                        <div id="light-link-list-wrap" hidden>
+                          <label class="checkbox-row">
+                            <input type="checkbox" id="light-link-descendants" data-testid="light-link-descendants" checked />
+                            <span>Apply to Child Hierarchy</span>
+                          </label>
+                          <div class="light-link-checklist" id="light-link-targets" data-testid="light-link-targets"></div>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
                   <div class="inspector-card" id="card-data-empty">
-                    <p class="foundation-note-sm">Select a Camera or Directional Light object to adjust lens or illumination parameters.</p>
+                    <p class="foundation-note-sm">Select a Camera or Light (Directional, Point, Spot, Area) to adjust lens, emission, shadows, or light linking.</p>
                   </div>
                 </div>
               </div>
@@ -838,8 +984,53 @@
               </div>
             </div>
 
-            <!-- TAB: PROJECT METADATA & ENGINE TELEMETRY -->
+            <!-- TAB: ENVIRONMENT / HDRI IBL, PROJECT METADATA & ENGINE TELEMETRY -->
             <div class="insp-section-group" data-insp-section="render">
+              <div class="inspector-card" id="card-environment" data-testid="card-environment">
+                <div class="card-header">
+                  <h3>Environment &amp; IBL</h3>
+                  <label class="checkbox-inline" title="Enable scene environment &amp; Image-Based Lighting">
+                    <input type="checkbox" id="env-enabled" data-testid="env-enabled" checked />
+                    <span>Active</span>
+                  </label>
+                </div>
+                <div class="form-stack">
+                  <div class="kv-grid">
+                    <span>HDRI Map</span>
+                    <strong id="env-hdri-status" data-testid="env-hdri-status">Studio Sky (Fallback)</strong>
+                  </div>
+                  <div class="inline-pair">
+                    <button type="button" class="tb-btn" id="btn-load-hdri" data-testid="btn-load-hdri" title="Load Radiance .hdr or .pfm environment map">Load .hdr…</button>
+                    <button type="button" class="tb-btn" id="btn-clear-hdri" data-testid="btn-clear-hdri" disabled title="Remove HDRI map and revert to studio sky">Clear</button>
+                  </div>
+                  <div class="hdri-preset-row">
+                    <button type="button" class="ghost-btn" data-hdri-preset="studio_softbox" data-testid="btn-hdri-softbox" title="Bake physical Studio Softbox HDRI into SH9 + GGX IBL">Softbox</button>
+                    <button type="button" class="ghost-btn" data-hdri-preset="warm_sunset" data-testid="btn-hdri-sunset" title="Bake Golden Sunset HDRI into SH9 + GGX IBL">Sunset</button>
+                    <button type="button" class="ghost-btn" data-hdri-preset="cool_courtyard" data-testid="btn-hdri-courtyard" title="Bake Overcast Courtyard HDRI into SH9 + GGX IBL">Courtyard</button>
+                  </div>
+                  <label class="slider-row">
+                    <span>Intensity</span>
+                    <input type="range" min="0" max="6" step="0.05" value="1" id="env-intensity" data-testid="env-intensity" />
+                    <strong id="val-env-intensity">1.00</strong>
+                  </label>
+                  <label class="slider-row">
+                    <span>Rotation°</span>
+                    <input type="range" min="-180" max="180" step="1" value="0" id="env-rotation" data-testid="env-rotation" />
+                    <strong id="val-env-rotation">0°</strong>
+                  </label>
+                  <label class="slider-row">
+                    <span>Diffuse</span>
+                    <input type="range" min="0" max="3" step="0.05" value="1" id="env-diffuse-scale" data-testid="env-diffuse-scale" />
+                    <strong id="val-env-diffuse">1.00</strong>
+                  </label>
+                  <label class="slider-row">
+                    <span>Specular</span>
+                    <input type="range" min="0" max="3" step="0.05" value="1" id="env-specular-scale" data-testid="env-specular-scale" />
+                    <strong id="val-env-specular">1.00</strong>
+                  </label>
+                </div>
+              </div>
+
               <div class="inspector-card">
                 <div class="card-header">
                   <h3>Project &amp; Scene Info</h3>
@@ -867,10 +1058,13 @@
                 <div class="kv-grid telemetry-grid" data-testid="telemetry-grid">
                   <span>Objects / Meshes</span><strong id="stat-objects-meshes" data-testid="stat-objects-meshes">0 / 0</strong>
                   <span>Materials / Upd</span><strong id="stat-materials-updates" data-testid="stat-materials-updates">0 / 0</strong>
+                  <span>Lights / Shadows</span><strong id="stat-lights-shadows" data-testid="stat-lights-shadows">0 / 0</strong>
                   <span>Scene Triangles</span><strong id="stat-triangles" data-testid="stat-triangles">0</strong>
                   <span>CPU / GPU Mesh</span><strong id="stat-memory" data-testid="stat-memory">0 KB / 0 KB</strong>
+                  <span>Shadow / IBL GPU</span><strong id="stat-lighting-gpu" data-testid="stat-lighting-gpu">0 B / 0 B</strong>
                   <span>Undo History</span><strong id="stat-history" data-testid="stat-history">0 steps (0 B)</strong>
                 </div>
+                <div class="lighting-warn-box" id="stat-lighting-warning" data-testid="stat-lighting-warning" hidden></div>
               </div>
             </div>
           </div>

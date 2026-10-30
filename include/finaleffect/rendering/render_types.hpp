@@ -14,6 +14,8 @@
 
 namespace finaleffect::rendering {
 
+struct PreparedSceneLighting;
+
 struct GpuMeshHandle {
     std::uint64_t value{0};
 
@@ -85,6 +87,8 @@ struct DrawMeshCommand {
     PbrSurfaceParams surface{};
     std::uint32_t index_offset{0};
     std::uint32_t index_count{0}; // 0 draws entire index buffer from index_offset
+    const PreparedSceneLighting* scene_lighting{nullptr};
+    std::uint32_t light_mask{0xFFFFFFFFu};
 };
 
 // Viewport-only procedural ground grid options (never part of Scene or serialized geometry).

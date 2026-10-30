@@ -116,7 +116,19 @@ core::Result<StarterSceneHandles> populateStarterScene(scene::Scene& scene) {
     if (auto st = scene.setObjectTransform(handles.sun_light, light_tf); !st) return st.error();
     if (auto st = scene.assignDirectionalLight(
             handles.sun_light,
-            scene::DirectionalLightComponent{.color = {1.0f, 0.98f, 0.94f}, .intensity = 1.65f});
+            scene::DirectionalLightComponent{
+                .color = {1.0f, 0.98f, 0.94f},
+                .intensity = 1.65f,
+                .enabled = true,
+                .shadow = {
+                    .enabled = true,
+                    .strength = 1.0f,
+                    .quality = scene::ShadowQuality::High,
+                    .bias = 0.0020f,
+                    .normal_bias = 0.015f,
+                    .softness = 1.0f,
+                },
+            });
         !st) {
         return st.error();
     }

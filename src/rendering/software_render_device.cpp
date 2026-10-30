@@ -4,9 +4,11 @@
 #include "finaleffect/rendering/software_render_device.hpp"
 #include "finaleffect/math/constants.hpp"
 #include "finaleffect/rendering/editor_grid.hpp"
+#include "finaleffect/rendering/lighting_system.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <initializer_list>
 #include <sstream>
 
 namespace finaleffect::rendering {
@@ -20,120 +22,6 @@ std::uint8_t floatToByte(float v) noexcept {
 
 float edgeFunction(float ax, float ay, float bx, float by, float px, float py) noexcept {
     return (px - ax) * (by - ay) - (py - ay) * (bx - ax);
-}
-
-math::Vec3 lerpVec3(const math::Vec3& a, const math::Vec3& b, float t) noexcept {
-    return a * (1.0f - t) + b * t;
-}
-
-math::Vec3 fresnelSchlick(float cos_theta, const math::Vec3& f0) noexcept {
-    const float x = std::clamp(1.0f - cos_theta, 0.0f, 1.0f);
-    const float x2 = x * x;
-    const float x5 = x2 * x2 * x;
-    return f0 + (math::Vec3{1.0f, 1.0f, 1.0f} - f0) * x5;
-}
-
-float distributionGgx(float n_dot_h, float roughness) noexcept {
-    const float a = roughness * roughness;
-    const float a2 = a * a;
-    const float denom_term = n_dot_h * n_dot_h * (a2 - 1.0f) + 1.0f;
-    const float denom = math::kPi * denom_term * denom_term;
-    return a2 / std::max(denom, 1.0e-6f);
-}
-
-float geometrySchlickGgx(float n_dot_x, float k) noexcept {
-    return n_dot_x / std::max(n_dot_x * (1.0f - k) + k, 1.0e-5f);
-}
-
-// Energy-conserving CPU reference metallic-roughness Cook-Torrance GGX shading
-// matching the GLSL 330 / GLSL ES 3.00 studio fragment shader.
-math::Vec3 evaluateSoftwarePbrFragment(
-    const math::Vec3& world_pos,
-    const math::Vec3& world_normal_raw,
-    const math::Vec3& vertex_color,
-    const DrawMeshCommand& cmd) noexcept {
-    const PbrSurfaceParams& s = cmd.surface;
-    const math::Vec3 weighted_vcol = lerpVec3(math::Vec3{1.0f, 1.0f, 1.0f}, vertex_color, s.vertex_color_weight);
-    const math::Vec3 albedo = s.base_color.cwiseProduct(weighted_vcol);
-
-    if (s.unlit_overlay) {
-        const math::Vec3 tint = cmd.selected ? math::Vec3{0.25f, 0.16f, 0.04f} : math::Vec3::zero();
-        return albedo + tint;
-    }
-
-    const math::Vec3 n = world_normal_raw.normalized();
-    const math::Vec3 v = (cmd.camera_position - world_pos).normalized();
-    const float n_dot_v = std::max(n.dot(v), 1.0e-4f);
-
-    const float metallic = std::clamp(s.metallic, 0.0f, 1.0f);
-    const float roughness = std::clamp(s.roughness, 0.045f, 1.0f);
-    const float ao = std::clamp(s.ambient_occlusion, 0.0f, 1.0f);
-    const float k_direct = ((roughness + 1.0f) * (roughness + 1.0f)) * 0.125f;
-
-    const math::Vec3 f0 = lerpVec3(math::Vec3{0.04f, 0.04f, 0.04f}, albedo, metallic);
-
-    auto evalDirectionalLobe = [&](const math::Vec3& l, const math::Vec3& radiance) -> math::Vec3 {
-        const float n_dot_l = std::max(n.dot(l), 0.0f);
-        if (n_dot_l <= 0.0f) {
-            return math::Vec3::zero();
-        }
-        const math::Vec3 h = (v + l).normalized();
-        const float n_dot_h = std::max(n.dot(h), 0.0f);
-        const float h_dot_v = std::max(h.dot(v), 0.0f);
-
-        const float ndf = distributionGgx(n_dot_h, roughness);
-        const float geom = geometrySchlickGgx(n_dot_v, k_direct) * geometrySchlickGgx(n_dot_l, k_direct);
-        const math::Vec3 fresnel = fresnelSchlick(h_dot_v, f0);
-
-        const math::Vec3 kd = (math::Vec3{1.0f, 1.0f, 1.0f} - fresnel) * (1.0f - metallic);
-        const math::Vec3 diffuse = kd.cwiseProduct(albedo) * (1.0f / math::kPi);
-        const math::Vec3 specular = fresnel * ((ndf * geom) / std::max(4.0f * n_dot_v * n_dot_l, 1.0e-4f));
-        return (diffuse + specular).cwiseProduct(radiance) * n_dot_l;
-    };
-
-    const math::Vec3 key_l = cmd.lighting.direction_to_light.normalized();
-    const math::Vec3 fill_l = math::Vec3{-0.55f, 0.35f, -0.65f}.normalized();
-    const math::Vec3 fill_radiance = cmd.lighting.radiance * 0.22f;
-
-    math::Vec3 lo = evalDirectionalLobe(key_l, cmd.lighting.radiance) +
-                    evalDirectionalLobe(fill_l, fill_radiance);
-
-    const std::uint32_t extra_count = std::min<std::uint32_t>(
-        cmd.lighting.extra_light_count,
-        static_cast<std::uint32_t>(DirectionalLightUniforms::kMaxExtraLights));
-    for (std::uint32_t li = 0; li < extra_count; ++li) {
-        const auto& extra = cmd.lighting.extra_lights[li];
-        if (extra.radiance.lengthSquared() > math::kStrictEpsilon &&
-            extra.direction_to_light.lengthSquared() > math::kStrictEpsilon) {
-            lo += evalDirectionalLobe(extra.direction_to_light.normalized(), extra.radiance);
-        }
-    }
-
-    // Hemispheric studio ambient + Fresnel environment sheen scaled by ambient occlusion.
-    const float sky_factor = n.y * 0.5f + 0.5f;
-    const math::Vec3 env_irradiance = cmd.lighting.ambient * (0.65f + 0.70f * sky_factor);
-    const math::Vec3 f_env = fresnelSchlick(n_dot_v, f0);
-    const math::Vec3 kd_env = (math::Vec3{1.0f, 1.0f, 1.0f} - f_env) * (1.0f - metallic);
-    const math::Vec3 env_spec = f_env.cwiseProduct(env_irradiance) * (1.0f - 0.75f * roughness);
-    const math::Vec3 ambient_term = (kd_env.cwiseProduct(albedo).cwiseProduct(env_irradiance) + env_spec) * ao;
-
-    math::Vec3 linear_hdr = ambient_term + lo + s.emissive_radiance;
-    if (cmd.selected) {
-        linear_hdr = linear_hdr * 0.85f + math::Vec3{0.22f, 0.14f, 0.03f};
-    }
-
-    // Reinhard tone mapping + linear-to-sRGB (gamma 2.2) conversion.
-    const math::Vec3 mapped{
-        linear_hdr.x / (1.0f + std::max(0.0f, linear_hdr.x)),
-        linear_hdr.y / (1.0f + std::max(0.0f, linear_hdr.y)),
-        linear_hdr.z / (1.0f + std::max(0.0f, linear_hdr.z)),
-    };
-    constexpr float kInvGamma = 1.0f / 2.2f;
-    return math::Vec3{
-        std::pow(std::clamp(mapped.x, 0.0f, 1.0f), kInvGamma),
-        std::pow(std::clamp(mapped.y, 0.0f, 1.0f), kInvGamma),
-        std::pow(std::clamp(mapped.z, 0.0f, 1.0f), kInvGamma),
-    };
 }
 
 } // namespace
@@ -169,10 +57,20 @@ void SoftwareRenderDevice::shutdown() noexcept {
     meshes_.clear();
     color_buffer_.clear();
     depth_buffer_.clear();
+    shadow_atlas_depth_.clear();
+    shadow_atlas_depth_.shrink_to_fit();
+    shadow_atlas_size_ = 0;
+    active_tile_x_ = 0;
+    active_tile_y_ = 0;
+    active_tile_w_ = 0;
+    active_tile_h_ = 0;
+    environment_bytes_ = 0;
+    environment_revision_ = 0;
     total_mesh_bytes_ = 0;
     buffer_updates_ = 0;
     width_ = 0;
     height_ = 0;
+    in_shadow_pass_ = false;
     in_frame_ = false;
     initialized_ = false;
 }
@@ -232,6 +130,180 @@ void SoftwareRenderDevice::destroyMesh(GpuMeshHandle handle) noexcept {
         total_mesh_bytes_ -= it->second.byteSize();
         meshes_.erase(it);
     }
+}
+
+core::Status SoftwareRenderDevice::syncEnvironmentMap(
+    const scene::HdriEnvironmentAsset* asset,
+    std::uint64_t revision) {
+    if (!initialized_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "Device not initialized");
+    }
+    if (asset == nullptr) {
+        environment_bytes_ = 0;
+        environment_revision_ = 0;
+        return core::Status::ok();
+    }
+    if (environment_revision_ != revision) {
+        environment_revision_ = revision;
+        environment_bytes_ = asset->prefiltered_cubemap.gpuByteSize();
+    }
+    return core::Status::ok();
+}
+
+core::Status SoftwareRenderDevice::ensureShadowAtlas(std::uint32_t atlas_size) {
+    if (!initialized_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "Device not initialized");
+    }
+    if (atlas_size == 0u) {
+        shadow_atlas_depth_.clear();
+        shadow_atlas_depth_.shrink_to_fit();
+        shadow_atlas_size_ = 0u;
+        return core::Status::ok();
+    }
+    if (shadow_atlas_size_ != atlas_size) {
+        shadow_atlas_size_ = atlas_size;
+        shadow_atlas_depth_.assign(
+            static_cast<std::size_t>(atlas_size) * static_cast<std::size_t>(atlas_size),
+            1.0f);
+    }
+    return core::Status::ok();
+}
+
+core::Status SoftwareRenderDevice::beginShadowTilePass(
+    std::uint32_t tile_x,
+    std::uint32_t tile_y,
+    std::uint32_t tile_width,
+    std::uint32_t tile_height) {
+    if (!initialized_ || in_frame_ || shadow_atlas_size_ == 0u) {
+        return core::Status::fail(
+            core::ErrorCode::InvalidState,
+            "SoftwareRenderDevice::beginShadowTilePass called in invalid state");
+    }
+    if (tile_x + tile_width > shadow_atlas_size_ || tile_y + tile_height > shadow_atlas_size_) {
+        return core::Status::fail(core::ErrorCode::InvalidArgument, "Shadow tile exceeds atlas bounds");
+    }
+    active_tile_x_ = tile_x;
+    active_tile_y_ = tile_y;
+    active_tile_w_ = tile_width;
+    active_tile_h_ = tile_height;
+    in_shadow_pass_ = true;
+
+    for (std::uint32_t y = tile_y; y < tile_y + tile_height; ++y) {
+        auto* row = shadow_atlas_depth_.data() + static_cast<std::size_t>(y) * shadow_atlas_size_;
+        std::fill(row + tile_x, row + tile_x + tile_width, 1.0f);
+    }
+    return core::Status::ok();
+}
+
+core::Status SoftwareRenderDevice::drawShadowMesh(
+    GpuMeshHandle mesh_handle,
+    const math::Mat4& light_mvp,
+    std::uint32_t index_offset,
+    std::uint32_t index_count) {
+    if (!initialized_ || !in_shadow_pass_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "drawShadowMesh called outside shadow pass");
+    }
+    const auto it = meshes_.find(mesh_handle.value);
+    if (it == meshes_.end()) {
+        return core::Status::fail(core::ErrorCode::NotFound, "Unknown GpuMeshHandle in drawShadowMesh");
+    }
+    if (active_tile_w_ == 0u || active_tile_h_ == 0u || shadow_atlas_size_ == 0u) {
+        return core::Status::ok();
+    }
+
+    const scene::MeshData& mesh = it->second;
+    const std::size_t total_indices = mesh.indices.size();
+    const std::size_t idx_begin = std::min(static_cast<std::size_t>(index_offset), total_indices);
+    const std::size_t idx_cnt = (index_count == 0u)
+                                    ? (total_indices - idx_begin)
+                                    : std::min(static_cast<std::size_t>(index_count), total_indices - idx_begin);
+    const std::size_t idx_end = idx_begin + idx_cnt;
+
+    struct ShadowVertex {
+        float sx{0.0f};
+        float sy{0.0f};
+        float depth{1.0f};
+        bool valid{false};
+    };
+
+    const float fx = static_cast<float>(active_tile_x_);
+    const float fy = static_cast<float>(active_tile_y_);
+    const float fw = static_cast<float>(active_tile_w_);
+    const float fh = static_cast<float>(active_tile_h_);
+
+    std::vector<ShadowVertex> projected(mesh.vertices.size());
+    for (std::size_t vi = 0; vi < mesh.vertices.size(); ++vi) {
+        const math::Vec4 clip = light_mvp * math::Vec4(mesh.vertices[vi].position, 1.0f);
+        if (clip.w <= 1.0e-4f) {
+            continue;
+        }
+        const float inv_w = 1.0f / clip.w;
+        const float ndc_x = clip.x * inv_w;
+        const float ndc_y = clip.y * inv_w;
+        const float ndc_z = clip.z * inv_w;
+        projected[vi] = ShadowVertex{
+            .sx = fx + (ndc_x * 0.5f + 0.5f) * fw,
+            .sy = fy + (ndc_y * 0.5f + 0.5f) * fh,
+            .depth = ndc_z * 0.5f + 0.5f,
+            .valid = true,
+        };
+    }
+
+    const int min_tile_x = static_cast<int>(active_tile_x_);
+    const int max_tile_x = static_cast<int>(active_tile_x_ + active_tile_w_) - 1;
+    const int min_tile_y = static_cast<int>(active_tile_y_);
+    const int max_tile_y = static_cast<int>(active_tile_y_ + active_tile_h_) - 1;
+
+    for (std::size_t ti = idx_begin; ti + 2 < idx_end; ti += 3) {
+        ShadowVertex v0 = projected[mesh.indices[ti + 0]];
+        ShadowVertex v1 = projected[mesh.indices[ti + 1]];
+        ShadowVertex v2 = projected[mesh.indices[ti + 2]];
+        if (!v0.valid || !v1.valid || !v2.valid) {
+            continue;
+        }
+
+        float area = edgeFunction(v0.sx, v0.sy, v1.sx, v1.sy, v2.sx, v2.sy);
+        if (std::fabs(area) <= 1.0e-5f) {
+            continue;
+        }
+        if (area < 0.0f) {
+            std::swap(v1, v2);
+            area = -area;
+        }
+        const float inv_area = 1.0f / area;
+
+        const int x0 = std::max(min_tile_x, static_cast<int>(std::floor(std::min({v0.sx, v1.sx, v2.sx}))));
+        const int x1 = std::min(max_tile_x, static_cast<int>(std::ceil(std::max({v0.sx, v1.sx, v2.sx}))));
+        const int y0 = std::max(min_tile_y, static_cast<int>(std::floor(std::min({v0.sy, v1.sy, v2.sy}))));
+        const int y1 = std::min(max_tile_y, static_cast<int>(std::ceil(std::max({v0.sy, v1.sy, v2.sy}))));
+
+        for (int py = y0; py <= y1; ++py) {
+            const float sample_y = static_cast<float>(py) + 0.5f;
+            float* row = shadow_atlas_depth_.data() + static_cast<std::size_t>(py) * shadow_atlas_size_;
+            for (int px = x0; px <= x1; ++px) {
+                const float sample_x = static_cast<float>(px) + 0.5f;
+                const float w0 = edgeFunction(v1.sx, v1.sy, v2.sx, v2.sy, sample_x, sample_y);
+                const float w1 = edgeFunction(v2.sx, v2.sy, v0.sx, v0.sy, sample_x, sample_y);
+                const float w2 = edgeFunction(v0.sx, v0.sy, v1.sx, v1.sy, sample_x, sample_y);
+                if (w0 < 0.0f || w1 < 0.0f || w2 < 0.0f) {
+                    continue;
+                }
+                const float depth = (w0 * v0.depth + w1 * v1.depth + w2 * v2.depth) * inv_area;
+                if (depth >= 0.0f && depth <= 1.0f && depth < row[px]) {
+                    row[px] = depth;
+                }
+            }
+        }
+    }
+    return core::Status::ok();
+}
+
+core::Status SoftwareRenderDevice::endShadowPass() {
+    if (!initialized_ || !in_shadow_pass_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "endShadowPass called without beginShadowTilePass");
+    }
+    in_shadow_pass_ = false;
+    return core::Status::ok();
 }
 
 core::Status SoftwareRenderDevice::beginFrame(const FrameClearDesc& clear) {
@@ -448,7 +520,13 @@ core::Status SoftwareRenderDevice::drawMesh(const DrawMeshCommand& command) {
                 const math::Vec3 interp_col =
                     (v0.color * p_w0 + v1.color * p_w1 + v2.color * p_w2) * inv_denom;
 
-                const math::Vec3 shaded = evaluateSoftwarePbrFragment(interp_pos, interp_nrm, interp_col, command);
+                const math::Vec3 shaded = evaluateUnifiedPbrFragmentCpu(
+                    interp_pos,
+                    interp_nrm,
+                    interp_col,
+                    command,
+                    shadow_atlas_depth_,
+                    shadow_atlas_size_);
 
                 if (translucent) {
                     const Rgba8 dst = color_buffer_[idx];

@@ -5,6 +5,7 @@
 
 #include "finaleffect/core/result.hpp"
 #include "finaleffect/rendering/render_types.hpp"
+#include "finaleffect/scene/environment.hpp"
 #include "finaleffect/scene/mesh.hpp"
 
 #include <cstddef>
@@ -27,6 +28,44 @@ public:
     [[nodiscard]] virtual core::Status updateMesh(GpuMeshHandle handle, const scene::MeshData& mesh) = 0;
     virtual void destroyMesh(GpuMeshHandle handle) noexcept = 0;
 
+    // Synchronizes the active prefiltered HDRI cubemap resource when `revision` changes (or releases when null).
+    [[nodiscard]] virtual core::Status syncEnvironmentMap(
+        const scene::HdriEnvironmentAsset* asset,
+        std::uint64_t revision) {
+        (void)asset;
+        (void)revision;
+        return core::Status::ok();
+    }
+
+    // Real-time Shadow Atlas pass hooks (invoked BEFORE beginFrame only for dirty shadow tiles).
+    [[nodiscard]] virtual core::Status ensureShadowAtlas(std::uint32_t atlas_size) {
+        (void)atlas_size;
+        return core::Status::ok();
+    }
+    [[nodiscard]] virtual core::Status beginShadowTilePass(
+        std::uint32_t tile_x,
+        std::uint32_t tile_y,
+        std::uint32_t tile_width,
+        std::uint32_t tile_height) {
+        (void)tile_x;
+        (void)tile_y;
+        (void)tile_width;
+        (void)tile_height;
+        return core::Status::ok();
+    }
+    [[nodiscard]] virtual core::Status drawShadowMesh(
+        GpuMeshHandle mesh_handle,
+        const math::Mat4& light_mvp,
+        std::uint32_t index_offset = 0,
+        std::uint32_t index_count = 0) {
+        (void)mesh_handle;
+        (void)light_mvp;
+        (void)index_offset;
+        (void)index_count;
+        return core::Status::ok();
+    }
+    [[nodiscard]] virtual core::Status endShadowPass() { return core::Status::ok(); }
+
     [[nodiscard]] virtual core::Status beginFrame(const FrameClearDesc& clear) = 0;
     // Dedicated viewport-only procedural ground grid pass (depth-tested against opaque scene geometry, non-occluding).
     [[nodiscard]] virtual core::Status drawEditorGrid(const EditorGridCommand& command) = 0;
@@ -38,6 +77,8 @@ public:
     [[nodiscard]] virtual std::size_t liveMeshCount() const noexcept = 0;
     [[nodiscard]] virtual std::size_t liveMeshBytes() const noexcept = 0;
     [[nodiscard]] virtual std::size_t bufferUpdateCount() const noexcept { return 0; }
+    [[nodiscard]] virtual std::size_t liveShadowBytes() const noexcept { return 0; }
+    [[nodiscard]] virtual std::size_t liveEnvironmentBytes() const noexcept { return 0; }
 };
 
 } // namespace finaleffect::rendering

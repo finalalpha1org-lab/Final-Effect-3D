@@ -41,6 +41,22 @@ public:
     [[nodiscard]] core::Status updateMesh(GpuMeshHandle handle, const scene::MeshData& mesh) override;
     void destroyMesh(GpuMeshHandle handle) noexcept override;
 
+    [[nodiscard]] core::Status syncEnvironmentMap(
+        const scene::HdriEnvironmentAsset* asset,
+        std::uint64_t revision) override;
+    [[nodiscard]] core::Status ensureShadowAtlas(std::uint32_t atlas_size) override;
+    [[nodiscard]] core::Status beginShadowTilePass(
+        std::uint32_t tile_x,
+        std::uint32_t tile_y,
+        std::uint32_t tile_width,
+        std::uint32_t tile_height) override;
+    [[nodiscard]] core::Status drawShadowMesh(
+        GpuMeshHandle mesh_handle,
+        const math::Mat4& light_mvp,
+        std::uint32_t index_offset = 0,
+        std::uint32_t index_count = 0) override;
+    [[nodiscard]] core::Status endShadowPass() override;
+
     [[nodiscard]] core::Status beginFrame(const FrameClearDesc& clear) override;
     [[nodiscard]] core::Status drawEditorGrid(const EditorGridCommand& command) override;
     [[nodiscard]] core::Status beginOverlayPass(float clear_depth = 1.0f) override;
@@ -50,6 +66,10 @@ public:
     [[nodiscard]] std::size_t liveMeshCount() const noexcept override { return meshes_.size(); }
     [[nodiscard]] std::size_t liveMeshBytes() const noexcept override { return total_mesh_bytes_; }
     [[nodiscard]] std::size_t bufferUpdateCount() const noexcept override { return buffer_updates_; }
+    [[nodiscard]] std::size_t liveShadowBytes() const noexcept override {
+        return shadow_atlas_depth_.size() * sizeof(float);
+    }
+    [[nodiscard]] std::size_t liveEnvironmentBytes() const noexcept override { return environment_bytes_; }
 
     [[nodiscard]] std::uint32_t width() const noexcept { return width_; }
     [[nodiscard]] std::uint32_t height() const noexcept { return height_; }
@@ -61,10 +81,19 @@ private:
     DeviceCapabilities capabilities_;
     bool initialized_{false};
     bool in_frame_{false};
+    bool in_shadow_pass_{false};
     std::uint32_t width_{0};
     std::uint32_t height_{0};
     std::vector<Rgba8> color_buffer_;
     std::vector<float> depth_buffer_;
+    std::uint32_t shadow_atlas_size_{0};
+    std::uint32_t active_tile_x_{0};
+    std::uint32_t active_tile_y_{0};
+    std::uint32_t active_tile_w_{0};
+    std::uint32_t active_tile_h_{0};
+    std::vector<float> shadow_atlas_depth_;
+    std::size_t environment_bytes_{0};
+    std::uint64_t environment_revision_{0};
     std::uint64_t next_handle_{1};
     std::unordered_map<std::uint64_t, scene::MeshData> meshes_;
     std::size_t total_mesh_bytes_{0};

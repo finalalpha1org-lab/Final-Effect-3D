@@ -415,7 +415,12 @@ std::string EditorController::serializeStateJson() const {
         item.setKey("depth", static_cast<std::uint64_t>(depth));
         item.setKey("has_mesh", node->mesh_id.has_value());
         item.setKey("has_camera", node->camera.has_value());
-        item.setKey("has_light", node->directional_light.has_value());
+        item.setKey("has_light", node->hasAnyLight());
+        item.setKey(
+            "light_type",
+            node->lightType().has_value()
+                ? std::string(scene::lightTypeSlug(node->lightType().value()))
+                : std::string{});
         item.setKey("material_id", node->material_id.has_value() ? node->material_id->value : std::uint64_t{0});
         item.setKey("is_active_camera", node->id == scene.activeCamera());
         if (const auto wm = scene.computeWorldMatrix(node->id); wm.hasValue()) {
@@ -507,11 +512,85 @@ std::string EditorController::serializeStateJson() const {
                 insp.setKey("camera", std::move(c_json));
             }
 
-            if (sel_obj->directional_light.has_value()) {
-                const auto& lgt = sel_obj->directional_light.value();
+            if (sel_obj->hasAnyLight()) {
                 JsonValue l_json{JsonObject{}};
-                l_json.setKey("color", vec3ToJson(lgt.color));
-                l_json.setKey("intensity", static_cast<double>(lgt.intensity));
+                l_json.setKey(
+                    "type",
+                    sel_obj->lightType().has_value()
+                        ? std::string(scene::lightTypeSlug(sel_obj->lightType().value()))
+                        : std::string("directional"));
+
+                auto encodeShadow = [](const scene::LightShadowSettings& s) {
+                    JsonValue sj{JsonObject{}};
+                    sj.setKey("enabled", s.enabled);
+                    sj.setKey("strength", static_cast<double>(s.strength));
+                    sj.setKey("quality", std::string(scene::shadowQualitySlug(s.quality)));
+                    sj.setKey("filter", std::string(scene::shadowFilterModeSlug(s.filter)));
+                    sj.setKey("bias", static_cast<double>(s.bias));
+                    sj.setKey("normal_bias", static_cast<double>(s.normal_bias));
+                    sj.setKey("softness", static_cast<double>(s.softness));
+                    return sj;
+                };
+                auto encodeLinking = [](const scene::LightLinkingSettings& lnk) {
+                    JsonValue lj{JsonObject{}};
+                    lj.setKey("mode", std::string(scene::lightLinkModeSlug(lnk.mode)));
+                    lj.setKey("include_descendants", lnk.include_descendants);
+                    JsonArray ids;
+                    ids.reserve(lnk.linked_objects.size());
+                    for (const auto tid : lnk.linked_objects) {
+                        if (tid.isValid()) {
+                            ids.emplace_back(tid.value);
+                        }
+                    }
+                    lj.setKey("object_ids", std::move(ids));
+                    return lj;
+                };
+
+                if (sel_obj->directional_light.has_value()) {
+                    const auto& lgt = sel_obj->directional_light.value();
+                    l_json.setKey("color", vec3ToJson(lgt.color));
+                    l_json.setKey("intensity", static_cast<double>(lgt.intensity));
+                    l_json.setKey("enabled", lgt.enabled);
+                    l_json.setKey("shadow", encodeShadow(lgt.shadow));
+                    l_json.setKey("linking", encodeLinking(lgt.linking));
+                } else if (sel_obj->point_light.has_value()) {
+                    const auto& lgt = sel_obj->point_light.value();
+                    l_json.setKey("color", vec3ToJson(lgt.color));
+                    l_json.setKey("intensity", static_cast<double>(lgt.intensity));
+                    l_json.setKey("enabled", lgt.enabled);
+                    l_json.setKey("range", static_cast<double>(lgt.range));
+                    l_json.setKey("attenuation", static_cast<double>(lgt.attenuation));
+                    l_json.setKey("falloff", std::string(scene::lightFalloffModeSlug(lgt.falloff)));
+                    l_json.setKey("source_radius", static_cast<double>(lgt.source_radius));
+                    l_json.setKey("shadow", encodeShadow(lgt.shadow));
+                    l_json.setKey("linking", encodeLinking(lgt.linking));
+                } else if (sel_obj->spot_light.has_value()) {
+                    const auto& lgt = sel_obj->spot_light.value();
+                    l_json.setKey("color", vec3ToJson(lgt.color));
+                    l_json.setKey("intensity", static_cast<double>(lgt.intensity));
+                    l_json.setKey("enabled", lgt.enabled);
+                    l_json.setKey("range", static_cast<double>(lgt.range));
+                    l_json.setKey("attenuation", static_cast<double>(lgt.attenuation));
+                    l_json.setKey("falloff", std::string(scene::lightFalloffModeSlug(lgt.falloff)));
+                    l_json.setKey("inner_cone_deg", static_cast<double>(math::radToDeg(lgt.inner_cone_radians)));
+                    l_json.setKey("outer_cone_deg", static_cast<double>(math::radToDeg(lgt.outer_cone_radians)));
+                    l_json.setKey("cone_falloff", static_cast<double>(lgt.cone_falloff));
+                    l_json.setKey("shadow", encodeShadow(lgt.shadow));
+                    l_json.setKey("linking", encodeLinking(lgt.linking));
+                } else if (sel_obj->area_light.has_value()) {
+                    const auto& lgt = sel_obj->area_light.value();
+                    l_json.setKey("color", vec3ToJson(lgt.color));
+                    l_json.setKey("intensity", static_cast<double>(lgt.intensity));
+                    l_json.setKey("enabled", lgt.enabled);
+                    l_json.setKey("shape", std::string(scene::areaLightShapeSlug(lgt.shape)));
+                    l_json.setKey("width", static_cast<double>(lgt.width));
+                    l_json.setKey("height", static_cast<double>(lgt.height));
+                    l_json.setKey("range", static_cast<double>(lgt.range));
+                    l_json.setKey("two_sided", lgt.two_sided);
+                    l_json.setKey("sample_quality", static_cast<std::uint64_t>(lgt.sample_quality));
+                    l_json.setKey("shadow", encodeShadow(lgt.shadow));
+                    l_json.setKey("linking", encodeLinking(lgt.linking));
+                }
                 insp.setKey("light", std::move(l_json));
             }
 
@@ -521,6 +600,65 @@ std::string EditorController::serializeStateJson() const {
         }
     } else {
         root.setKey("inspector", JsonValue{});
+    }
+
+    // Stage 5.4: Scene Environment / HDRI & IBL settings + real-time Lighting Diagnostics.
+    {
+        const auto& env = scene.environment();
+        JsonValue env_json{JsonObject{}};
+        env_json.setKey("enabled", env.enabled);
+        env_json.setKey("intensity", static_cast<double>(env.intensity));
+        env_json.setKey("rotation_deg", static_cast<double>(math::radToDeg(env.rotation_radians)));
+        env_json.setKey("diffuse_ibl_scale", static_cast<double>(env.diffuse_ibl_scale));
+        env_json.setKey("specular_ibl_scale", static_cast<double>(env.specular_ibl_scale));
+        env_json.setKey("has_hdri", env.hasHdri());
+        env_json.setKey("source_path", env.source_path);
+        env_json.setKey(
+            "hdri_name",
+            (env.hasHdri() && env.hdri_asset != nullptr) ? env.hdri_asset->name : std::string{});
+        if (env.hasHdri() && env.hdri_asset != nullptr) {
+            env_json.setKey("hdri_width", static_cast<std::uint64_t>(env.hdri_asset->source_width));
+            env_json.setKey("hdri_height", static_cast<std::uint64_t>(env.hdri_asset->source_height));
+            env_json.setKey("gpu_bytes", static_cast<std::uint64_t>(env.hdri_asset->prefiltered_cubemap.gpuByteSize()));
+        } else {
+            env_json.setKey("hdri_width", std::uint64_t{0});
+            env_json.setKey("hdri_height", std::uint64_t{0});
+            env_json.setKey("gpu_bytes", std::uint64_t{0});
+        }
+        root.setKey("environment", std::move(env_json));
+    }
+
+    {
+        const auto& diag = session_.renderer().lastLightingDiagnostics();
+        std::uint64_t dir_cnt = 0;
+        std::uint64_t pt_cnt = 0;
+        std::uint64_t spt_cnt = 0;
+        std::uint64_t area_cnt = 0;
+        for (const auto& obj : scene.objects()) {
+            if (obj.directional_light.has_value()) ++dir_cnt;
+            else if (obj.point_light.has_value()) ++pt_cnt;
+            else if (obj.spot_light.has_value()) ++spt_cnt;
+            else if (obj.area_light.has_value()) ++area_cnt;
+        }
+        JsonValue dj{JsonObject{}};
+        dj.setKey("total_enabled_lights", static_cast<std::uint64_t>(diag.total_enabled_lights));
+        dj.setKey("active_lights", static_cast<std::uint64_t>(diag.active_realtime_lights));
+        dj.setKey("clamped_lights", static_cast<std::uint64_t>(diag.overflow_lights_folded));
+        dj.setKey("directional_count", dir_cnt);
+        dj.setKey("point_count", pt_cnt);
+        dj.setKey("spot_count", spt_cnt);
+        dj.setKey("area_count", area_cnt);
+        dj.setKey("requested_shadow_lights", static_cast<std::uint64_t>(diag.requested_shadow_lights));
+        dj.setKey("active_shadow_lights", static_cast<std::uint64_t>(diag.active_shadow_lights));
+        dj.setKey("clamped_shadow_lights", static_cast<std::uint64_t>(diag.shadow_limit_clamped_lights));
+        dj.setKey("shadow_tiles_rendered", static_cast<std::uint64_t>(diag.shadow_tiles_rendered_last_frame));
+        dj.setKey("shadow_tiles_cached", static_cast<std::uint64_t>(diag.shadow_tiles_cached_last_frame));
+        dj.setKey("shadow_atlas_dimension", static_cast<std::uint64_t>(diag.shadow_atlas_dimension));
+        dj.setKey("shadow_gpu_bytes", static_cast<std::uint64_t>(diag.shadow_gpu_bytes));
+        dj.setKey("ibl_gpu_bytes", static_cast<std::uint64_t>(diag.environment_gpu_bytes));
+        dj.setKey("last_frame_render_ms", diag.last_frame_render_ms);
+        dj.setKey("warning_message", diag.warning_message);
+        root.setKey("lighting_diagnostics", std::move(dj));
     }
 
     auto serialized = project::writeJson(root, false);
@@ -906,7 +1044,10 @@ core::Status EditorController::executeActionJson(std::string_view action_json) {
         else if (p_str == "sphere") preset = ScenePreset::Sphere;
         else if (p_str == "plane") preset = ScenePreset::Plane;
         else if (p_str == "pivot") preset = ScenePreset::EmptyPivot;
-        else if (p_str == "light") preset = ScenePreset::DirectionalLight;
+        else if (p_str == "light" || p_str == "directional_light") preset = ScenePreset::DirectionalLight;
+        else if (p_str == "point_light") preset = ScenePreset::PointLight;
+        else if (p_str == "spot_light") preset = ScenePreset::SpotLight;
+        else if (p_str == "area_light") preset = ScenePreset::AreaLight;
         else if (p_str == "camera") preset = ScenePreset::Camera;
         else {
             auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Unknown preset: " + p_str);
@@ -1026,21 +1167,342 @@ core::Status EditorController::executeActionJson(std::string_view action_json) {
 
     if (action == "set_light") {
         auto id_res = parseJsonId(cmd.findKey("id"), "id");
-        auto col_res = parseJsonVec3(cmd.findKey("color"), "color");
-        auto int_res = parseJsonFloat(cmd.findKey("intensity"), "intensity");
         if (!id_res) { recordStatus(core::Status(id_res.error()), {}); return id_res.error(); }
-        if (!col_res) { recordStatus(core::Status(col_res.error()), {}); return col_res.error(); }
-        if (!int_res) { recordStatus(core::Status(int_res.error()), {}); return int_res.error(); }
+        const scene::ObjectId obj_id{id_res.value()};
+        const auto* obj = session_.document().scene.findObject(obj_id);
+        if (obj == nullptr) {
+            auto st = core::Status::fail(core::ErrorCode::NotFound, "Light object not found");
+            recordStatus(st, {});
+            return st;
+        }
 
         bool coalesce = false;
         if (const auto* cv = cmd.findKey("coalesce"); cv != nullptr && cv->isBool()) {
             coalesce = cv->asBool();
         }
-        scene::DirectionalLightComponent lgt{
-            .color = col_res.value(),
-            .intensity = int_res.value(),
+
+        auto applyShadowPatch = [&](scene::LightShadowSettings& s) -> core::Status {
+            const auto* sv = cmd.findKey("shadow");
+            if (sv == nullptr || sv->isNull()) return core::Status::ok();
+            if (!sv->isObject()) {
+                return core::Status::fail(core::ErrorCode::InvalidArgument, "'shadow' must be an object");
+            }
+            if (const auto* en = sv->findKey("enabled"); en != nullptr && en->isBool()) s.enabled = en->asBool();
+            if (const auto* st = sv->findKey("strength"); st != nullptr) {
+                auto v = parseJsonFloat(st, "shadow.strength");
+                if (!v) return v.error();
+                s.strength = v.value();
+            }
+            if (const auto* ql = sv->findKey("quality"); ql != nullptr && ql->isString()) {
+                const auto parsed_q = scene::parseShadowQualitySlug(ql->asString());
+                if (!parsed_q.has_value()) {
+                    return core::Status::fail(core::ErrorCode::InvalidArgument, "Unknown shadow quality");
+                }
+                s.quality = parsed_q.value();
+            }
+            if (const auto* fl = sv->findKey("filter"); fl != nullptr && fl->isString()) {
+                const auto parsed_f = scene::parseShadowFilterModeSlug(fl->asString());
+                if (!parsed_f.has_value()) {
+                    return core::Status::fail(core::ErrorCode::InvalidArgument, "Unknown shadow filter");
+                }
+                s.filter = parsed_f.value();
+            }
+            if (const auto* bi = sv->findKey("bias"); bi != nullptr) {
+                auto v = parseJsonFloat(bi, "shadow.bias");
+                if (!v) return v.error();
+                s.bias = v.value();
+            }
+            if (const auto* nb = sv->findKey("normal_bias"); nb != nullptr) {
+                auto v = parseJsonFloat(nb, "shadow.normal_bias");
+                if (!v) return v.error();
+                s.normal_bias = v.value();
+            }
+            if (const auto* sf = sv->findKey("softness"); sf != nullptr) {
+                auto v = parseJsonFloat(sf, "shadow.softness");
+                if (!v) return v.error();
+                s.softness = v.value();
+            }
+            return s.validate();
         };
-        return setDirectionalLightComponent(scene::ObjectId{id_res.value()}, lgt, coalesce);
+
+        // Determine target light type (defaulting to current object's light type, or Directional).
+        scene::LightType target_type = obj->lightType().value_or(scene::LightType::Directional);
+        if (const auto* tv = cmd.findKey("type"); tv != nullptr && tv->isString()) {
+            if (const auto pt = scene::parseLightTypeSlug(tv->asString()); pt.has_value()) {
+                target_type = pt.value();
+            }
+        }
+
+        if (target_type == scene::LightType::Point) {
+            scene::PointLightComponent lgt = obj->point_light.value_or(scene::PointLightComponent{});
+            if (const auto* c = cmd.findKey("color"); c != nullptr) {
+                auto v = parseJsonVec3(c, "color");
+                if (!v) { recordStatus(core::Status(v.error()), {}); return v.error(); }
+                lgt.color = v.value();
+            }
+            if (const auto* iv = cmd.findKey("intensity"); iv != nullptr) {
+                auto v = parseJsonFloat(iv, "intensity");
+                if (!v) { recordStatus(core::Status(v.error()), {}); return v.error(); }
+                lgt.intensity = v.value();
+            }
+            if (const auto* en = cmd.findKey("enabled"); en != nullptr && en->isBool()) lgt.enabled = en->asBool();
+            if (const auto* rg = cmd.findKey("range"); rg != nullptr) {
+                auto v = parseJsonFloat(rg, "range");
+                if (!v) { recordStatus(core::Status(v.error()), {}); return v.error(); }
+                lgt.range = v.value();
+            }
+            if (const auto* at = cmd.findKey("attenuation"); at != nullptr) {
+                auto v = parseJsonFloat(at, "attenuation");
+                if (!v) { recordStatus(core::Status(v.error()), {}); return v.error(); }
+                lgt.attenuation = v.value();
+            }
+            if (const auto* fo = cmd.findKey("falloff"); fo != nullptr && fo->isString()) {
+                if (const auto pf = scene::parseLightFalloffModeSlug(fo->asString()); pf.has_value()) {
+                    lgt.falloff = pf.value();
+                }
+            }
+            if (const auto* sr = cmd.findKey("source_radius"); sr != nullptr) {
+                auto v = parseJsonFloat(sr, "source_radius");
+                if (!v) { recordStatus(core::Status(v.error()), {}); return v.error(); }
+                lgt.source_radius = v.value();
+            }
+            if (auto st = applyShadowPatch(lgt.shadow); !st) { recordStatus(st, {}); return st; }
+            return setPointLightComponent(obj_id, lgt, coalesce);
+        }
+
+        if (target_type == scene::LightType::Spot) {
+            scene::SpotLightComponent lgt = obj->spot_light.value_or(scene::SpotLightComponent{});
+            if (const auto* c = cmd.findKey("color"); c != nullptr) {
+                auto v = parseJsonVec3(c, "color");
+                if (!v) { recordStatus(core::Status(v.error()), {}); return v.error(); }
+                lgt.color = v.value();
+            }
+            if (const auto* iv = cmd.findKey("intensity"); iv != nullptr) {
+                auto v = parseJsonFloat(iv, "intensity");
+                if (!v) { recordStatus(core::Status(v.error()), {}); return v.error(); }
+                lgt.intensity = v.value();
+            }
+            if (const auto* en = cmd.findKey("enabled"); en != nullptr && en->isBool()) lgt.enabled = en->asBool();
+            if (const auto* rg = cmd.findKey("range"); rg != nullptr) {
+                auto v = parseJsonFloat(rg, "range");
+                if (!v) { recordStatus(core::Status(v.error()), {}); return v.error(); }
+                lgt.range = v.value();
+            }
+            if (const auto* at = cmd.findKey("attenuation"); at != nullptr) {
+                auto v = parseJsonFloat(at, "attenuation");
+                if (!v) { recordStatus(core::Status(v.error()), {}); return v.error(); }
+                lgt.attenuation = v.value();
+            }
+            if (const auto* fo = cmd.findKey("falloff"); fo != nullptr && fo->isString()) {
+                if (const auto pf = scene::parseLightFalloffModeSlug(fo->asString()); pf.has_value()) {
+                    lgt.falloff = pf.value();
+                }
+            }
+            if (const auto* ic = cmd.findKey("inner_cone_deg"); ic != nullptr) {
+                auto v = parseJsonFloat(ic, "inner_cone_deg");
+                if (!v) { recordStatus(core::Status(v.error()), {}); return v.error(); }
+                lgt.inner_cone_radians = math::degToRad(std::clamp(v.value(), 0.0f, 88.9f));
+            }
+            if (const auto* oc = cmd.findKey("outer_cone_deg"); oc != nullptr) {
+                auto v = parseJsonFloat(oc, "outer_cone_deg");
+                if (!v) { recordStatus(core::Status(v.error()), {}); return v.error(); }
+                lgt.outer_cone_radians = math::degToRad(std::clamp(v.value(), 0.5f, 89.0f));
+            }
+            if (lgt.inner_cone_radians > lgt.outer_cone_radians) {
+                lgt.inner_cone_radians = lgt.outer_cone_radians;
+            }
+            if (const auto* cf = cmd.findKey("cone_falloff"); cf != nullptr) {
+                auto v = parseJsonFloat(cf, "cone_falloff");
+                if (!v) { recordStatus(core::Status(v.error()), {}); return v.error(); }
+                lgt.cone_falloff = v.value();
+            }
+            if (auto st = applyShadowPatch(lgt.shadow); !st) { recordStatus(st, {}); return st; }
+            return setSpotLightComponent(obj_id, lgt, coalesce);
+        }
+
+        if (target_type == scene::LightType::Area) {
+            scene::AreaLightComponent lgt = obj->area_light.value_or(scene::AreaLightComponent{});
+            if (const auto* c = cmd.findKey("color"); c != nullptr) {
+                auto v = parseJsonVec3(c, "color");
+                if (!v) { recordStatus(core::Status(v.error()), {}); return v.error(); }
+                lgt.color = v.value();
+            }
+            if (const auto* iv = cmd.findKey("intensity"); iv != nullptr) {
+                auto v = parseJsonFloat(iv, "intensity");
+                if (!v) { recordStatus(core::Status(v.error()), {}); return v.error(); }
+                lgt.intensity = v.value();
+            }
+            if (const auto* en = cmd.findKey("enabled"); en != nullptr && en->isBool()) lgt.enabled = en->asBool();
+            if (const auto* sh = cmd.findKey("shape"); sh != nullptr && sh->isString()) {
+                const auto ps = scene::parseAreaLightShapeSlug(sh->asString());
+                if (!ps.has_value()) {
+                    auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Unknown area light shape");
+                    recordStatus(st, {});
+                    return st;
+                }
+                lgt.shape = ps.value();
+            }
+            if (const auto* wd = cmd.findKey("width"); wd != nullptr) {
+                auto v = parseJsonFloat(wd, "width");
+                if (!v) { recordStatus(core::Status(v.error()), {}); return v.error(); }
+                lgt.width = v.value();
+            }
+            if (const auto* ht = cmd.findKey("height"); ht != nullptr) {
+                auto v = parseJsonFloat(ht, "height");
+                if (!v) { recordStatus(core::Status(v.error()), {}); return v.error(); }
+                lgt.height = v.value();
+            }
+            if (const auto* rg = cmd.findKey("range"); rg != nullptr) {
+                auto v = parseJsonFloat(rg, "range");
+                if (!v) { recordStatus(core::Status(v.error()), {}); return v.error(); }
+                lgt.range = v.value();
+            }
+            if (const auto* ts = cmd.findKey("two_sided"); ts != nullptr && ts->isBool()) {
+                lgt.two_sided = ts->asBool();
+            }
+            if (const auto* sq = cmd.findKey("sample_quality"); sq != nullptr) {
+                auto v = parseJsonId(sq, "sample_quality");
+                if (!v) { recordStatus(core::Status(v.error()), {}); return v.error(); }
+                lgt.sample_quality = static_cast<std::uint32_t>(std::clamp<std::uint64_t>(v.value(), 1u, 3u));
+            }
+            if (auto st = applyShadowPatch(lgt.shadow); !st) { recordStatus(st, {}); return st; }
+            return setAreaLightComponent(obj_id, lgt, coalesce);
+        }
+
+        scene::DirectionalLightComponent lgt = obj->directional_light.value_or(scene::DirectionalLightComponent{});
+        if (const auto* c = cmd.findKey("color"); c != nullptr) {
+            auto v = parseJsonVec3(c, "color");
+            if (!v) { recordStatus(core::Status(v.error()), {}); return v.error(); }
+            lgt.color = v.value();
+        }
+        if (const auto* iv = cmd.findKey("intensity"); iv != nullptr) {
+            auto v = parseJsonFloat(iv, "intensity");
+            if (!v) { recordStatus(core::Status(v.error()), {}); return v.error(); }
+            lgt.intensity = v.value();
+        }
+        if (const auto* en = cmd.findKey("enabled"); en != nullptr && en->isBool()) lgt.enabled = en->asBool();
+        if (auto st = applyShadowPatch(lgt.shadow); !st) { recordStatus(st, {}); return st; }
+        return setDirectionalLightComponent(obj_id, lgt, coalesce);
+    }
+
+    if (action == "change_light_type") {
+        auto id_res = parseJsonId(cmd.findKey("id"), "id");
+        const auto* tv = cmd.findKey("light_type");
+        if (!id_res) { recordStatus(core::Status(id_res.error()), {}); return id_res.error(); }
+        if (tv == nullptr || !tv->isString()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing string 'light_type'");
+            recordStatus(st, {});
+            return st;
+        }
+        const auto parsed_type = scene::parseLightTypeSlug(tv->asString());
+        if (!parsed_type.has_value()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Invalid light_type: " + tv->asString());
+            recordStatus(st, {});
+            return st;
+        }
+        return convertObjectLightType(scene::ObjectId{id_res.value()}, parsed_type.value());
+    }
+
+    if (action == "set_light_linking") {
+        auto id_res = parseJsonId(cmd.findKey("id"), "id");
+        const auto* mv = cmd.findKey("mode");
+        if (!id_res) { recordStatus(core::Status(id_res.error()), {}); return id_res.error(); }
+        if (mv == nullptr || !mv->isString()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing string 'mode'");
+            recordStatus(st, {});
+            return st;
+        }
+        const auto parsed_mode = scene::parseLightLinkModeSlug(mv->asString());
+        if (!parsed_mode.has_value()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Invalid light link mode: " + mv->asString());
+            recordStatus(st, {});
+            return st;
+        }
+        const scene::ObjectId light_id{id_res.value()};
+        const auto* obj = session_.document().scene.findObject(light_id);
+        scene::LightLinkingSettings linking{};
+        if (obj != nullptr && obj->lightLinking() != nullptr) {
+            linking = *obj->lightLinking();
+        }
+        linking.mode = parsed_mode.value();
+        if (const auto* inc_d = cmd.findKey("include_descendants"); inc_d != nullptr && inc_d->isBool()) {
+            linking.include_descendants = inc_d->asBool();
+        }
+        if (const auto* ids = cmd.findKey("object_ids"); ids != nullptr && ids->isArray()) {
+            linking.linked_objects.clear();
+            for (const auto& entry : ids->asArray()) {
+                auto tid = parseJsonId(&entry, "object_ids[]");
+                if (!tid) { recordStatus(core::Status(tid.error()), {}); return tid.error(); }
+                if (tid.value() != 0) {
+                    linking.linked_objects.push_back(scene::ObjectId{tid.value()});
+                }
+            }
+            linking.normalize();
+        }
+        return setLightLinking(light_id, std::move(linking));
+    }
+
+    if (action == "toggle_light_link_target") {
+        auto id_res = parseJsonId(cmd.findKey("id"), "id");
+        auto tid_res = parseJsonId(cmd.findKey("target_id"), "target_id");
+        const auto* lv = cmd.findKey("linked");
+        if (!id_res) { recordStatus(core::Status(id_res.error()), {}); return id_res.error(); }
+        if (!tid_res) { recordStatus(core::Status(tid_res.error()), {}); return tid_res.error(); }
+        if (lv == nullptr || !lv->isBool()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing boolean 'linked'");
+            recordStatus(st, {});
+            return st;
+        }
+        return toggleLightLinkTarget(
+            scene::ObjectId{id_res.value()},
+            scene::ObjectId{tid_res.value()},
+            lv->asBool());
+    }
+
+    if (action == "set_environment") {
+        scene::EnvironmentLighting env = session_.document().scene.environment();
+        if (const auto* en = cmd.findKey("enabled"); en != nullptr && en->isBool()) {
+            env.enabled = en->asBool();
+        }
+        if (const auto* iv = cmd.findKey("intensity"); iv != nullptr) {
+            auto v = parseJsonFloat(iv, "intensity");
+            if (!v) { recordStatus(core::Status(v.error()), {}); return v.error(); }
+            env.intensity = v.value();
+        }
+        if (const auto* rv = cmd.findKey("rotation_deg"); rv != nullptr) {
+            auto v = parseJsonFloat(rv, "rotation_deg");
+            if (!v) { recordStatus(core::Status(v.error()), {}); return v.error(); }
+            env.rotation_radians = math::degToRad(v.value());
+        }
+        if (const auto* dv = cmd.findKey("diffuse_ibl_scale"); dv != nullptr) {
+            auto v = parseJsonFloat(dv, "diffuse_ibl_scale");
+            if (!v) { recordStatus(core::Status(v.error()), {}); return v.error(); }
+            env.diffuse_ibl_scale = v.value();
+        }
+        if (const auto* sv = cmd.findKey("specular_ibl_scale"); sv != nullptr) {
+            auto v = parseJsonFloat(sv, "specular_ibl_scale");
+            if (!v) { recordStatus(core::Status(v.error()), {}); return v.error(); }
+            env.specular_ibl_scale = v.value();
+        }
+        bool coalesce = false;
+        if (const auto* cv = cmd.findKey("coalesce"); cv != nullptr && cv->isBool()) {
+            coalesce = cv->asBool();
+        }
+        return setEnvironmentSettings(env, coalesce);
+    }
+
+    if (action == "load_hdri_preset") {
+        const auto* pv = cmd.findKey("preset");
+        if (pv == nullptr || !pv->isString()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing string 'preset'");
+            recordStatus(st, {});
+            return st;
+        }
+        return loadBuiltInHdriPreset(pv->asString());
+    }
+
+    if (action == "clear_hdri") {
+        return clearEnvironmentHdri();
     }
 
     if (action == "set_metadata") {

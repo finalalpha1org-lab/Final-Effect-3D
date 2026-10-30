@@ -2071,6 +2071,806 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
 
     await context.close();
   });
+
+  test("11. Stage 5.4 Lighting Engine Part A: All 4 Light Types (Directional, Point, Spot, Rect & Disk Area), Independent Properties, Real WebGL2 PBR Attenuation/Cone/Area Spread, and Real-Time Shadow Atlas", async ({
+    browser,
+  }) => {
+    const outDir =
+      process.env.FE3D_SCREENSHOT_DIR ||
+      path.resolve(process.cwd(), "../../build/ci-screenshots/after-stage5.1");
+    await fs.mkdir(outDir, { recursive: true });
+
+    const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    const page = await context.newPage();
+    await bootDirectStudioReady(page);
+    await page.getByTestId("btn-toggle-rig").click();
+
+    const setCheckedAndCommit = async (locator, checked) => {
+      await locator.evaluate((el, v) => {
+        el.checked = Boolean(v);
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      }, checked);
+    };
+
+    // Helper: synchronously renders final camera frame and samples normalized (nx, ny) patches in WebGL2 (0..1, bottom-up ny)
+    const sampleFinalPatches = async (patches) =>
+      page.evaluate((pts) => {
+        const ok = window.__FE3D_STUDIO__.renderFinalFrame();
+        if (!ok) return null;
+        const c = document.getElementById("fe3d-canvas");
+        const gl = c.getContext("webgl2");
+        const w = c.width;
+        const h = c.height;
+        const buf = new Uint8Array(w * h * 4);
+        gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+
+        return pts.map((pt) => {
+          const cx = Math.max(2, Math.min(w - 3, Math.round(pt.nx * (w - 1))));
+          const cy = Math.max(2, Math.min(h - 3, Math.round(pt.ny * (h - 1))));
+          let r = 0;
+          let g = 0;
+          let b = 0;
+          let n = 0;
+          for (let dy = -2; dy <= 2; dy++) {
+            for (let dx = -2; dx <= 2; dx++) {
+              const idx = ((cy + dy) * w + (cx + dx)) * 4;
+              r += buf[idx];
+              g += buf[idx + 1];
+              b += buf[idx + 2];
+              n++;
+            }
+          }
+          r /= n;
+          g /= n;
+          b /= n;
+          return {
+            r,
+            g,
+            b,
+            luma: 0.2126 * r + 0.7152 * g + 0.0722 * b,
+          };
+        });
+      }, patches);
+
+    // (1)–(5) & (15): Create Directional, Point, Spot, Rectangle Area, and Disk Area lights via Add Menu
+    // and verify Outliner tags + completely independent properties across multiple lights!
+    await page.getByTestId("menu-add").click();
+    await page.getByTestId("menu-add-directional-light").click();
+    await expect(page.getByTestId("outliner-item-KeyLight")).toContainText("SUN");
+    expect(await page.evaluate(() => window.__FE3D_STUDIO__.getState().inspector.light.type)).toBe(
+      "directional"
+    );
+
+    await page.getByTestId("menu-add").click();
+    await page.getByTestId("menu-add-point-light").click();
+    await expect(page.getByTestId("outliner-item-PointLight")).toContainText("PT");
+    expect(await page.evaluate(() => window.__FE3D_STUDIO__.getState().inspector.light.type)).toBe(
+      "point"
+    );
+
+    // Second PointLight to prove zero shared mutable state (Item 15)
+    await page.getByTestId("menu-add").click();
+    await page.getByTestId("menu-add-point-light").click();
+    await expect(page.getByTestId("outliner-item-PointLight.001")).toContainText("PT");
+
+    await page.getByTestId("menu-add").click();
+    await page.getByTestId("menu-add-spot-light").click();
+    await expect(page.getByTestId("outliner-item-SpotLight")).toContainText("SPOT");
+    expect(await page.evaluate(() => window.__FE3D_STUDIO__.getState().inspector.light.type)).toBe(
+      "spot"
+    );
+
+    // Rectangle Area Light (Item 4)
+    await page.getByTestId("menu-add").click();
+    await page.getByTestId("menu-add-area-light").click();
+    await expect(page.getByTestId("outliner-item-AreaLight")).toContainText("AREA");
+    const rectAreaState = await page.evaluate(() => window.__FE3D_STUDIO__.getState().inspector.light);
+    expect(rectAreaState.type).toBe("area");
+    expect(rectAreaState.shape).toBe("rectangle");
+
+    // Disk Area Light (Item 5)
+    await page.getByTestId("menu-add").click();
+    await page.getByTestId("menu-add-area-light").click();
+    await expect(page.getByTestId("outliner-item-AreaLight.001")).toContainText("AREA");
+    await setControlValueAndCommit(page.getByTestId("light-area-shape"), "disk");
+    await setControlValueAndCommit(page.getByTestId("light-area-width"), "2.4");
+    await setCheckedAndCommit(page.getByTestId("light-area-twosided"), true);
+    await setControlValueAndCommit(page.getByTestId("light-area-samples"), "3");
+    const diskAreaState = await page.evaluate(() => window.__FE3D_STUDIO__.getState().inspector.light);
+    expect(diskAreaState.shape).toBe("disk");
+    expect(diskAreaState.width).toBeCloseTo(2.4, 2);
+    expect(diskAreaState.two_sided).toBe(true);
+    expect(diskAreaState.sample_quality).toBe(3);
+
+    // Verify Rectangle AreaLight was NOT mutated when editing Disk AreaLight.001!
+    await page.getByTestId("outliner-item-AreaLight").click();
+    expect(await page.evaluate(() => window.__FE3D_STUDIO__.getState().inspector.light.shape)).toBe(
+      "rectangle"
+    );
+
+    // (6) & (15): Edit PointLight properties + shadows and verify PointLight.001 stays completely untouched
+    await page.getByTestId("outliner-item-PointLight").click();
+    await setControlValueAndCommit(page.getByTestId("light-color"), "#ff3322");
+    await setControlValueAndCommit(page.getByTestId("light-intensity"), "37.5");
+    await setControlValueAndCommit(page.getByTestId("light-range"), "21.5");
+    await setControlValueAndCommit(page.getByTestId("light-falloff"), "smooth_quadratic");
+    await setCheckedAndCommit(page.getByTestId("light-shadow-enabled"), true);
+    await setControlValueAndCommit(page.getByTestId("light-shadow-quality"), "high");
+    await setControlValueAndCommit(page.getByTestId("light-shadow-filter"), "pcf5x5");
+    await setControlValueAndCommit(page.getByTestId("light-shadow-strength"), "0.85");
+
+    const pt1Edited = await page.evaluate(() => window.__FE3D_STUDIO__.getState().inspector.light);
+    expect(pt1Edited.intensity).toBeCloseTo(37.5, 2);
+    expect(pt1Edited.range).toBeCloseTo(21.5, 2);
+    expect(pt1Edited.falloff).toBe("smooth_quadratic");
+    expect(pt1Edited.shadow.enabled).toBe(true);
+    expect(pt1Edited.shadow.quality).toBe("high");
+    expect(pt1Edited.shadow.filter).toBe("pcf5x5");
+    expect(pt1Edited.shadow.strength).toBeCloseTo(0.85, 2);
+
+    await page.getByTestId("outliner-item-PointLight.001").click();
+    const pt2Untouched = await page.evaluate(() => window.__FE3D_STUDIO__.getState().inspector.light);
+    expect(pt2Untouched.intensity).toBeCloseTo(8.0, 2);
+    expect(pt2Untouched.range).toBeCloseTo(12.0, 2);
+    expect(pt2Untouched.shadow.enabled).toBe(false);
+
+    // Deterministic WebGL2 Lighting Stage for Items (7), (8), (9), (10), and (11):
+    await page.evaluate(() => {
+      window.__FE3D_STUDIO__.dispatch({
+        action: "create_new_project",
+        template: "empty_stage",
+        project_name: "Stage54LightingLab",
+      });
+    });
+
+    // Disable sky environment & default SunLight, add satin Plane receiver at Y=0, aim MainCamera at (0,0,0)
+    await setCheckedAndCommit(page.getByTestId("env-enabled"), false);
+    await page.getByTestId("outliner-item-SunLight").click();
+    await setCheckedAndCommit(page.getByTestId("light-enabled"), false);
+
+    await page.getByTestId("btn-add-plane").click();
+    await page.getByTestId("btn-mat-new").click();
+    await setControlValueAndCommit(page.getByTestId("mat-base-color"), "#dcdce2");
+    await setControlValueAndCommit(page.getByTestId("mat-metallic"), "0.25");
+    await setControlValueAndCommit(page.getByTestId("mat-roughness"), "0.32");
+    await page.getByTestId("btn-mat-assign-obj").click();
+
+    await page.evaluate(() => {
+      const st = window.__FE3D_STUDIO__.getState();
+      const cam = st.objects.find((o) => o.name === "MainCamera");
+      window.__FE3D_STUDIO__.dispatch({
+        action: "set_transform",
+        id: cam.id,
+        position: [0, 4.2, 4.2],
+        rotation_deg: [-45, 0, 0],
+        scale: [1, 1, 1],
+      });
+    });
+
+    // With all lights & environment disabled, receiver center is completely dark (0,0,0)
+    const [darkPatch] = await sampleFinalPatches([{ nx: 0.5, ny: 0.5 }]);
+    expect(darkPatch.luma).toBeLessThan(2.0);
+
+    // (7) & (8): Add PointLight at (0, 1.5, 0); verify color/intensity changes & distance/range attenuation!
+    await page.getByTestId("menu-add").click();
+    await page.getByTestId("menu-add-point-light").click();
+    const testLightId = await page.evaluate(() => window.__FE3D_STUDIO__.getState().inspector.id);
+    await page.evaluate((id) => {
+      window.__FE3D_STUDIO__.dispatch({
+        action: "set_transform",
+        id,
+        position: [0, 1.5, 0],
+        rotation_deg: [-90, 0, 0],
+        scale: [1, 1, 1],
+      });
+    }, testLightId);
+
+    await setControlValueAndCommit(page.getByTestId("light-color"), "#ff2211");
+    await setControlValueAndCommit(page.getByTestId("light-intensity"), "22");
+    await setControlValueAndCommit(page.getByTestId("light-range"), "10");
+    const [redCenter, redFar] = await sampleFinalPatches([
+      { nx: 0.5, ny: 0.5 },
+      { nx: 0.18, ny: 0.5 },
+    ]);
+    expect(redCenter.luma).toBeGreaterThan(25.0);
+    expect(redCenter.r).toBeGreaterThan(redCenter.b * 2.5);
+    expect(redCenter.luma).toBeGreaterThan(redFar.luma + 14.0); // Distance attenuation!
+
+    await setControlValueAndCommit(page.getByTestId("light-color"), "#1166ff");
+    const [blueCenter] = await sampleFinalPatches([{ nx: 0.5, ny: 0.5 }]);
+    expect(blueCenter.b).toBeGreaterThan(blueCenter.r * 2.5);
+
+    // Shrink PointLight range to 1.1m (< 1.5m height above plane) -> strict range cutoff!
+    await setControlValueAndCommit(page.getByTestId("light-range"), "1.1");
+    const [cutoffCenter] = await sampleFinalPatches([{ nx: 0.5, ny: 0.5 }]);
+    expect(cutoffCenter.luma).toBeLessThan(2.0);
+
+    // (9): Convert to SpotLight via UI dropdown; verify narrow cone vs wide cone angular falloff!
+    await setControlValueAndCommit(page.getByTestId("light-type"), "spot");
+    await setControlValueAndCommit(page.getByTestId("light-color"), "#ffffff");
+    await setControlValueAndCommit(page.getByTestId("light-intensity"), "28");
+    await setControlValueAndCommit(page.getByTestId("light-range"), "12");
+    await setControlValueAndCommit(page.getByTestId("light-inner-cone"), "7");
+    await setControlValueAndCommit(page.getByTestId("light-outer-cone"), "14");
+
+    const [narrowSpotCenter, narrowSpotSide] = await sampleFinalPatches([
+      { nx: 0.5, ny: 0.5 },
+      { nx: 0.30, ny: 0.5 },
+    ]);
+    expect(narrowSpotCenter.luma).toBeGreaterThan(55.0);
+    expect(narrowSpotSide.luma).toBeLessThan(3.0);
+
+    await setControlValueAndCommit(page.getByTestId("light-inner-cone"), "38");
+    await setControlValueAndCommit(page.getByTestId("light-outer-cone"), "58");
+    const [, wideSpotSide] = await sampleFinalPatches([
+      { nx: 0.5, ny: 0.5 },
+      { nx: 0.30, ny: 0.5 },
+    ]);
+    expect(wideSpotSide.luma).toBeGreaterThan(narrowSpotSide.luma + 20.0);
+
+    // (10): AreaLight vs PointLight at identical transform, color, intensity & range!
+    await setControlValueAndCommit(page.getByTestId("light-type"), "point");
+    await setControlValueAndCommit(page.getByTestId("light-color"), "#ffffff");
+    await setControlValueAndCommit(page.getByTestId("light-intensity"), "16");
+    await setControlValueAndCommit(page.getByTestId("light-range"), "12");
+    const [ptRefCenter, ptRefWide] = await sampleFinalPatches([
+      { nx: 0.5, ny: 0.5 },
+      { nx: 0.28, ny: 0.5 },
+    ]);
+
+    await setControlValueAndCommit(page.getByTestId("light-type"), "area");
+    await setControlValueAndCommit(page.getByTestId("light-area-shape"), "rectangle");
+    await setControlValueAndCommit(page.getByTestId("light-color"), "#ffffff");
+    await setControlValueAndCommit(page.getByTestId("light-intensity"), "16");
+    await setControlValueAndCommit(page.getByTestId("light-range"), "12");
+    await setControlValueAndCommit(page.getByTestId("light-area-width"), "4.0");
+    await setControlValueAndCommit(page.getByTestId("light-area-height"), "1.4");
+    await setControlValueAndCommit(page.getByTestId("light-area-samples"), "3");
+
+    const [areaRefCenter, areaRefWide] = await sampleFinalPatches([
+      { nx: 0.5, ny: 0.5 },
+      { nx: 0.28, ny: 0.5 },
+    ]);
+    const ptSpread = ptRefWide.luma / Math.max(1.0, ptRefCenter.luma);
+    const areaSpread = areaRefWide.luma / Math.max(1.0, areaRefCenter.luma);
+    expect(areaSpread).toBeGreaterThan(ptSpread + 0.06);
+
+    // Switch Rectangle (4.0m) -> Disk (1.0m diameter) -> lateral illumination changes measurably
+    await setControlValueAndCommit(page.getByTestId("light-area-shape"), "disk");
+    await setControlValueAndCommit(page.getByTestId("light-area-width"), "1.0");
+    const [, diskRefWide] = await sampleFinalPatches([
+      { nx: 0.5, ny: 0.5 },
+      { nx: 0.28, ny: 0.5 },
+    ]);
+    expect(Math.abs(areaRefWide.luma - diskRefWide.luma)).toBeGreaterThan(4.0);
+
+    // (11): Real-Time WebGL2 Shadow Atlas verification (SpotLight overhead + Cube occluder slab)
+    await page.getByTestId("btn-add-cube").click();
+    const occluderId = await page.evaluate(() => window.__FE3D_STUDIO__.getState().inspector.id);
+    await page.evaluate(
+      ({ occId, lgtId }) => {
+        const st = window.__FE3D_STUDIO__.getState();
+        const cam = st.objects.find((o) => o.name === "MainCamera");
+        window.__FE3D_STUDIO__.dispatch({
+          action: "set_transform",
+          id: occId,
+          position: [0, 1.4, 0],
+          rotation_deg: [0, 0, 0],
+          scale: [1.25, 0.25, 1.25],
+        });
+        window.__FE3D_STUDIO__.dispatch({
+          action: "set_transform",
+          id: lgtId,
+          position: [0, 3.6, 0],
+          rotation_deg: [-90, 0, 0],
+          scale: [1, 1, 1],
+        });
+        window.__FE3D_STUDIO__.dispatch({
+          action: "set_transform",
+          id: cam.id,
+          position: [0, 0.9, 3.8],
+          rotation_deg: [-13.3, 0, 0],
+          scale: [1, 1, 1],
+        });
+      },
+      { occId: occluderId, lgtId: testLightId }
+    );
+
+    await page.getByTestId("outliner-item-PointLight").click();
+    await setControlValueAndCommit(page.getByTestId("light-type"), "spot");
+    await setControlValueAndCommit(page.getByTestId("light-intensity"), "36");
+    await setControlValueAndCommit(page.getByTestId("light-range"), "12");
+    await setControlValueAndCommit(page.getByTestId("light-inner-cone"), "32");
+    await setControlValueAndCommit(page.getByTestId("light-outer-cone"), "48");
+    await setCheckedAndCommit(page.getByTestId("light-shadow-enabled"), false);
+
+    const [unshadowedFloor] = await sampleFinalPatches([{ nx: 0.5, ny: 0.5 }]);
+    expect(unshadowedFloor.luma).toBeGreaterThan(50.0);
+
+    await setCheckedAndCommit(page.getByTestId("light-shadow-enabled"), true);
+    await setControlValueAndCommit(page.getByTestId("light-shadow-quality"), "high");
+    await setControlValueAndCommit(page.getByTestId("light-shadow-filter"), "pcf3x3");
+
+    const [shadowedFloor] = await sampleFinalPatches([{ nx: 0.5, ny: 0.5 }]);
+    expect(shadowedFloor.luma).toBeLessThan(unshadowedFloor.luma * 0.3);
+
+    const shadowDiag = await page.evaluate(
+      () => window.__FE3D_STUDIO__.getState().lighting_diagnostics
+    );
+    expect(shadowDiag.active_shadow_lights).toBeGreaterThanOrEqual(1);
+    expect(shadowDiag.shadow_atlas_dimension).toBeGreaterThanOrEqual(1024);
+
+    // Move occluder out of the light cone -> shadow updates dynamically in WebGL2!
+    await page.evaluate((occId) => {
+      window.__FE3D_STUDIO__.dispatch({
+        action: "set_transform",
+        id: occId,
+        position: [3.2, 1.4, 0],
+        rotation_deg: [0, 0, 0],
+        scale: [1.25, 0.25, 1.25],
+      });
+    }, occluderId);
+    const [revealedFloor] = await sampleFinalPatches([{ nx: 0.5, ny: 0.5 }]);
+    expect(revealedFloor.luma).toBeGreaterThan(shadowedFloor.luma * 2.8);
+
+    // Move occluder slightly aside to show dramatic studio shadow & capture screenshot
+    await page.evaluate((occId) => {
+      window.__FE3D_STUDIO__.dispatch({
+        action: "set_transform",
+        id: occId,
+        position: [-0.35, 1.2, 0.15],
+        rotation_deg: [15, 28, 0],
+        scale: [0.9, 0.9, 0.9],
+      });
+    }, occluderId);
+    await setCheckedAndCommit(page.getByTestId("env-enabled"), true);
+    await page.waitForTimeout(60);
+    await page.screenshot({
+      path: path.join(outDir, "09-stage54-multi-light-pbr-and-shadows-1920x1080.png"),
+    });
+
+    await assertNoHorizontalOverflow(page);
+    await context.close();
+  });
+
+  test("12. Stage 5.4 Lighting Engine Part B: Radiance .hdr IBL Assignment/Rotation/Error Safety, Light Linking, Undo/Redo, .fe3d v1.3 Round-Trip, v1.2 Compatibility, and 3D Light Helpers", async ({
+    browser,
+  }) => {
+    const outDir =
+      process.env.FE3D_SCREENSHOT_DIR ||
+      path.resolve(process.cwd(), "../../build/ci-screenshots/after-stage5.1");
+    await fs.mkdir(outDir, { recursive: true });
+
+    // Build deterministic binary Radiance RGBE .hdr buffer in Node (32x16 with asymmetric bright sun lobe)
+    const buildRadianceHdrBuffer = (width, height) => {
+      const header = Buffer.from(
+        `#?RADIANCE\nSOFTWARE=FinalEffect3D_E2E\nFORMAT=32-bit_rle_rgbe\n\n-Y ${height} +X ${width}\n`,
+        "ascii"
+      );
+      const pixels = Buffer.alloc(width * height * 4);
+      let off = 0;
+      for (let y = 0; y < height; y++) {
+        const v = (y + 0.5) / height;
+        for (let x = 0; x < width; x++) {
+          const u = (x + 0.5) / width;
+          const du = u - 0.25;
+          const dv = v - 0.30;
+          const spot = Math.exp(-(du * du + dv * dv) * 90.0);
+          const r = 0.06 + 16.0 * spot;
+          const g = 0.12 + 10.0 * spot;
+          const b = 0.28 + 3.0 * spot;
+          const maxV = Math.max(r, g, b);
+          const exp = Math.ceil(Math.log2(maxV));
+          const scale = Math.pow(2, -exp) * 256.0;
+          pixels[off++] = Math.min(255, Math.max(0, Math.floor(r * scale)));
+          pixels[off++] = Math.min(255, Math.max(0, Math.floor(g * scale)));
+          pixels[off++] = Math.min(255, Math.max(0, Math.floor(b * scale)));
+          pixels[off++] = Math.min(255, Math.max(0, exp + 128));
+        }
+      }
+      return Buffer.concat([header, pixels]);
+    };
+
+    const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    const page = await context.newPage();
+    await bootDirectStudioReady(page);
+    await page.getByTestId("btn-toggle-rig").click();
+
+    const setCheckedAndCommit = async (locator, checked) => {
+      await locator.evaluate((el, v) => {
+        el.checked = Boolean(v);
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      }, checked);
+    };
+
+    const sampleFinalPatches = async (patches) =>
+      page.evaluate((pts) => {
+        const ok = window.__FE3D_STUDIO__.renderFinalFrame();
+        if (!ok) return null;
+        const c = document.getElementById("fe3d-canvas");
+        const gl = c.getContext("webgl2");
+        const w = c.width;
+        const h = c.height;
+        const buf = new Uint8Array(w * h * 4);
+        gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+        return pts.map((pt) => {
+          const cx = Math.max(2, Math.min(w - 3, Math.round(pt.nx * (w - 1))));
+          const cy = Math.max(2, Math.min(h - 3, Math.round(pt.ny * (h - 1))));
+          let r = 0;
+          let g = 0;
+          let b = 0;
+          let n = 0;
+          for (let dy = -2; dy <= 2; dy++) {
+            for (let dx = -2; dx <= 2; dx++) {
+              const idx = ((cy + dy) * w + (cx + dx)) * 4;
+              r += buf[idx];
+              g += buf[idx + 1];
+              b += buf[idx + 2];
+              n++;
+            }
+          }
+          r /= n;
+          g /= n;
+          b /= n;
+          return { r, g, b, luma: 0.2126 * r + 0.7152 * g + 0.0722 * b };
+        });
+      }, patches);
+
+    // (12) & (13): Load ShaderBall template, disable SunLight, upload genuine Radiance .hdr via #file-open-hdri,
+    // verify WebGL2 IBL intensity & rotation, and verify corrupt .hdr preserves active valid environment!
+    await page.evaluate(() => {
+      window.__FE3D_STUDIO__.dispatch({
+        action: "create_new_project",
+        template: "shader_ball",
+        project_name: "Stage54HdriTest",
+      });
+      const st = window.__FE3D_STUDIO__.getState();
+      const sun = st.objects.find((o) => o.name === "SunLight");
+      const cam = st.objects.find((o) => o.name === "MainCamera");
+      const sphere = st.objects.find((o) => o.name === "ShaderSphere");
+      window.__FE3D_STUDIO__.dispatch({
+        action: "set_light",
+        id: sun.id,
+        enabled: false,
+      });
+      window.__FE3D_STUDIO__.dispatch({
+        action: "set_transform",
+        id: sphere.id,
+        position: [0, 0, 0],
+        rotation_deg: [0, 0, 0],
+        scale: [1, 1, 1],
+      });
+      window.__FE3D_STUDIO__.dispatch({
+        action: "set_transform",
+        id: cam.id,
+        position: [0, 0, 3.2],
+        rotation_deg: [0, 0, 0],
+        scale: [1, 1, 1],
+      });
+    });
+
+    await page.getByTestId("file-open-hdri").setInputFiles({
+      name: "ValidStudio.hdr",
+      mimeType: "application/octet-stream",
+      buffer: buildRadianceHdrBuffer(32, 16),
+    });
+
+    await expect(page.getByTestId("env-hdri-status")).toHaveText("ValidStudio.hdr (32×16)");
+    await expect(page.getByTestId("btn-clear-hdri")).toBeEnabled();
+
+    const [iblRot0Left, iblRot0Right] = await sampleFinalPatches([
+      { nx: 0.43, ny: 0.52 },
+      { nx: 0.57, ny: 0.52 },
+    ]);
+    expect(iblRot0Left.luma + iblRot0Right.luma).toBeGreaterThan(25.0);
+
+    // Rotate HDRI 180° -> glossy reflection asymmetry flips on the metallic ShaderSphere!
+    await setControlValueAndCommit(page.getByTestId("env-rotation"), "180");
+    const [iblRot180Left, iblRot180Right] = await sampleFinalPatches([
+      { nx: 0.43, ny: 0.52 },
+      { nx: 0.57, ny: 0.52 },
+    ]);
+    expect(
+      Math.abs(iblRot0Left.luma - iblRot0Right.luma - (iblRot180Left.luma - iblRot180Right.luma))
+    ).toBeGreaterThan(4.0);
+
+    // Scale environment intensity 0.5 vs 2.5 -> WebGL2 sphere brightness increases!
+    await setControlValueAndCommit(page.getByTestId("env-intensity"), "0.5");
+    const [iblDim] = await sampleFinalPatches([{ nx: 0.5, ny: 0.5 }]);
+    await setControlValueAndCommit(page.getByTestId("env-intensity"), "2.5");
+    const [iblBright] = await sampleFinalPatches([{ nx: 0.5, ny: 0.5 }]);
+    expect(iblBright.luma).toBeGreaterThan(iblDim.luma * 1.8);
+
+    // (13): Attempt to load corrupted .hdr -> reports clear error while preserving ValidStudio.hdr & settings!
+    await setControlValueAndCommit(page.getByTestId("env-rotation"), "95");
+    await page.getByTestId("file-open-hdri").setInputFiles({
+      name: "CorruptBroken.hdr",
+      mimeType: "application/octet-stream",
+      buffer: Buffer.from("CORRUPT_HDR_NOT_RADIANCE_DATA", "utf8"),
+    });
+    const afterBadHdri = await page.evaluate(() => window.__FE3D_STUDIO__.getState());
+    expect(afterBadHdri.status.level).toBe("error");
+    expect(afterBadHdri.environment.has_hdri).toBe(true);
+    expect(afterBadHdri.environment.hdri_name).toBe("ValidStudio.hdr");
+    expect(Math.round(afterBadHdri.environment.rotation_deg)).toBe(95);
+
+    // Clear HDRI, then Undo restores ValidStudio.hdr, Redo clears again (Item 16)!
+    await page.getByTestId("btn-clear-hdri").click();
+    await expect(page.getByTestId("env-hdri-status")).toHaveText("Studio Sky (Fallback)");
+    await page.getByTestId("btn-undo").click();
+    await expect(page.getByTestId("env-hdri-status")).toHaveText("ValidStudio.hdr (32×16)");
+
+    // (14): Per-Light Object Light Linking in real WebGL2!
+    await page.evaluate(() => {
+      window.__FE3D_STUDIO__.dispatch({
+        action: "create_new_project",
+        template: "empty_stage",
+        project_name: "Stage54LightLinking",
+      });
+    });
+    await setCheckedAndCommit(page.getByTestId("env-enabled"), false);
+
+    // Add LeftSphere (-1.15, 0, 0) & RightSphere (+1.15, 0, 0) facing MainCamera at (0, 0, 4.2)
+    await page.getByTestId("btn-add-sphere").click();
+    await setControlValueAndCommit(page.getByTestId("insp-name"), "LeftSphere");
+    await page.getByTestId("btn-add-sphere").click();
+    await setControlValueAndCommit(page.getByTestId("insp-name"), "RightSphere");
+
+    const spherePatches = await page.evaluate(() => {
+      const st = window.__FE3D_STUDIO__.getState();
+      const left = st.objects.find((o) => o.name === "LeftSphere");
+      const right = st.objects.find((o) => o.name === "RightSphere");
+      const cam = st.objects.find((o) => o.name === "MainCamera");
+      const sun = st.objects.find((o) => o.name === "SunLight");
+      window.__FE3D_STUDIO__.dispatch({
+        action: "set_transform",
+        id: left.id,
+        position: [-1.15, 0, 0],
+        rotation_deg: [0, 0, 0],
+        scale: [0.9, 0.9, 0.9],
+      });
+      window.__FE3D_STUDIO__.dispatch({
+        action: "set_transform",
+        id: right.id,
+        position: [1.15, 0, 0],
+        rotation_deg: [0, 0, 0],
+        scale: [0.9, 0.9, 0.9],
+      });
+      window.__FE3D_STUDIO__.dispatch({
+        action: "set_transform",
+        id: cam.id,
+        position: [0, 0, 4.2],
+        rotation_deg: [0, 0, 0],
+        scale: [1, 1, 1],
+      });
+      window.__FE3D_STUDIO__.dispatch({
+        action: "set_transform",
+        id: sun.id,
+        position: [0, 2, 2],
+        rotation_deg: [-20, 0, 0],
+        scale: [1, 1, 1],
+      });
+      window.__FE3D_STUDIO__.dispatch({
+        action: "set_light",
+        id: sun.id,
+        intensity: 3.5,
+        shadow: { enabled: false },
+      });
+      const c = document.getElementById("fe3d-canvas");
+      const aspect = (c.width || 1280) / (c.height || 720);
+      const tanHalfFovX = Math.tan((24.0 * Math.PI) / 180.0) * aspect;
+      const ndcOffset = 1.15 / 4.2 / tanHalfFovX;
+      return [
+        { nx: 0.5 - 0.5 * ndcOffset, ny: 0.5 },
+        { nx: 0.5 + 0.5 * ndcOffset, ny: 0.5 },
+      ];
+    });
+
+    // Mode 'all': both spheres are brightly lit
+    const [allLeft, allRight] = await sampleFinalPatches(spherePatches);
+    expect(allLeft.luma).toBeGreaterThan(70.0);
+    expect(allRight.luma).toBeGreaterThan(70.0);
+
+    // Switch SunLight Light Linking to 'exclude' and check LeftSphere -> LeftSphere dark, RightSphere bright!
+    await page.getByTestId("outliner-item-SunLight").click();
+    await setControlValueAndCommit(page.getByTestId("light-link-mode"), "exclude");
+    await setCheckedAndCommit(page.getByTestId("light-link-target-LeftSphere"), true);
+    const [excLeft, excRight] = await sampleFinalPatches(spherePatches);
+    expect(excLeft.luma).toBeLessThan(3.0);
+    expect(excRight.luma).toBeGreaterThan(70.0);
+
+    // Switch to 'include_only' (LeftSphere still checked) -> LeftSphere bright, RightSphere dark!
+    await setControlValueAndCommit(page.getByTestId("light-link-mode"), "include_only");
+    const [incLeft, incRight] = await sampleFinalPatches(spherePatches);
+    expect(incLeft.luma).toBeGreaterThan(70.0);
+    expect(incRight.luma).toBeLessThan(3.0);
+
+    // (16): Undo restores 'exclude' mode; Redo reapplies 'include_only'!
+    await page.getByTestId("btn-undo").click();
+    expect(
+      await page.evaluate(() => window.__FE3D_STUDIO__.getState().inspector.light.linking.mode)
+    ).toBe("exclude");
+    await page.getByTestId("btn-redo").click();
+    expect(
+      await page.evaluate(() => window.__FE3D_STUDIO__.getState().inspector.light.linking.mode)
+    ).toBe("include_only");
+
+    // (17) & (18): Add Point, Spot & Area lights + Sunset HDRI, verify .fe3d v1.3 save/load round-trip
+    // AND verify legacy .fe3d v1.2 backward compatibility!
+    await page.getByTestId("btn-hdri-sunset").click();
+    await page.getByTestId("menu-add").click();
+    await page.getByTestId("menu-add-point-light").click();
+    await page.getByTestId("menu-add").click();
+    await page.getByTestId("menu-add-spot-light").click();
+    await page.getByTestId("menu-add").click();
+    await page.getByTestId("menu-add-area-light").click();
+
+    await page.waitForTimeout(60);
+    await page.screenshot({
+      path: path.join(outDir, "10-stage54-hdri-ibl-and-light-linking-1920x1080.png"),
+    });
+
+    const exportedV13 = await page.evaluate(() => window.__FE3D_STUDIO__.exportInlineProject());
+    const parsedV13 = JSON.parse(exportedV13);
+    expect(parsedV13.schema_version.major).toBe(1);
+    expect(parsedV13.schema_version.minor).toBe(3);
+
+    // Load a genuine legacy v1.2 .fe3d document (no environment, no light shadow/linking keys) -> Item (18)
+    const legacyV12Json = JSON.stringify({
+      format: "finaleffect.project",
+      schema_version: { major: 1, minor: 2 },
+      coordinate_system: "right-handed-y-up",
+      metadata: {
+        project_name: "LegacyV12Scene",
+        author: "Stage52User",
+        description: "Legacy v1.2 compatibility check",
+        engine_version: "0.5.0",
+      },
+      scene: {
+        name: "LegacyScene",
+        active_camera_id: 1,
+        materials: [],
+        meshes: [],
+        objects: [
+          {
+            id: 1,
+            name: "MainCamera",
+            visible: true,
+            parent_id: 0,
+            transform: { position: [0, 2, 5], rotation: [0, 0, 0, 1], scale: [1, 1, 1] },
+            camera: {
+              projection: "perspective",
+              fov_y_radians: 0.85,
+              orthographic_height: 6.0,
+              near_plane: 0.1,
+              far_plane: 500.0,
+            },
+          },
+          {
+            id: 2,
+            name: "LegacySun",
+            visible: true,
+            parent_id: 0,
+            transform: { position: [1, 3, 2], rotation: [-0.3, 0.2, 0, 0.93], scale: [1, 1, 1] },
+            directional_light: { color: [1.0, 0.95, 0.88], intensity: 2.1 },
+          },
+        ],
+      },
+    });
+    const okV12 = await page.evaluate(
+      (json) => window.__FE3D_STUDIO__.importInlineProject(json),
+      legacyV12Json
+    );
+    expect(okV12).toBe(true);
+    await expect(page.getByTestId("outliner-item-LegacySun")).toContainText("SUN");
+
+    // Re-import exported v1.3 project and verify all 4 light types, Light Linking, and HDRI restore cleanly!
+    const okV13 = await page.evaluate(
+      (json) => window.__FE3D_STUDIO__.importInlineProject(json),
+      exportedV13
+    );
+    expect(okV13).toBe(true);
+    const restoredState = await page.evaluate(() => window.__FE3D_STUDIO__.getState());
+    expect(restoredState.environment.has_hdri).toBe(true);
+    expect(restoredState.environment.hdri_name).toBe("Golden_Sunset_Horizon.hdr");
+    expect(restoredState.lighting_diagnostics.directional_count).toBe(1);
+    expect(restoredState.lighting_diagnostics.point_count).toBe(1);
+    expect(restoredState.lighting_diagnostics.spot_count).toBe(1);
+    expect(restoredState.lighting_diagnostics.area_count).toBe(1);
+
+    await page.getByTestId("outliner-item-SunLight").click();
+    expect(
+      await page.evaluate(() => window.__FE3D_STUDIO__.getState().inspector.light.linking.mode)
+    ).toBe("include_only");
+
+    // (19) & (20): 3D Viewport Helpers remain selectable & editable via Transform Gizmo,
+    // and are strictly excluded from final rendering!
+    await page.getByTestId("btn-clear-selection").click();
+    await expect(page.getByTestId("vp-selection-pill")).toHaveText("No Selection");
+
+    // Position SpotLight cleanly at (0, 1.1, 0) and click its 3D viewport helper directly on #fe3d-canvas!
+    const spotPickCss = await page.evaluate(() => {
+      const st = window.__FE3D_STUDIO__.getState();
+      const sp = st.objects.find((o) => o.name === "SpotLight");
+      window.__FE3D_STUDIO__.dispatch({
+        action: "set_transform",
+        id: sp.id,
+        position: [0, 1.1, 0],
+        rotation_deg: [-45, 25, 0],
+        scale: [1, 1, 1],
+      });
+      const updated = window.__FE3D_STUDIO__.getState();
+      const spUpdated = updated.objects.find((o) => o.id === sp.id);
+      const c = document.getElementById("fe3d-canvas");
+      const r = c.getBoundingClientRect();
+      return {
+        x: r.left + spUpdated.pick_screen_pos[0] * (r.width / (c.width || r.width)),
+        y: r.top + spUpdated.pick_screen_pos[1] * (r.height / (c.height || r.height)),
+      };
+    });
+    await page.mouse.click(spotPickCss.x, spotPickCss.y);
+    await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: SpotLight");
+
+    // Drag SpotLight's +X Transform Gizmo handle and verify its 3D position moves!
+    const spotXBefore = await page.evaluate(
+      () => window.__FE3D_STUDIO__.getState().inspector.position[0]
+    );
+    const spotGizmoX = await page.evaluate(() => {
+      const c = document.getElementById("fe3d-canvas");
+      const r = c.getBoundingClientRect();
+      const gh = window.__FE3D_STUDIO__.getState().editor.gizmo_handles_screen;
+      return {
+        x: r.left + gh.x[0] * (r.width / (c.width || r.width)),
+        y: r.top + gh.x[1] * (r.height / (c.height || r.height)),
+      };
+    });
+    await page.mouse.move(spotGizmoX.x, spotGizmoX.y);
+    await page.mouse.down({ button: "left" });
+    await page.mouse.move(spotGizmoX.x + 65, spotGizmoX.y, { steps: 6 });
+    await page.mouse.up({ button: "left" });
+    await expect
+      .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().inspector.position[0]))
+      .toBeGreaterThan(spotXBefore + 0.15);
+
+    // Item (20): Compare editor viewport framebuffer (with 3D helpers + gizmo + grid) vs renderFinalFrame()!
+    const helperExclusionCheck = await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              const c = document.getElementById("fe3d-canvas");
+              const gl = c.getContext("webgl2");
+              const w = c.width;
+              const h = c.height;
+              const editorBuf = new Uint8Array(w * h * 4);
+              gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, editorBuf);
+
+              window.__FE3D_STUDIO__.renderFinalFrame();
+              const finalBuf = new Uint8Array(w * h * 4);
+              gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, finalBuf);
+
+              let diffPixels = 0;
+              for (let i = 0; i < editorBuf.length; i += 16) {
+                if (
+                  Math.abs(editorBuf[i] - finalBuf[i]) +
+                    Math.abs(editorBuf[i + 1] - finalBuf[i + 1]) +
+                    Math.abs(editorBuf[i + 2] - finalBuf[i + 2]) >
+                  15
+                ) {
+                  diffPixels++;
+                }
+              }
+              resolve({ diffPixels });
+            })
+          );
+        })
+    );
+    expect(helperExclusionCheck.diffPixels).toBeGreaterThan(100);
+
+    await assertNoHorizontalOverflow(page);
+    await context.close();
+  });
 });
+
 
 

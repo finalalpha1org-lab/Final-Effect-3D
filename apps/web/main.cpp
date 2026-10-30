@@ -652,6 +652,21 @@ EMSCRIPTEN_KEEPALIVE int fe3d_render_final_frame() {
     return st ? 1 : 0;
 }
 
+EMSCRIPTEN_KEEPALIVE int fe3d_load_hdri_bytes(
+    const std::uint8_t* bytes_ptr,
+    std::uint32_t byte_len,
+    const char* name_cstr) {
+    if (g_web_ctx == nullptr || g_web_ctx->editor == nullptr || bytes_ptr == nullptr || byte_len == 0) {
+        return 0;
+    }
+    const std::string name =
+        (name_cstr != nullptr && name_cstr[0] != '\0') ? name_cstr : "Environment.hdr";
+    const auto st = g_web_ctx->editor->loadEnvironmentHdriFromMemory(
+        std::span<const std::uint8_t>(bytes_ptr, byte_len),
+        name);
+    return st ? 1 : 0;
+}
+
 } // extern "C"
 
 int main() {

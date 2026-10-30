@@ -22,7 +22,7 @@ struct Version {
 
 inline constexpr Version kEngineVersion{0, 5, 0};
 inline constexpr std::uint32_t kProjectSchemaMajor = 1;
-inline constexpr std::uint32_t kProjectSchemaMinor = 2;
+inline constexpr std::uint32_t kProjectSchemaMinor = 3;
 
 [[nodiscard]] std::string_view engineName() noexcept;
 [[nodiscard]] std::string_view engineVersionString() noexcept;
