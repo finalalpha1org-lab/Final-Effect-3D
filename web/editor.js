@@ -73,6 +73,10 @@
   // Configure Emscripten Module BEFORE finaleffect_web.js executes.
   window.Module = {
     canvas: canvas,
+    __fe3dRuntimeReady: false,
+    onRuntimeInitialized: function () {
+      window.Module.__fe3dRuntimeReady = true;
+    },
     print: function (text) {
       console.log("[FE3D]", text);
     },
@@ -744,7 +748,12 @@
 
   function tryBindWasmApi() {
     const M = window.Module;
-    if (!M || typeof M._fe3d_is_ready !== "function" || typeof M.ccall !== "function") {
+    if (
+      !M ||
+      (!M.__fe3dRuntimeReady && !M.calledRun) ||
+      typeof M._fe3d_is_ready !== "function" ||
+      typeof M.ccall !== "function"
+    ) {
       return false;
     }
 
