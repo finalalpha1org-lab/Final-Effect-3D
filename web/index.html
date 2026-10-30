@@ -279,8 +279,12 @@
           </nav>
         </div>
 
-        <!-- 12 Blender-Inspired Workspace Tabs (Scrollable Horizontal Strip) -->
-        <div class="workspace-tab-strip" id="workspace-tabs" data-testid="workspace-tabs" role="tablist" aria-label="3D Studio Workspaces"></div>
+        <!-- 12 Blender-Inspired Workspace Tabs (Scrollable Horizontal Strip + Overflow Chevrons) -->
+        <div class="workspace-tabs-wrap" id="workspace-tabs-wrap">
+          <button type="button" class="ws-scroll-btn" id="btn-ws-scroll-left" data-testid="btn-ws-scroll-left" hidden aria-label="Scroll Workspace Tabs Left" title="Scroll Workspace Tabs Left">&lsaquo;</button>
+          <div class="workspace-tab-strip" id="workspace-tabs" data-testid="workspace-tabs" role="tablist" aria-label="3D Studio Workspaces"></div>
+          <button type="button" class="ws-scroll-btn" id="btn-ws-scroll-right" data-testid="btn-ws-scroll-right" hidden aria-label="Scroll Workspace Tabs Right" title="Scroll Workspace Tabs Right">&rsaquo;</button>
+        </div>
 
         <!-- Synced select preserved for programmatic & mobile compact access -->
         <select id="workspace-preset-select" data-testid="workspace-preset-select" class="sr-workspace-select" title="Active Workspace">
@@ -423,15 +427,31 @@
 
           <!-- Top-Right Blender-Inspired Touch & Navigation Gizmo Cluster -->
           <div class="viewport-nav-cluster" id="viewport-nav-cluster" data-testid="viewport-nav-cluster" aria-label="Viewport Camera and Touch Controls">
-            <button type="button" class="vp-nav-btn is-active" data-touch-nav="orbit" data-testid="vp-touch-orbit" title="1-Finger Touch Drag: Orbit Camera"><span class="btn-ic" data-icon="orbit"></span><span>Orbit</span></button>
-            <button type="button" class="vp-nav-btn" data-touch-nav="pan" data-testid="vp-touch-pan" title="1-Finger Touch Drag: Pan Camera"><span class="btn-ic" data-icon="pan"></span><span>Pan</span></button>
-            <button type="button" class="vp-nav-btn" data-touch-nav="zoom" data-testid="vp-touch-zoom" title="1-Finger Touch Drag: Dolly Zoom"><span class="btn-ic" data-icon="zoom"></span><span>Zoom</span></button>
+            <button type="button" class="vp-nav-btn is-active" data-touch-nav="orbit" data-testid="vp-touch-orbit" title="1-Finger Touch Drag: Orbit Camera"><span class="btn-ic" data-icon="orbit"></span><span class="vp-nav-lbl">Orbit</span></button>
+            <button type="button" class="vp-nav-btn" data-touch-nav="pan" data-testid="vp-touch-pan" title="1-Finger Touch Drag: Pan Camera"><span class="btn-ic" data-icon="pan"></span><span class="vp-nav-lbl">Pan</span></button>
+            <button type="button" class="vp-nav-btn" data-touch-nav="zoom" data-testid="vp-touch-zoom" title="1-Finger Touch Drag: Dolly Zoom"><span class="btn-ic" data-icon="zoom"></span><span class="vp-nav-lbl">Zoom</span></button>
             <button type="button" class="vp-nav-btn" id="btn-touch-multiselect" data-testid="btn-touch-multiselect" title="Additive Multi-Selection Mode for Touch (Shift equivalent)">+Multi</button>
-            <button type="button" class="vp-nav-btn" id="btn-vp-restore-shelf" hidden title="Restore Tool Shelf">Tools</button>
+            <button type="button" class="vp-nav-btn" id="btn-vp-restore-shelf" data-testid="btn-vp-restore-shelf" hidden title="Restore Left Tool Shelf">Tools</button>
+            <button type="button" class="vp-nav-btn" id="btn-vp-restore-right" data-testid="btn-vp-restore-right" hidden title="Restore Right Outliner &amp; Inspector">Inspector</button>
           </div>
 
           <div class="viewport-overlay-bottom" id="viewport-hud-bottom">
-            <span><b>Click/Tap</b> Select &middot; <b>Drag Gizmo</b> Transform &middot; <b>RMB / 1-Finger</b> Orbit &middot; <b>2-Finger</b> Pinch Zoom &amp; Pan &middot; <b>W/E/R</b> Gizmo &middot; <b>1-4</b> Mode</span>
+            <span><b>Click/Tap</b> Select &middot; <b>Drag Gizmo</b> Transform &middot; <b>RMB Drag / 1-Finger</b> Orbit &middot; <b>RMB Click</b> Context Menu &middot; <b>2-Finger</b> Pinch Zoom &amp; Pan &middot; <b>W/E/R</b> Gizmo &middot; <b>1-4</b> Mode</span>
+          </div>
+
+          <!-- Blender-Inspired Viewport Context Menu (Clamped within Viewport Bounds) -->
+          <div class="viewport-context-menu" id="viewport-context-menu" data-testid="viewport-context-menu" role="menu" aria-label="3D Viewport Context Menu" hidden>
+            <div class="ctx-menu-header" id="ctx-menu-title">Object Context Menu</div>
+            <button type="button" role="menuitem" data-ctx-cmd="frame" data-testid="ctx-cmd-frame">Frame Selected / Scene <kbd>F</kbd></button>
+            <button type="button" role="menuitem" data-ctx-cmd="duplicate" id="ctx-cmd-duplicate" data-testid="ctx-cmd-duplicate">Duplicate Object</button>
+            <button type="button" role="menuitem" data-ctx-cmd="reset_transform" id="ctx-cmd-reset-tf" data-testid="ctx-cmd-reset-tf">Reset Transform</button>
+            <div class="menu-sep" id="ctx-mesh-sep" hidden></div>
+            <button type="button" role="menuitem" data-ctx-cmd="mesh_extrude" id="ctx-cmd-extrude" hidden>Extrude Selected Faces</button>
+            <button type="button" role="menuitem" data-ctx-cmd="mesh_boundary" id="ctx-cmd-boundary" hidden>Select Open Hole Loop</button>
+            <button type="button" role="menuitem" data-ctx-cmd="mesh_fill" id="ctx-cmd-fill" hidden>Fill Boundary Face</button>
+            <div class="menu-sep"></div>
+            <button type="button" role="menuitem" class="ctx-item-danger" data-ctx-cmd="delete" id="ctx-cmd-delete" data-testid="ctx-cmd-delete">Delete Selected <kbd>Del</kbd></button>
+            <button type="button" role="menuitem" data-ctx-cmd="deselect" data-testid="ctx-cmd-deselect">Clear Selection</button>
           </div>
 
           <div class="viewport-banner" id="viewport-banner" data-testid="viewport-banner" hidden></div>
@@ -464,7 +484,8 @@
             </div>
 
             <div class="bottom-dock-actions">
-              <button type="button" class="icon-mini-btn" id="btn-collapse-bottom" data-testid="btn-collapse-bottom" title="Collapse / Expand Bottom Area">&minus;</button>
+              <button type="button" class="ghost-btn mp-drawer-close-btn" data-mp-close-drawer="1" title="Collapse drawer to maximize 3D Viewport">&darr; Viewport</button>
+              <button type="button" class="icon-mini-btn" id="btn-collapse-bottom" data-testid="btn-collapse-bottom" aria-expanded="true" title="Collapse / Expand Bottom Area">&minus;</button>
             </div>
           </div>
 
@@ -530,6 +551,8 @@
             </div>
             <div class="area-header-actions">
               <button type="button" class="ghost-btn" id="btn-clear-selection" data-testid="btn-clear-selection" title="Clear active selection">Deselect</button>
+              <button type="button" class="ghost-btn mp-drawer-close-btn" data-mp-close-drawer="1" title="Collapse drawer to maximize 3D Viewport">&darr; Viewport</button>
+              <button type="button" class="icon-mini-btn desktop-only-btn" id="btn-collapse-right" data-testid="btn-collapse-right" title="Collapse Right Outliner &amp; Inspector">&raquo;</button>
             </div>
           </div>
           <div class="outliner-search-row">
@@ -537,6 +560,9 @@
           </div>
           <div class="outliner-list" id="outliner-list" data-testid="outliner-list" role="tree" aria-label="Scene hierarchy"></div>
         </section>
+
+        <!-- Horizontal Splitter between Outliner and Properties Inspector -->
+        <div class="dock-splitter dock-splitter-h outliner-splitter" id="splitter-outliner" data-testid="splitter-outliner" role="separator" aria-orientation="horizontal" title="Drag to resize Outliner and Properties height"></div>
 
         <!-- Lower Panel: Properties / Inspector with Blender Vertical Icon Tab Rail -->
         <section class="properties-shell" id="properties-shell" data-testid="properties-shell">

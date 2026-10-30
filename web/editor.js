@@ -145,6 +145,8 @@
 
     btnGoHome: document.getElementById("btn-go-home"),
     workspaceTabs: document.getElementById("workspace-tabs"),
+    btnWsScrollLeft: document.getElementById("btn-ws-scroll-left"),
+    btnWsScrollRight: document.getElementById("btn-ws-scroll-right"),
     workspacePresetSelect: document.getElementById("workspace-preset-select"),
     activeProjectPill: document.getElementById("active-project-pill"),
     engineBadge: document.getElementById("engine-version-badge"),
@@ -168,6 +170,7 @@
     btnModeEdge: document.getElementById("btn-mode-edge"),
     btnModeFace: document.getElementById("btn-mode-face"),
     ctxMeshSubbar: document.getElementById("ctx-mesh-subbar"),
+    topbarSubbar: document.getElementById("topbar-subbar"),
     btnLandscapeInspectorToggle: document.getElementById("btn-landscape-inspector-toggle"),
 
     toolShelf: document.getElementById("tool-shelf"),
@@ -178,6 +181,7 @@
     btnGizmoSpace: document.getElementById("btn-gizmo-space"),
     btnCollapseShelf: document.getElementById("btn-collapse-shelf"),
     btnVpRestoreShelf: document.getElementById("btn-vp-restore-shelf"),
+    btnVpRestoreRight: document.getElementById("btn-vp-restore-right"),
 
     studioWorkspace: document.getElementById("studio-workspace"),
     centerColumn: document.getElementById("center-column"),
@@ -191,9 +195,19 @@
     vpSelectionPill: document.getElementById("vp-selection-pill"),
     vpModePill: document.getElementById("vp-mode-pill"),
     btnTouchMultiSelect: document.getElementById("btn-touch-multiselect"),
+    viewportContextMenu: document.getElementById("viewport-context-menu"),
+    ctxMenuTitle: document.getElementById("ctx-menu-title"),
+    ctxCmdDuplicate: document.getElementById("ctx-cmd-duplicate"),
+    ctxCmdResetTf: document.getElementById("ctx-cmd-reset-tf"),
+    ctxMeshSep: document.getElementById("ctx-mesh-sep"),
+    ctxCmdExtrude: document.getElementById("ctx-cmd-extrude"),
+    ctxCmdBoundary: document.getElementById("ctx-cmd-boundary"),
+    ctxCmdFill: document.getElementById("ctx-cmd-fill"),
+    ctxCmdDelete: document.getElementById("ctx-cmd-delete"),
 
     splitterBottom: document.getElementById("splitter-bottom"),
     splitterRight: document.getElementById("splitter-right"),
+    splitterOutliner: document.getElementById("splitter-outliner"),
 
     dockBottom: document.getElementById("dock-bottom"),
     bottomEditorSelect: document.getElementById("bottom-editor-select"),
@@ -217,6 +231,7 @@
 
     dockRight: document.getElementById("dock-right"),
     panelOutliner: document.getElementById("panel-outliner"),
+    btnCollapseRight: document.getElementById("btn-collapse-right"),
     outlinerFilter: document.getElementById("outliner-filter"),
     outlinerList: document.getElementById("outliner-list"),
 
@@ -324,6 +339,9 @@
   let lastOutlinerSignature = "";
   let lastAssetsSignature = "";
   let lastConsoleSignature = "";
+  let lastInspParentSig = "";
+  let lastInspMatSig = "";
+  let lastMatSelectSig = "";
 
   let appPrefs = REG.loadPreferences();
   let selectedStudioId = "3d_studio";
@@ -336,9 +354,29 @@
   let activeBottomEditor = "timeline";
   let activeMobileDrawer = "viewport";
   let outlinerFilterQuery = "";
+  let isRightDockCollapsed = false;
 
   let touchNavMode = "orbit";
   let touchMultiSelect = false;
+
+  function closeViewportContextMenu() {
+    if (els.viewportContextMenu) {
+      els.viewportContextMenu.hidden = true;
+    }
+  }
+
+  function updateWorkspaceTabsOverflowUi() {
+    const strip = els.workspaceTabs;
+    if (!strip || !els.btnWsScrollLeft || !els.btnWsScrollRight) return;
+    const maxScroll = Math.max(0, strip.scrollWidth - strip.clientWidth);
+    const hasOverflow = maxScroll > 4;
+    els.btnWsScrollLeft.hidden = !hasOverflow;
+    els.btnWsScrollRight.hidden = !hasOverflow;
+    if (hasOverflow) {
+      els.btnWsScrollLeft.disabled = strip.scrollLeft <= 2;
+      els.btnWsScrollRight.disabled = strip.scrollLeft >= maxScroll - 2;
+    }
+  }
 
   // =========================================================================
   // RESPONSIVE LAYOUT & PREFERENCES ENGINE
@@ -364,6 +402,35 @@
       document.body.dataset.mpDrawer = activeMobileDrawer;
     }
 
+    closeViewportContextMenu();
+
+    // Preserve central 3D Viewport priority when Desktop window dimensions shrink
+    if (mode === "desktop") {
+      const w = window.innerWidth || 1280;
+      const h = window.innerHeight || 720;
+      const inlineRight = parseFloat(document.documentElement.style.getPropertyValue("--right-dock-w"));
+      if (Number.isFinite(inlineRight) && inlineRight > 0) {
+        const maxRight = Math.max(240, Math.min(520, Math.floor(w * 0.42)));
+        if (inlineRight > maxRight) {
+          document.documentElement.style.setProperty("--right-dock-w", maxRight + "px");
+        }
+      }
+      const inlineBottom = parseFloat(document.documentElement.style.getPropertyValue("--bottom-dock-h"));
+      if (Number.isFinite(inlineBottom) && inlineBottom > 0) {
+        const maxBottom = Math.max(84, Math.min(360, Math.floor((h - 90) * 0.46)));
+        if (inlineBottom > maxBottom) {
+          document.documentElement.style.setProperty("--bottom-dock-h", maxBottom + "px");
+        }
+      }
+    }
+
+    if (els.btnLandscapeInspectorToggle) {
+      els.btnLandscapeInspectorToggle.classList.toggle(
+        "is-active",
+        mode === "landscape" && !document.body.classList.contains("is-landscape-drawer-closed")
+      );
+    }
+
     if (els.statusLayoutMode) {
       els.statusLayoutMode.textContent =
         mode === "desktop"
@@ -385,9 +452,18 @@
     if (currentState) {
       renderWorkspaceAndBottomDock(currentState);
     }
+    requestAnimationFrame(updateWorkspaceTabsOverflowUi);
   }
 
-  window.addEventListener("resize", applyPreferencesAndResponsiveMode);
+  let resizeRafPending = false;
+  window.addEventListener("resize", () => {
+    if (resizeRafPending) return;
+    resizeRafPending = true;
+    requestAnimationFrame(() => {
+      resizeRafPending = false;
+      applyPreferencesAndResponsiveMode();
+    });
+  });
   window.addEventListener("orientationchange", () => {
     setTimeout(applyPreferencesAndResponsiveMode, 50);
   });
@@ -399,12 +475,14 @@
 
   function setAppView(view) {
     document.body.dataset.appView = view;
+    closeViewportContextMenu();
     if (els.appSplash) els.appSplash.hidden = view !== "splash";
     if (els.appHome) els.appHome.hidden = view !== "home";
     if (view === "studio") {
       hasEnteredStudioOnce = true;
       if (els.btnHomeResumeStudio) els.btnHomeResumeStudio.hidden = false;
       syncFromEngine(true);
+      requestAnimationFrame(updateWorkspaceTabsOverflowUi);
     } else if (view === "home") {
       renderRecentProjectsList();
       if (els.btnHomeResumeStudio) {
@@ -653,23 +731,38 @@
 
   function renderWorkspaceTabBar() {
     if (!els.workspaceTabs) return;
-    els.workspaceTabs.innerHTML = "";
-    REG.WORKSPACES.forEach((ws) => {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      const isOp = !ws.foundationNotice;
-      btn.className =
-        "ws-tab" +
-        (ws.id === activeWorkspaceId ? " is-active" : "") +
-        (isOp ? " is-operational" : "");
-      btn.setAttribute("role", "tab");
-      btn.setAttribute("aria-selected", ws.id === activeWorkspaceId ? "true" : "false");
-      btn.dataset.workspaceTab = ws.id;
-      btn.dataset.testid = "ws-tab-" + ws.id;
-      btn.innerHTML = '<span class="ws-tab-dot"></span><span>' + escapeHtml(ws.label) + "</span>";
-      btn.addEventListener("click", () => activateWorkspaceById(ws.id, true));
-      els.workspaceTabs.appendChild(btn);
+    if (els.workspaceTabs.children.length !== REG.WORKSPACES.length) {
+      els.workspaceTabs.innerHTML = "";
+      const frag = document.createDocumentFragment();
+      REG.WORKSPACES.forEach((ws) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        const isOp = !ws.foundationNotice;
+        btn.className = "ws-tab" + (isOp ? " is-operational" : "");
+        btn.setAttribute("role", "tab");
+        btn.dataset.workspaceTab = ws.id;
+        btn.dataset.testid = "ws-tab-" + ws.id;
+        btn.innerHTML = '<span class="ws-tab-dot"></span><span>' + escapeHtml(ws.label) + "</span>";
+        btn.addEventListener("click", () => activateWorkspaceById(ws.id, true));
+        frag.appendChild(btn);
+      });
+      els.workspaceTabs.appendChild(frag);
+    }
+
+    let activeBtn = null;
+    Array.from(els.workspaceTabs.children).forEach((btn) => {
+      const isAct = btn.dataset.workspaceTab === activeWorkspaceId;
+      btn.classList.toggle("is-active", isAct);
+      btn.setAttribute("aria-selected", isAct ? "true" : "false");
+      if (isAct) activeBtn = btn;
     });
+
+    if (activeBtn && typeof activeBtn.scrollIntoView === "function") {
+      try {
+        activeBtn.scrollIntoView({ block: "nearest", inline: "nearest" });
+      } catch (_) {}
+    }
+    requestAnimationFrame(updateWorkspaceTabsOverflowUi);
   }
 
   function activateWorkspaceById(wsId, persistFlag) {
@@ -1196,7 +1289,8 @@
   function renderWorkspaceAndBottomDock(state) {
     const ws = state.workspace;
     const isFoundationEditor = Boolean(FOUNDATION_EDITOR_COPY[activeBottomEditor]);
-    const isPortrait = document.body.dataset.layoutMode === "portrait";
+    const layoutMode = document.body.dataset.layoutMode || "desktop";
+    const isPortrait = layoutMode === "portrait";
 
     if (ws) {
       const panelVis = {};
@@ -1217,6 +1311,12 @@
             panelVis.properties !== false || panelVis.material_editor !== false;
           els.propertiesShell.hidden = !anyProps;
         }
+        if (els.splitterOutliner) {
+          els.splitterOutliner.hidden = Boolean(
+            (els.panelOutliner && els.panelOutliner.hidden) ||
+              (els.propertiesShell && els.propertiesShell.hidden)
+          );
+        }
         if (activeInspTab === "all") {
           if (els.panelProperties) {
             els.panelProperties.hidden = panelVis.properties === false;
@@ -1225,19 +1325,29 @@
             els.panelMaterialEditor.hidden = panelVis.material_editor === false;
           }
         }
-        if (els.dockRight && document.body.dataset.layoutMode === "desktop") {
-          els.dockRight.hidden =
+        if (els.dockRight) {
+          const allRightOff =
             panelVis.scene_outliner === false &&
             panelVis.properties === false &&
             panelVis.material_editor === false;
-          if (els.splitterRight) els.splitterRight.hidden = els.dockRight.hidden;
+          if (layoutMode === "desktop") {
+            els.dockRight.hidden = isRightDockCollapsed || allRightOff;
+            if (els.splitterRight) els.splitterRight.hidden = els.dockRight.hidden;
+            if (els.btnVpRestoreRight) els.btnVpRestoreRight.hidden = !els.dockRight.hidden;
+          } else {
+            els.dockRight.hidden = allRightOff;
+            if (els.btnVpRestoreRight) els.btnVpRestoreRight.hidden = true;
+          }
         }
         if (els.dockBottom) {
           const bottomKeys = ["asset_browser", "timeline", "console"];
           const visibleBottom = bottomKeys.filter((k) => Boolean(panelVis[k]));
           const shouldHideBottom = visibleBottom.length === 0 && !isFoundationEditor;
           els.dockBottom.hidden = shouldHideBottom;
-          if (els.splitterBottom) els.splitterBottom.hidden = shouldHideBottom;
+          const isBottomCollapsed = els.dockBottom.classList.contains("is-collapsed");
+          if (els.splitterBottom) {
+            els.splitterBottom.hidden = shouldHideBottom || isBottomCollapsed;
+          }
           if (
             !isFoundationEditor &&
             visibleBottom.length > 0 &&
@@ -1252,7 +1362,21 @@
         if (els.propertiesShell) els.propertiesShell.hidden = false;
         if (els.dockBottom) els.dockBottom.hidden = false;
         if (els.dockRight) els.dockRight.hidden = false;
+        if (els.btnVpRestoreRight) els.btnVpRestoreRight.hidden = true;
       }
+    }
+
+    const menuToggleShelf = document.querySelector('[data-menu-cmd="toggle_tool_shelf"]');
+    if (menuToggleShelf && els.toolShelf) {
+      menuToggleShelf.classList.toggle("is-on", !els.toolShelf.hidden);
+    }
+    const menuToggleRight = document.querySelector('[data-menu-cmd="toggle_right_dock"]');
+    if (menuToggleRight && els.dockRight) {
+      const rightOpen =
+        layoutMode === "landscape"
+          ? !document.body.classList.contains("is-landscape-drawer-closed")
+          : !els.dockRight.hidden;
+      menuToggleRight.classList.toggle("is-on", rightOpen);
     }
 
     [els.tabTimeline, els.tabAssetBrowser, els.tabConsole].forEach((tab) => {
@@ -1430,35 +1554,49 @@
     }
 
     if (!isFocused(els.inspParent)) {
-      els.inspParent.innerHTML = "";
-      const rootOpt = document.createElement("option");
-      rootOpt.value = "0";
-      rootOpt.textContent = "(Scene Root)";
-      els.inspParent.appendChild(rootOpt);
-      state.objects.forEach((candidate) => {
-        if (candidate.id === insp.id) return;
-        const opt = document.createElement("option");
-        opt.value = String(candidate.id);
-        opt.textContent = candidate.name + " (#" + candidate.id + ")";
-        els.inspParent.appendChild(opt);
-      });
+      const parentSig =
+        insp.id +
+        ":" +
+        state.objects
+          .filter((candidate) => candidate.id !== insp.id)
+          .map((candidate) => candidate.id + ":" + candidate.name)
+          .join("|");
+      if (parentSig !== lastInspParentSig) {
+        lastInspParentSig = parentSig;
+        els.inspParent.innerHTML = "";
+        const rootOpt = document.createElement("option");
+        rootOpt.value = "0";
+        rootOpt.textContent = "(Scene Root)";
+        els.inspParent.appendChild(rootOpt);
+        state.objects.forEach((candidate) => {
+          if (candidate.id === insp.id) return;
+          const opt = document.createElement("option");
+          opt.value = String(candidate.id);
+          opt.textContent = candidate.name + " (#" + candidate.id + ")";
+          els.inspParent.appendChild(opt);
+        });
+      }
       els.inspParent.value = String(insp.parent_id || 0);
     }
 
     if (insp.mesh) {
       els.inspMaterialRow.hidden = false;
       if (!isFocused(els.inspMaterial)) {
-        els.inspMaterial.innerHTML = "";
-        const noneOpt = document.createElement("option");
-        noneOpt.value = "0";
-        noneOpt.textContent = "(Default Vertex Color)";
-        els.inspMaterial.appendChild(noneOpt);
-        (state.materials || []).forEach((mat) => {
-          const opt = document.createElement("option");
-          opt.value = String(mat.id);
-          opt.textContent = mat.name + " (#" + mat.id + ")";
-          els.inspMaterial.appendChild(opt);
-        });
+        const matSig = (state.materials || []).map((m) => m.id + ":" + m.name).join("|");
+        if (matSig !== lastInspMatSig) {
+          lastInspMatSig = matSig;
+          els.inspMaterial.innerHTML = "";
+          const noneOpt = document.createElement("option");
+          noneOpt.value = "0";
+          noneOpt.textContent = "(Default Vertex Color)";
+          els.inspMaterial.appendChild(noneOpt);
+          (state.materials || []).forEach((mat) => {
+            const opt = document.createElement("option");
+            opt.value = String(mat.id);
+            opt.textContent = mat.name + " (#" + mat.id + ")";
+            els.inspMaterial.appendChild(opt);
+          });
+        }
         els.inspMaterial.value = String(insp.material_id || 0);
       }
     } else {
@@ -1556,13 +1694,17 @@
     const activeMat = mats.find((m) => m.id === activeId) || mats[0] || null;
 
     if (!isFocused(els.matSelect)) {
-      els.matSelect.innerHTML = "";
-      mats.forEach((m) => {
-        const opt = document.createElement("option");
-        opt.value = String(m.id);
-        opt.textContent = m.name + " (#" + m.id + ")";
-        els.matSelect.appendChild(opt);
-      });
+      const matSelSig = mats.map((m) => m.id + ":" + m.name).join("|");
+      if (matSelSig !== lastMatSelectSig) {
+        lastMatSelectSig = matSelSig;
+        els.matSelect.innerHTML = "";
+        mats.forEach((m) => {
+          const opt = document.createElement("option");
+          opt.value = String(m.id);
+          opt.textContent = m.name + " (#" + m.id + ")";
+          els.matSelect.appendChild(opt);
+        });
+      }
       if (activeMat) els.matSelect.value = String(activeMat.id);
     }
 
@@ -1899,26 +2041,31 @@
   }
 
   // =========================================================================
-  // DRAGGABLE WORKSPACE DOCK SPLITTERS
+  // DRAGGABLE WORKSPACE DOCK SPLITTERS (Right Dock, Bottom Dock, Outliner/Props)
   // =========================================================================
 
   function bindDockSplitters() {
     if (els.splitterRight) {
       els.splitterRight.addEventListener("pointerdown", (ev) => {
+        if (ev.button !== 0 && ev.pointerType === "mouse") return;
         ev.preventDefault();
+        document.body.classList.add("is-resizing-col");
         els.splitterRight.classList.add("is-dragging");
         els.splitterRight.setPointerCapture(ev.pointerId);
         const startX = ev.clientX;
         const startW = els.dockRight.getBoundingClientRect().width;
 
         function onMove(mev) {
-          const nextW = Math.round(Math.max(230, Math.min(540, startW - (mev.clientX - startX))));
+          const maxRight = Math.max(240, Math.min(520, Math.floor((window.innerWidth || 1280) * 0.42)));
+          const nextW = Math.round(Math.max(230, Math.min(maxRight, startW - (mev.clientX - startX))));
           document.documentElement.style.setProperty("--right-dock-w", nextW + "px");
         }
         function onUp(uev) {
+          document.body.classList.remove("is-resizing-col");
           els.splitterRight.classList.remove("is-dragging");
           els.splitterRight.removeEventListener("pointermove", onMove);
           els.splitterRight.removeEventListener("pointerup", onUp);
+          els.splitterRight.removeEventListener("pointercancel", onUp);
           try {
             els.splitterRight.releasePointerCapture(uev.pointerId);
           } catch (_) {}
@@ -1930,26 +2077,36 @@
         }
         els.splitterRight.addEventListener("pointermove", onMove);
         els.splitterRight.addEventListener("pointerup", onUp);
+        els.splitterRight.addEventListener("pointercancel", onUp);
       });
     }
 
     if (els.splitterBottom) {
       els.splitterBottom.addEventListener("pointerdown", (ev) => {
+        if (ev.button !== 0 && ev.pointerType === "mouse") return;
         ev.preventDefault();
         els.dockBottom.classList.remove("is-collapsed");
+        if (els.btnCollapseBottom) {
+          els.btnCollapseBottom.textContent = "−";
+          els.btnCollapseBottom.setAttribute("aria-expanded", "true");
+        }
+        document.body.classList.add("is-resizing-row");
         els.splitterBottom.classList.add("is-dragging");
         els.splitterBottom.setPointerCapture(ev.pointerId);
         const startY = ev.clientY;
         const startH = els.dockBottom.getBoundingClientRect().height;
 
         function onMove(mev) {
-          const nextH = Math.round(Math.max(76, Math.min(380, startH - (mev.clientY - startY))));
+          const maxBottom = Math.max(84, Math.min(360, Math.floor(((window.innerHeight || 720) - 90) * 0.46)));
+          const nextH = Math.round(Math.max(76, Math.min(maxBottom, startH - (mev.clientY - startY))));
           document.documentElement.style.setProperty("--bottom-dock-h", nextH + "px");
         }
         function onUp(uev) {
+          document.body.classList.remove("is-resizing-row");
           els.splitterBottom.classList.remove("is-dragging");
           els.splitterBottom.removeEventListener("pointermove", onMove);
           els.splitterBottom.removeEventListener("pointerup", onUp);
+          els.splitterBottom.removeEventListener("pointercancel", onUp);
           try {
             els.splitterBottom.releasePointerCapture(uev.pointerId);
           } catch (_) {}
@@ -1961,8 +2118,98 @@
         }
         els.splitterBottom.addEventListener("pointermove", onMove);
         els.splitterBottom.addEventListener("pointerup", onUp);
+        els.splitterBottom.addEventListener("pointercancel", onUp);
       });
     }
+
+    if (els.splitterOutliner) {
+      els.splitterOutliner.addEventListener("pointerdown", (ev) => {
+        if (ev.button !== 0 && ev.pointerType === "mouse") return;
+        ev.preventDefault();
+        document.body.classList.add("is-resizing-row");
+        els.splitterOutliner.classList.add("is-dragging");
+        els.splitterOutliner.setPointerCapture(ev.pointerId);
+        const startY = ev.clientY;
+        const dockRect = els.dockRight.getBoundingClientRect();
+        const startH = els.panelOutliner.getBoundingClientRect().height;
+
+        function onMove(mev) {
+          const totalH = Math.max(220, dockRect.height);
+          const nextPx = startH + (mev.clientY - startY);
+          const nextPct = Math.max(20, Math.min(62, (nextPx / totalH) * 100));
+          document.documentElement.style.setProperty("--outliner-h-pct", nextPct.toFixed(1) + "%");
+        }
+        function onUp(uev) {
+          document.body.classList.remove("is-resizing-row");
+          els.splitterOutliner.classList.remove("is-dragging");
+          els.splitterOutliner.removeEventListener("pointermove", onMove);
+          els.splitterOutliner.removeEventListener("pointerup", onUp);
+          els.splitterOutliner.removeEventListener("pointercancel", onUp);
+          try {
+            els.splitterOutliner.releasePointerCapture(uev.pointerId);
+          } catch (_) {}
+        }
+        els.splitterOutliner.addEventListener("pointermove", onMove);
+        els.splitterOutliner.addEventListener("pointerup", onUp);
+        els.splitterOutliner.addEventListener("pointercancel", onUp);
+      });
+    }
+  }
+
+  // =========================================================================
+  // VIEWPORT CONTEXT MENU (Stationary Right-Click, Clamped Inside Viewport)
+  // =========================================================================
+
+  function openViewportContextMenu(clientX, clientY) {
+    if (!els.viewportContextMenu || !els.viewportStage) return;
+    closeAllDropdownMenus();
+
+    const ed = currentState && currentState.editor ? currentState.editor : null;
+    const insp = currentState && currentState.inspector ? currentState.inspector : null;
+    const isMeshMode = Boolean(ed && ed.mode !== "object" && ed.editable_mesh && ed.editable_mesh.editable);
+
+    if (els.ctxMenuTitle) {
+      els.ctxMenuTitle.textContent = isMeshMode
+        ? ed.mode.charAt(0).toUpperCase() + ed.mode.slice(1) + " Context Menu"
+        : insp
+        ? "Object Context · " + insp.name
+        : "Viewport Context Menu";
+    }
+    if (els.ctxCmdDuplicate) els.ctxCmdDuplicate.disabled = !insp || isMeshMode;
+    if (els.ctxCmdResetTf) els.ctxCmdResetTf.disabled = !insp;
+    if (els.ctxCmdDelete) els.ctxCmdDelete.disabled = !insp && !isMeshMode;
+
+    if (els.ctxMeshSep) els.ctxMeshSep.hidden = !isMeshMode;
+    if (els.ctxCmdExtrude) {
+      els.ctxCmdExtrude.hidden = !isMeshMode;
+      els.ctxCmdExtrude.disabled =
+        !isMeshMode || ed.mode !== "face" || (ed.mesh_selection.faces || []).length === 0;
+    }
+    if (els.ctxCmdBoundary) {
+      els.ctxCmdBoundary.hidden = !isMeshMode;
+      els.ctxCmdBoundary.disabled = !isMeshMode || ed.editable_mesh.open_boundary_edges < 3;
+    }
+    if (els.ctxCmdFill) {
+      els.ctxCmdFill.hidden = !isMeshMode;
+      els.ctxCmdFill.disabled =
+        !isMeshMode || ed.mode !== "vertex" || (ed.mesh_selection.vertices || []).length < 3;
+    }
+
+    const stageRect = els.viewportStage.getBoundingClientRect();
+    els.viewportContextMenu.style.left = "6px";
+    els.viewportContextMenu.style.top = "6px";
+    els.viewportContextMenu.hidden = false;
+
+    const menuRect = els.viewportContextMenu.getBoundingClientRect();
+    const relX = clientX - stageRect.left;
+    const relY = clientY - stageRect.top;
+    const maxX = Math.max(6, stageRect.width - menuRect.width - 6);
+    const maxY = Math.max(6, stageRect.height - menuRect.height - 6);
+    const clampedX = Math.round(Math.max(6, Math.min(maxX, relX)));
+    const clampedY = Math.round(Math.max(6, Math.min(maxY, relY)));
+
+    els.viewportContextMenu.style.left = clampedX + "px";
+    els.viewportContextMenu.style.top = clampedY + "px";
   }
 
   // =========================================================================
@@ -1973,7 +2220,10 @@
     document.querySelectorAll(".menu-item.is-open").forEach((item) => {
       item.classList.remove("is-open");
       const panel = item.querySelector(".menu-dropdown");
-      if (panel) panel.hidden = true;
+      if (panel) {
+        panel.hidden = true;
+        panel.style.left = "";
+      }
     });
   }
 
@@ -2044,18 +2294,71 @@
     document.querySelectorAll("[data-menu-trigger]").forEach((trigger) => {
       trigger.addEventListener("click", (ev) => {
         ev.stopPropagation();
+        closeViewportContextMenu();
         const item = trigger.closest(".menu-item");
         const panel = item.querySelector(".menu-dropdown");
         const wasOpen = item.classList.contains("is-open");
         closeAllDropdownMenus();
         if (!wasOpen) {
           item.classList.add("is-open");
+          panel.style.left = "0px";
           panel.hidden = false;
+          const rect = panel.getBoundingClientRect();
+          const winW = window.innerWidth || 1280;
+          if (rect.right > winW - 6) {
+            const shift = Math.round(rect.right - (winW - 6));
+            panel.style.left = -shift + "px";
+          }
         }
       });
     });
 
-    document.addEventListener("click", () => closeAllDropdownMenus());
+    document.addEventListener("click", (ev) => {
+      closeAllDropdownMenus();
+      if (
+        els.viewportContextMenu &&
+        !els.viewportContextMenu.hidden &&
+        !els.viewportContextMenu.contains(ev.target)
+      ) {
+        closeViewportContextMenu();
+      }
+    });
+
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape") {
+        closeAllDropdownMenus();
+        closeViewportContextMenu();
+        if (els.settingsModal && !els.settingsModal.hidden) {
+          els.settingsModal.hidden = true;
+        }
+      }
+    });
+
+    function toggleRightDockVisibility() {
+      const mode = document.body.dataset.layoutMode || "desktop";
+      if (mode === "landscape") {
+        const closed = document.body.classList.toggle("is-landscape-drawer-closed");
+        if (els.btnLandscapeInspectorToggle) {
+          els.btnLandscapeInspectorToggle.classList.toggle("is-active", !closed);
+        }
+      } else {
+        isRightDockCollapsed = !isRightDockCollapsed;
+      }
+      if (currentState) renderWorkspaceAndBottomDock(currentState);
+    }
+
+    function setBottomDockCollapsed(collapsed) {
+      if (!els.dockBottom) return;
+      els.dockBottom.classList.toggle("is-collapsed", collapsed);
+      if (els.btnCollapseBottom) {
+        els.btnCollapseBottom.textContent = collapsed ? "+" : "−";
+        els.btnCollapseBottom.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        els.btnCollapseBottom.title = collapsed
+          ? "Expand Bottom Editor Area"
+          : "Collapse Bottom Editor Area";
+      }
+      if (currentState) renderWorkspaceAndBottomDock(currentState);
+    }
 
     function saveNamedCustomWorkspace() {
       if (!wasmApi) return;
@@ -2077,6 +2380,7 @@
       try {
         const parsed = JSON.parse(saved);
         const wsObj = parsed.workspace || parsed;
+        isRightDockCollapsed = false;
         syncWorkspaceTabFromLayoutName(wsObj.layout_name);
         wasmApi.dispatchAction({ action: "import_workspace_json", json_text: saved });
         applyDockRatiosCss(wsObj);
@@ -2133,14 +2437,14 @@
           els.settingsModal.hidden = false;
         } else if (cmd === "frame_selection") {
           wasmApi.dispatchAction({ action: "frame_selection" });
-        } else if (cmd === "toggle_toolshelf") {
+        } else if (cmd === "toggle_tool_shelf" || cmd === "toggle_toolshelf") {
           els.toolShelf.hidden = !els.toolShelf.hidden;
           els.btnVpRestoreShelf.hidden = !els.toolShelf.hidden;
+          if (currentState) renderWorkspaceAndBottomDock(currentState);
         } else if (cmd === "toggle_right_dock") {
-          els.dockRight.hidden = !els.dockRight.hidden;
-          if (els.splitterRight) els.splitterRight.hidden = els.dockRight.hidden;
+          toggleRightDockVisibility();
         } else if (cmd === "toggle_bottom_dock") {
-          els.dockBottom.classList.toggle("is-collapsed");
+          setBottomDockCollapsed(!els.dockBottom.classList.contains("is-collapsed"));
         } else if (cmd === "toggle_hud") {
           appPrefs.showViewportHud = !appPrefs.showViewportHud;
           REG.savePreferences(appPrefs);
@@ -2150,6 +2454,11 @@
         } else if (cmd === "restore_custom_layout") {
           restoreNamedCustomWorkspace();
         } else if (cmd === "reset_layout") {
+          isRightDockCollapsed = false;
+          setBottomDockCollapsed(false);
+          document.documentElement.style.removeProperty("--right-dock-w");
+          document.documentElement.style.removeProperty("--bottom-dock-h");
+          document.documentElement.style.removeProperty("--outliner-h-pct");
           activateWorkspaceById(activeWorkspaceId, true);
         }
       });
@@ -2243,17 +2552,143 @@
     els.btnCollapseShelf.addEventListener("click", () => {
       els.toolShelf.hidden = true;
       els.btnVpRestoreShelf.hidden = false;
+      if (currentState) renderWorkspaceAndBottomDock(currentState);
     });
     els.btnVpRestoreShelf.addEventListener("click", () => {
       els.toolShelf.hidden = false;
       els.btnVpRestoreShelf.hidden = true;
+      if (currentState) renderWorkspaceAndBottomDock(currentState);
     });
+
+    if (els.btnCollapseRight) {
+      els.btnCollapseRight.addEventListener("click", () => {
+        isRightDockCollapsed = true;
+        if (currentState) renderWorkspaceAndBottomDock(currentState);
+      });
+    }
+    if (els.btnVpRestoreRight) {
+      els.btnVpRestoreRight.addEventListener("click", () => {
+        isRightDockCollapsed = false;
+        if (currentState) renderWorkspaceAndBottomDock(currentState);
+      });
+    }
 
     if (els.btnLandscapeInspectorToggle) {
       els.btnLandscapeInspectorToggle.addEventListener("click", () => {
-        document.body.classList.toggle("is-landscape-drawer-closed");
+        const closed = document.body.classList.toggle("is-landscape-drawer-closed");
+        els.btnLandscapeInspectorToggle.classList.toggle("is-active", !closed);
+        if (currentState) renderWorkspaceAndBottomDock(currentState);
       });
     }
+
+    if (els.workspaceTabs) {
+      els.workspaceTabs.addEventListener("scroll", updateWorkspaceTabsOverflowUi, { passive: true });
+      els.workspaceTabs.addEventListener(
+        "wheel",
+        (ev) => {
+          if (Math.abs(ev.deltaY) > Math.abs(ev.deltaX) && els.workspaceTabs.scrollWidth > els.workspaceTabs.clientWidth) {
+            ev.preventDefault();
+            els.workspaceTabs.scrollLeft += ev.deltaY;
+          }
+        },
+        { passive: false }
+      );
+    }
+    if (els.btnWsScrollLeft) {
+      els.btnWsScrollLeft.addEventListener("click", () => {
+        if (els.workspaceTabs) {
+          els.workspaceTabs.scrollBy({ left: -180, behavior: "smooth" });
+        }
+      });
+    }
+    if (els.btnWsScrollRight) {
+      els.btnWsScrollRight.addEventListener("click", () => {
+        if (els.workspaceTabs) {
+          els.workspaceTabs.scrollBy({ left: 180, behavior: "smooth" });
+        }
+      });
+    }
+    if (els.topbarSubbar) {
+      els.topbarSubbar.addEventListener(
+        "wheel",
+        (ev) => {
+          if (Math.abs(ev.deltaY) > Math.abs(ev.deltaX) && els.topbarSubbar.scrollWidth > els.topbarSubbar.clientWidth) {
+            ev.preventDefault();
+            els.topbarSubbar.scrollLeft += ev.deltaY;
+          }
+        },
+        { passive: false }
+      );
+    }
+
+    // Stationary Right-Click inside 3D Viewport opens clamped context menu (without interfering with RMB drag orbit)
+    let rmbDownPos = null;
+    canvas.addEventListener("pointerdown", (ev) => {
+      closeViewportContextMenu();
+      closeAllDropdownMenus();
+      if (ev.pointerType === "mouse" && ev.button === 2) {
+        rmbDownPos = { x: ev.clientX, y: ev.clientY };
+      } else {
+        rmbDownPos = null;
+      }
+    });
+    canvas.addEventListener("pointerup", (ev) => {
+      if (ev.pointerType === "mouse" && ev.button === 2 && rmbDownPos) {
+        const dist = Math.hypot(ev.clientX - rmbDownPos.x, ev.clientY - rmbDownPos.y);
+        rmbDownPos = null;
+        if (dist < 5) {
+          openViewportContextMenu(ev.clientX, ev.clientY);
+        }
+      }
+    });
+
+    document.querySelectorAll("[data-ctx-cmd]").forEach((btn) => {
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const cmd = btn.dataset.ctxCmd;
+        closeViewportContextMenu();
+        if (!wasmApi) return;
+        if (cmd === "frame") {
+          wasmApi.dispatchAction({ action: "frame_selection" });
+        } else if (cmd === "duplicate") {
+          wasmApi.dispatchAction({ action: "duplicate_selected" });
+        } else if (cmd === "reset_transform") {
+          if (currentState && currentState.inspector) {
+            wasmApi.dispatchAction({
+              action: "set_transform",
+              id: currentState.inspector.id,
+              position: [0, 0, 0],
+              rotation_deg: [0, 0, 0],
+              scale: [1, 1, 1],
+            });
+          }
+        } else if (cmd === "extrude") {
+          const dist = Number(els.meshExtrudeDist ? els.meshExtrudeDist.value : 0.35);
+          wasmApi.dispatchAction({
+            action: "extrude_selected_faces",
+            distance: Number.isFinite(dist) ? dist : 0.35,
+          });
+        } else if (cmd === "select_boundary") {
+          wasmApi.dispatchAction({ action: "select_boundary_loop" });
+        } else if (cmd === "fill_hole") {
+          wasmApi.dispatchAction({ action: "fill_selected_hole" });
+        } else if (cmd === "delete") {
+          const ed = currentState && currentState.editor ? currentState.editor : null;
+          if (ed && ed.mode !== "object") {
+            wasmApi.dispatchAction({ action: "delete_selected_elements" });
+          } else {
+            wasmApi.dispatchAction({ action: "delete_selected" });
+          }
+        } else if (cmd === "deselect") {
+          const ed = currentState && currentState.editor ? currentState.editor : null;
+          if (ed && ed.mode !== "object") {
+            wasmApi.dispatchAction({ action: "clear_mesh_selection" });
+          } else {
+            wasmApi.dispatchAction({ action: "select_object", id: 0 });
+          }
+        }
+      });
+    });
 
     document.querySelectorAll("[data-touch-nav]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -2271,27 +2706,37 @@
       });
     }
 
+    function activatePortraitDrawer(drawerId) {
+      activeMobileDrawer = drawerId;
+      document.body.dataset.mpDrawer = activeMobileDrawer;
+      document.querySelectorAll("[data-mp-drawer]").forEach((b) => {
+        b.classList.toggle("is-active", b.dataset.mpDrawer === activeMobileDrawer);
+      });
+      if (activeMobileDrawer === "inspector") {
+        setInspectorCategory("all");
+      } else if (activeMobileDrawer === "materials") {
+        setInspectorCategory("material");
+      } else if (activeMobileDrawer === "assets") {
+        activeBottomEditor = "asset_browser";
+        if (currentState) renderWorkspaceAndBottomDock(currentState);
+      } else if (activeMobileDrawer === "timeline") {
+        activeBottomEditor = "timeline";
+        if (currentState) renderWorkspaceAndBottomDock(currentState);
+      } else if (activeMobileDrawer === "console") {
+        activeBottomEditor = "console";
+        if (currentState) renderWorkspaceAndBottomDock(currentState);
+      }
+    }
+
     document.querySelectorAll("[data-mp-drawer]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        activeMobileDrawer = btn.dataset.mpDrawer;
-        document.body.dataset.mpDrawer = activeMobileDrawer;
-        document.querySelectorAll("[data-mp-drawer]").forEach((b) => {
-          b.classList.toggle("is-active", b.dataset.mpDrawer === activeMobileDrawer);
-        });
-        if (activeMobileDrawer === "inspector") {
-          setInspectorCategory("all");
-        } else if (activeMobileDrawer === "materials") {
-          setInspectorCategory("material");
-        } else if (activeMobileDrawer === "assets") {
-          activeBottomEditor = "asset_browser";
-          if (currentState) renderWorkspaceAndBottomDock(currentState);
-        } else if (activeMobileDrawer === "timeline") {
-          activeBottomEditor = "timeline";
-          if (currentState) renderWorkspaceAndBottomDock(currentState);
-        } else if (activeMobileDrawer === "console") {
-          activeBottomEditor = "console";
-          if (currentState) renderWorkspaceAndBottomDock(currentState);
-        }
+        activatePortraitDrawer(btn.dataset.mpDrawer);
+      });
+    });
+
+    document.querySelectorAll("[data-mp-close-drawer]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activatePortraitDrawer("viewport");
       });
     });
 
@@ -2306,6 +2751,9 @@
         const key = btn.dataset.panelToggle;
         const p = currentState.workspace.panels.find((item) => item.key === key);
         const nextVis = p ? !p.visible : true;
+        if (nextVis && (key === "scene_outliner" || key === "properties" || key === "material_editor")) {
+          isRightDockCollapsed = false;
+        }
         wasmApi.dispatchAction({ action: "set_panel_visible", panel: key, visible: nextVis });
         persistWorkspaceToStorage();
       });
@@ -2313,20 +2761,18 @@
 
     els.bottomEditorSelect.addEventListener("change", () => {
       activeBottomEditor = els.bottomEditorSelect.value;
-      els.dockBottom.classList.remove("is-collapsed");
-      if (currentState) renderWorkspaceAndBottomDock(currentState);
+      setBottomDockCollapsed(false);
     });
 
     document.querySelectorAll("[data-bottom-tab]").forEach((tab) => {
       tab.addEventListener("click", () => {
         activeBottomEditor = tab.dataset.bottomTab;
-        els.dockBottom.classList.remove("is-collapsed");
-        if (currentState) renderWorkspaceAndBottomDock(currentState);
+        setBottomDockCollapsed(false);
       });
     });
 
     els.btnCollapseBottom.addEventListener("click", () => {
-      els.dockBottom.classList.toggle("is-collapsed");
+      setBottomDockCollapsed(!els.dockBottom.classList.contains("is-collapsed"));
     });
 
     els.btnTimelinePlay.addEventListener("click", () => {

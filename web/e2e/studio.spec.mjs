@@ -795,4 +795,262 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
 
     await context.close();
   });
+
+  test("7. Stage 5.1 UI Polish: non-destructive workspace tabs & overflow controls, persistent dock collapse/restore, 3-axis splitters, clamped menus & RMB context menu, zero HUD overlap across all viewports, and screenshot capture", async ({
+    browser,
+  }) => {
+    const outDir =
+      process.env.FE3D_SCREENSHOT_DIR ||
+      path.resolve(process.cwd(), "../../build/ci-screenshots/after-stage5.1");
+    await fs.mkdir(outDir, { recursive: true });
+
+    const context = await browser.newContext({
+      viewport: { width: 1920, height: 1080 },
+      hasTouch: true,
+    });
+    const page = await context.newPage();
+
+    const boxesOverlap = (a, b) => {
+      if (!a || !b) return false;
+      return (
+        a.x + 1 < b.x + b.width &&
+        a.x + a.width - 1 > b.x &&
+        a.y + 1 < b.y + b.height &&
+        a.y + a.height - 1 > b.y
+      );
+    };
+
+    const assertZeroOverlayCollisions = async (label) => {
+      const hudBox = await page.getByTestId("viewport-hud-top").boundingBox();
+      const navBox = await page.locator(".viewport-nav-cluster").boundingBox();
+      const shelfVisible = await page.getByTestId("tool-shelf").isVisible();
+      const shelfBox = shelfVisible ? await page.getByTestId("tool-shelf").boundingBox() : null;
+
+      expect(boxesOverlap(hudBox, navBox), `HUD vs Nav overlap on ${label}`).toBe(false);
+      expect(boxesOverlap(hudBox, shelfBox), `HUD vs Shelf overlap on ${label}`).toBe(false);
+      expect(boxesOverlap(navBox, shelfBox), `Nav vs Shelf overlap on ${label}`).toBe(false);
+    };
+
+    // 0. Capture Home / Project Launcher screenshot at 1920x1080
+    await bootToHomeReady(page);
+    await assertNoHorizontalOverflow(page);
+    await page.screenshot({ path: path.join(outDir, "01-home-desktop-1920x1080.png") });
+
+    // Enter 3D Studio directly from Launcher
+    await page.getByTestId("btn-launcher-create").click();
+    await expect(page.getByTestId("studio-shell")).toBeVisible();
+    await page.getByTestId("btn-toggle-rig").click();
+    await assertZeroOverlayCollisions("Desktop 1920x1080");
+    await page.screenshot({ path: path.join(outDir, "02-studio-desktop-1920x1080.png") });
+
+    // 1. Desktop 1366x768: Workspace Tab overflow chevrons + zero DOM reconstruction on tab/transform updates
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await assertNoHorizontalOverflow(page);
+    await assertZeroOverlayCollisions("Desktop 1366x768");
+
+    await page.evaluate(() => {
+      window.__fe3dWsTabRef = document.querySelector('[data-testid="ws-tab-layout"]');
+      window.__fe3dParentOptRef = document.querySelector("#insp-parent option");
+    });
+
+    await expect(page.getByTestId("btn-ws-scroll-right")).toBeVisible();
+    await page.getByTestId("btn-ws-scroll-right").click();
+    await expect
+      .poll(async () => await page.locator("#workspace-tabs").evaluate((el) => el.scrollLeft))
+      .toBeGreaterThan(20);
+
+    await page.getByTestId("ws-tab-video_editing").click();
+    await expect(page.getByTestId("ws-tab-video_editing")).toHaveClass(/is-active/);
+    await page.getByTestId("ws-tab-layout").click();
+    await expect(page.getByTestId("ws-tab-layout")).toHaveClass(/is-active/);
+
+    // Verify 12 workspace tab buttons were updated in-place without DOM teardown
+    const sameWsNode = await page.evaluate(
+      () => document.querySelector('[data-testid="ws-tab-layout"]') === window.__fe3dWsTabRef
+    );
+    expect(sameWsNode).toBe(true);
+
+    // Select HeroCube and modify X position -> verify <select id="insp-parent"> <option> nodes are NOT torn down
+    await page.getByTestId("outliner-item-HeroCube").click();
+    await page.evaluate(() => {
+      window.__fe3dParentOptRef = document.querySelector("#insp-parent option");
+    });
+    await setControlValueAndCommit(page.getByTestId("pos-x"), "0.75");
+    const sameSelectOptionNode = await page.evaluate(
+      () => document.querySelector("#insp-parent option") === window.__fe3dParentOptRef
+    );
+    expect(sameSelectOptionNode).toBe(true);
+
+    // 2. Collapse & reopen all 3 Desktop Dock Regions cleanly (including regression check on toggle_right_dock)
+    // Left Tool Shelf
+    await page.getByTestId("btn-collapse-shelf").click();
+    await expect(page.getByTestId("tool-shelf")).toBeHidden();
+    await expect(page.getByTestId("btn-vp-restore-shelf")).toBeVisible();
+    await page.getByTestId("btn-vp-restore-shelf").click();
+    await expect(page.getByTestId("tool-shelf")).toBeVisible();
+    await expect(page.getByTestId("btn-vp-restore-shelf")).toBeHidden();
+
+    // Right Outliner/Properties Dock via View menu -> must stay collapsed across engine state revisions!
+    await page.locator('[data-menu-trigger="view"]').click();
+    await page.locator('[data-menu-cmd="toggle_right_dock"]').click();
+    await expect(page.getByTestId("dock-right")).toBeHidden();
+    await expect(page.getByTestId("splitter-right")).toBeHidden();
+    await expect(page.getByTestId("btn-vp-restore-right")).toBeVisible();
+
+    // Trigger an engine state revision (Undo) while Right Dock is collapsed -> must NOT overwrite hidden state!
+    await page.getByTestId("btn-undo").click();
+    await page.waitForTimeout(80);
+    await expect(page.getByTestId("dock-right")).toBeHidden();
+
+    // Restore Right Dock via viewport restore button, then collapse via Outliner header button and restore again
+    await page.getByTestId("btn-vp-restore-right").click();
+    await expect(page.getByTestId("dock-right")).toBeVisible();
+    await page.getByTestId("btn-collapse-right").click();
+    await expect(page.getByTestId("dock-right")).toBeHidden();
+    await page.getByTestId("btn-vp-restore-right").click();
+    await expect(page.getByTestId("dock-right")).toBeVisible();
+
+    // Bottom Dock collapse & expand
+    await page.locator("#btn-collapse-bottom").click();
+    await expect(page.getByTestId("dock-bottom")).toHaveClass(/is-collapsed/);
+    await expect(page.getByTestId("splitter-bottom")).toBeHidden();
+    await page.locator("#btn-collapse-bottom").click();
+    await expect(page.getByTestId("dock-bottom")).not.toHaveClass(/is-collapsed/);
+    await expect(page.getByTestId("splitter-bottom")).toBeVisible();
+
+    // 3. Smooth Predictable Splitters: Outliner/Properties vertical splitter + Viewport-priority clamping
+    const outlinerBefore = await page.getByTestId("panel-outliner").boundingBox();
+    const outSplitBox = await page.getByTestId("splitter-outliner").boundingBox();
+    await page.mouse.move(
+      outSplitBox.x + outSplitBox.width / 2,
+      outSplitBox.y + outSplitBox.height / 2
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      outSplitBox.x + outSplitBox.width / 2,
+      outSplitBox.y + outSplitBox.height / 2 + 45,
+      { steps: 5 }
+    );
+    await page.mouse.up();
+    const outlinerAfter = await page.getByTestId("panel-outliner").boundingBox();
+    expect(outlinerAfter.height).toBeGreaterThan(outlinerBefore.height + 25);
+
+    // Extreme-left drag on Right Dock splitter must clamp so central 3D Viewport retains >50% width priority
+    const rightSplitBox = await page.getByTestId("splitter-right").boundingBox();
+    await page.mouse.move(
+      rightSplitBox.x + rightSplitBox.width / 2,
+      rightSplitBox.y + rightSplitBox.height / 2
+    );
+    await page.mouse.down();
+    await page.mouse.move(100, rightSplitBox.y + rightSplitBox.height / 2, { steps: 6 });
+    await page.mouse.up();
+    const vpAfterExtremeDrag = await page.getByTestId("viewport-stage").boundingBox();
+    expect(vpAfterExtremeDrag.width).toBeGreaterThan(1366 * 0.5);
+
+    // Reset workspace layout to crisp defaults
+    await page.locator('[data-menu-trigger="view"]').click();
+    await page.locator('[data-menu-cmd="reset_layout"]').click();
+
+    // 4. Stationary RMB Viewport Context Menu (clamped at extreme bottom-right edge) vs RMB Orbit Drag
+    const stageRect = await page.getByTestId("viewport-stage").boundingBox();
+    await page.mouse.click(
+      stageRect.x + stageRect.width - 6,
+      stageRect.y + stageRect.height - 6,
+      { button: "right" }
+    );
+    const ctxMenu = page.getByTestId("viewport-context-menu");
+    await expect(ctxMenu).toBeVisible();
+    const ctxBox = await ctxMenu.boundingBox();
+    expect(ctxBox.x).toBeGreaterThanOrEqual(stageRect.x);
+    expect(ctxBox.y).toBeGreaterThanOrEqual(stageRect.y);
+    expect(ctxBox.x + ctxBox.width).toBeLessThanOrEqual(stageRect.x + stageRect.width + 1);
+    expect(ctxBox.y + ctxBox.height).toBeLessThanOrEqual(stageRect.y + stageRect.height + 1);
+
+    await page.screenshot({
+      path: path.join(outDir, "03-studio-desktop-1366x768-tab-overflow-and-ctx.png"),
+    });
+
+    // Close context menu via Escape
+    await page.keyboard.press("Escape");
+    await expect(ctxMenu).toBeHidden();
+
+    // Verify RMB drag orbits camera without opening context menu
+    await page.mouse.move(stageRect.x + 220, stageRect.y + 200);
+    await page.mouse.down({ button: "right" });
+    await page.mouse.move(stageRect.x + 290, stageRect.y + 230, { steps: 5 });
+    await page.mouse.up({ button: "right" });
+    await expect(ctxMenu).toBeHidden();
+
+    // 5. Multi-Viewport & Orientation Matrix Sweep (preserving WebGL2 canvas & scene state)
+    await page.getByTestId("outliner-item-HeroCube").click();
+    await page.evaluate(() => {
+      window.__fe3dCanvasIdentity = document.getElementById("fe3d-canvas");
+    });
+
+    // iPhone Safari "Request Desktop Website" (980x430) + clamped Help dropdown check
+    await page.setViewportSize({ width: 980, height: 430 });
+    await expect(page.locator("body")).toHaveAttribute("data-layout-mode", "desktop");
+    await assertNoHorizontalOverflow(page);
+    await assertZeroOverlayCollisions("Safari Request Desktop Website 980x430");
+    await page.locator('[data-menu-trigger="help"]').click();
+    const helpDropdown = page.locator('.menu-item.is-open .menu-dropdown');
+    await expect(helpDropdown).toBeVisible();
+    const helpBox = await helpDropdown.boundingBox();
+    expect(helpBox.x + helpBox.width).toBeLessThanOrEqual(980);
+    expect(helpBox.y + helpBox.height).toBeLessThanOrEqual(430);
+    await page.keyboard.press("Escape");
+    await page.screenshot({ path: path.join(outDir, "04-studio-safari-desktop-980x430.png") });
+
+    // Mobile Landscape Pro (844x390)
+    await page.setViewportSize({ width: 844, height: 390 });
+    await expect(page.locator("body")).toHaveAttribute("data-layout-mode", "landscape");
+    await assertNoHorizontalOverflow(page);
+    await assertZeroOverlayCollisions("Mobile Landscape 844x390");
+    await page.screenshot({ path: path.join(outDir, "05-studio-mobile-landscape-844x390.png") });
+
+    // Mobile Portrait (390x844) — Viewport-first + Inspector drawer + Done quick-return
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator("body")).toHaveAttribute("data-layout-mode", "portrait");
+    await assertNoHorizontalOverflow(page);
+    await assertZeroOverlayCollisions("Mobile Portrait 390x844 (Viewport)");
+    await page.screenshot({
+      path: path.join(outDir, "06-studio-mobile-portrait-390x844-viewport.png"),
+    });
+
+    await page.getByTestId("mp-tab-inspector").click();
+    await expect(page.locator("body")).toHaveAttribute("data-mp-drawer", "inspector");
+    await assertNoHorizontalOverflow(page);
+    await assertZeroOverlayCollisions("Mobile Portrait 390x844 (Inspector Drawer)");
+    await page.screenshot({
+      path: path.join(outDir, "07-studio-mobile-portrait-390x844-inspector.png"),
+    });
+
+    // Quick-return "Done" button inside Portrait drawer returns cleanly to full Viewport
+    await page.locator("#properties-shell [data-mp-close-drawer]").click();
+    await expect(page.locator("body")).toHaveAttribute("data-mp-drawer", "viewport");
+
+    // Android Compact Portrait (360x800) & Tablet (1024x768)
+    await page.setViewportSize({ width: 360, height: 800 });
+    await assertNoHorizontalOverflow(page);
+    await assertZeroOverlayCollisions("Android Portrait 360x800");
+
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await assertNoHorizontalOverflow(page);
+    await assertZeroOverlayCollisions("Tablet 1024x768");
+
+    // Verify WebGL2 context & canvas element survived every orientation and layout change intact!
+    const preserved = await page.evaluate(() => {
+      const c = document.getElementById("fe3d-canvas");
+      const gl = c.getContext("webgl2");
+      return {
+        sameCanvas: c === window.__fe3dCanvasIdentity,
+        contextAlive: Boolean(gl && !gl.isContextLost()),
+      };
+    });
+    expect(preserved).toEqual({ sameCanvas: true, contextAlive: true });
+    await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: HeroCube");
+
+    await context.close();
+  });
 });
+
