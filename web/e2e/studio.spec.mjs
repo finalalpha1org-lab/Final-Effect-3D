@@ -1452,7 +1452,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
       }, fbPt);
     };
 
-    await bootToStudioReady(page);
+    await bootDirectStudioReady(page);
     await page.getByTestId("btn-toggle-rig").click();
     await waitRenderedFrames();
 
@@ -1647,12 +1647,13 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
       return {
         undoCount: st.history.undo_count,
         selectedId: st.viewport.selected_object_id,
+        heroPos: st.inspector.position,
+        heroRot: st.inspector.rotation_deg,
+        heroScl: st.inspector.scale,
         objects: st.objects.map((o) => ({
           id: o.id,
           name: o.name,
-          pos: o.position,
-          rot: o.rotation_deg,
-          scl: o.scale,
+          worldPos: o.world_position,
         })),
       };
     });
@@ -1730,19 +1731,25 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
       return {
         undoCount: st.history.undo_count,
         selectedId: st.viewport.selected_object_id,
-        mainCamProj: st.objects.find((o) => o.name === "MainCamera") ? "intact" : "missing",
+        heroPos: st.inspector.position,
+        heroRot: st.inspector.rotation_deg,
+        heroScl: st.inspector.scale,
         objects: st.objects.map((o) => ({
           id: o.id,
           name: o.name,
-          pos: o.position,
-          rot: o.rotation_deg,
-          scl: o.scale,
+          worldPos: o.world_position,
         })),
       };
     });
     expect(sceneSnapshotAfterNav.undoCount).toBe(sceneSnapshotBeforeNav.undoCount);
     expect(sceneSnapshotAfterNav.selectedId).toBe(sceneSnapshotBeforeNav.selectedId);
+    expect(sceneSnapshotAfterNav.heroPos).toEqual(sceneSnapshotBeforeNav.heroPos);
+    expect(sceneSnapshotAfterNav.heroRot).toEqual(sceneSnapshotBeforeNav.heroRot);
+    expect(sceneSnapshotAfterNav.heroScl).toEqual(sceneSnapshotBeforeNav.heroScl);
     expect(sceneSnapshotAfterNav.objects).toEqual(sceneSnapshotBeforeNav.objects);
+
+    await page.getByTestId("outliner-item-MainCamera").click();
+    await expect(page.getByTestId("cam-projection")).toHaveValue("perspective");
     await context.close();
 
     // 6. Mobile Landscape High-DPI (844x390 @ 2x DPR, hasTouch: true) Touch Gizmo & Navigation Gizmo Interaction
@@ -1753,7 +1760,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
       isMobile: true,
     });
     const mPage = await mobileContext.newPage();
-    await bootToStudioReady(mPage);
+    await bootDirectStudioReady(mPage);
     await mPage.getByTestId("btn-toggle-rig").click();
     await expect(mPage.locator("body")).toHaveAttribute("data-layout-mode", "landscape");
 
