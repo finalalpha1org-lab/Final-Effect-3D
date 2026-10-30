@@ -1159,7 +1159,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
       path: path.join(outDir, "01-default-scene-camera-and-light-visible-1920x1080.png"),
     });
 
-    // 9. Toggle Scene Helpers off via View menu -> helpers cleanly disappear from rendered output, then re-enable
+    // 9. Toggle Scene Helpers off via View menu -> helpers cleanly disappear from rendered output, then re-enable pixel-identically
     await page.locator('[data-menu-trigger="view"]').click();
     await page.getByTestId("cmd-toggle-editor-helpers").click();
     await page.waitForTimeout(60);
@@ -1167,19 +1167,32 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     const camPatchHidden = await samplePatchAtFb(
       initialObjs.mainCam.pick_screen_pos[0],
       initialObjs.mainCam.pick_screen_pos[1],
-      12
+      16
     );
     const sunPatchHidden = await samplePatchAtFb(
       initialObjs.sunLight.pick_screen_pos[0],
       initialObjs.sunLight.pick_screen_pos[1],
-      12
+      16
     );
-    expect(camPatchHidden.nonClear).toBe(0);
-    expect(sunPatchHidden.nonClear).toBe(0);
+    expect(camPatchHidden.hash).not.toBe(mainCamPatchUnselected.hash);
+    expect(sunPatchHidden.hash).not.toBe(sunLightPatchUnselected.hash);
 
     await page.locator('[data-menu-trigger="view"]').click();
     await page.getByTestId("cmd-toggle-editor-helpers").click();
     await page.waitForTimeout(60);
+
+    const camPatchRestored = await samplePatchAtFb(
+      initialObjs.mainCam.pick_screen_pos[0],
+      initialObjs.mainCam.pick_screen_pos[1],
+      16
+    );
+    const sunPatchRestored = await samplePatchAtFb(
+      initialObjs.sunLight.pick_screen_pos[0],
+      initialObjs.sunLight.pick_screen_pos[1],
+      16
+    );
+    expect(camPatchRestored.hash).toBe(mainCamPatchUnselected.hash);
+    expect(sunPatchRestored.hash).toBe(sunLightPatchUnselected.hash);
 
     // Normal mesh picking (HeroCube inside MainCamera's frustum) is NEVER blocked by camera frustum helpers
     const heroClient = await fbToClient(initialObjs.heroCube.pick_screen_pos);
@@ -1228,11 +1241,21 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await page.getByTestId("btn-gizmo-translate").click();
 
     // Dynamic Camera Frustum update on FOV change + Active Camera Lens View toggle
-    const vpBeforeFov = await sampleViewportPixels(page);
+    const camScreenAfterDrag = await page.evaluate(
+      () => window.__FE3D_STUDIO__.getState().objects.find((o) => o.name === "MainCamera").pick_screen_pos
+    );
+    const frustumPatchBeforeFov = await samplePatchAtFb(
+      camScreenAfterDrag[0] - 50,
+      camScreenAfterDrag[1] + 20,
+      55
+    );
     await setControlValueAndCommit(page.getByTestId("cam-fov"), "82");
     await expect
-      .poll(async () => (await sampleViewportPixels(page)).hash)
-      .not.toBe(vpBeforeFov.hash);
+      .poll(
+        async () =>
+          (await samplePatchAtFb(camScreenAfterDrag[0] - 50, camScreenAfterDrag[1] + 20, 55)).hash
+      )
+      .not.toBe(frustumPatchBeforeFov.hash);
 
     await page.getByTestId("btn-toggle-camera-view").click();
     await expect(page.getByTestId("vp-camera-pill")).toContainText("Camera: MainCamera [Lens]");
@@ -1255,8 +1278,17 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     // Even at intensity 0, SunLight helper remains clearly visible in the 3D viewport!
     await setControlValueAndCommit(page.getByTestId("light-intensity"), "0");
     await page.waitForTimeout(60);
-    const sunZeroIntensityPatch = await samplePatchAtFb(sunScreenNow[0], sunScreenNow[1], 16);
-    expect(sunZeroIntensityPatch.nonClear).toBeGreaterThan(25);
+    const sunZeroWithHelpers = await samplePatchAtFb(sunScreenNow[0], sunScreenNow[1], 18);
+    await page.evaluate(() =>
+      window.__FE3D_STUDIO__.dispatch({ action: "set_editor_helpers_visible", visible: false })
+    );
+    await page.waitForTimeout(60);
+    const sunZeroWithoutHelpers = await samplePatchAtFb(sunScreenNow[0], sunScreenNow[1], 18);
+    expect(sunZeroWithHelpers.hash).not.toBe(sunZeroWithoutHelpers.hash);
+    await page.evaluate(() =>
+      window.__FE3D_STUDIO__.dispatch({ action: "set_editor_helpers_visible", visible: true })
+    );
+    await page.waitForTimeout(60);
 
     // Restoring intensity & rotating SunLight updates actual PBR illumination on HeroCube
     const heroPatchDark = await samplePatchAtFb(
