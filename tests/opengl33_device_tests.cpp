@@ -8,6 +8,7 @@
 
 #include "finaleffect/rendering/opengl33_render_device.hpp"
 #include "finaleffect/rendering/renderer.hpp"
+#include "finaleffect/scene/editable_mesh.hpp"
 #include "finaleffect/scene/primitives.hpp"
 
 #include <cstddef>
@@ -34,6 +35,8 @@ struct MockGlState {
     int live_shaders{0};
     int live_programs{0};
     int draw_elements_calls{0};
+    int buffer_sub_data_calls{0};
+    int clear_calls{0};
     std::int32_t last_viewport_w{0};
     std::int32_t last_viewport_h{0};
 };
@@ -54,8 +57,11 @@ void FE_GL_APIENTRY mockViewport(std::int32_t, std::int32_t, std::int32_t w, std
 }
 void FE_GL_APIENTRY mockClearColor(float, float, float, float) {}
 void FE_GL_APIENTRY mockClearDepth(double) {}
-void FE_GL_APIENTRY mockClear(std::uint32_t) {}
+void FE_GL_APIENTRY mockClear(std::uint32_t) { ++g_gl.clear_calls; }
 void FE_GL_APIENTRY mockEnable(std::uint32_t) {}
+void FE_GL_APIENTRY mockDisable(std::uint32_t) {}
+void FE_GL_APIENTRY mockBlendFunc(std::uint32_t, std::uint32_t) {}
+void FE_GL_APIENTRY mockDepthMask(std::uint8_t) {}
 void FE_GL_APIENTRY mockDepthFunc(std::uint32_t) {}
 void FE_GL_APIENTRY mockCullFace(std::uint32_t) {}
 void FE_GL_APIENTRY mockFrontFace(std::uint32_t) {}
@@ -82,6 +88,9 @@ void FE_GL_APIENTRY mockGenBuffers(std::int32_t n, std::uint32_t* ids) {
 }
 void FE_GL_APIENTRY mockBindBuffer(std::uint32_t, std::uint32_t) {}
 void FE_GL_APIENTRY mockBufferData(std::uint32_t, std::ptrdiff_t, const void*, std::uint32_t) {}
+void FE_GL_APIENTRY mockBufferSubData(std::uint32_t, std::ptrdiff_t, std::ptrdiff_t, const void*) {
+    ++g_gl.buffer_sub_data_calls;
+}
 void FE_GL_APIENTRY mockDeleteBuffers(std::int32_t n, const std::uint32_t* ids) {
     for (std::int32_t i = 0; i < n; ++i) {
         if (ids[i] != 0) --g_gl.live_buffers;
@@ -152,6 +161,9 @@ platform::GlProcAddressFn mockGlLoader(const char* name) {
     if (sym == "glClearDepth") return toProc(&mockClearDepth);
     if (sym == "glClear") return toProc(&mockClear);
     if (sym == "glEnable") return toProc(&mockEnable);
+    if (sym == "glDisable") return toProc(&mockDisable);
+    if (sym == "glBlendFunc") return toProc(&mockBlendFunc);
+    if (sym == "glDepthMask") return toProc(&mockDepthMask);
     if (sym == "glDepthFunc") return toProc(&mockDepthFunc);
     if (sym == "glCullFace") return toProc(&mockCullFace);
     if (sym == "glFrontFace") return toProc(&mockFrontFace);
@@ -162,6 +174,7 @@ platform::GlProcAddressFn mockGlLoader(const char* name) {
     if (sym == "glGenBuffers") return toProc(&mockGenBuffers);
     if (sym == "glBindBuffer") return toProc(&mockBindBuffer);
     if (sym == "glBufferData") return toProc(&mockBufferData);
+    if (sym == "glBufferSubData") return toProc(&mockBufferSubData);
     if (sym == "glDeleteBuffers") return toProc(&mockDeleteBuffers);
     if (sym == "glVertexAttribPointer") return toProc(&mockVertexAttribPointer);
     if (sym == "glEnableVertexAttribArray") return toProc(&mockEnableVertexAttribArray);
@@ -213,7 +226,7 @@ FE_TEST(OpenGL33Device, FailureHandlingAndZeroLeakLifecycle) {
     FE_EXPECT_EQ(g_gl.live_programs, 1);
 
     scene::Scene scene;
-    const auto mesh_id = scene.registerMesh("Cube", scene::Primitives::createCube()).value();
+    const auto mesh_id = scene.registerEditableMesh("Cube", scene::EditableMesh::createCube(1.0f)).value();
     const auto obj_id = scene.createObject("CubeObj").value();
     FE_REQUIRE_TRUE(scene.assignMesh(obj_id, mesh_id).hasValue());
 
@@ -221,6 +234,16 @@ FE_TEST(OpenGL33Device, FailureHandlingAndZeroLeakLifecycle) {
     FE_EXPECT_EQ(g_gl.live_vaos, 1);
     FE_EXPECT_EQ(g_gl.live_buffers, 2); // 1 VBO + 1 EBO
     FE_EXPECT_EQ(g_gl.draw_elements_calls, 1);
+
+    // Same-capacity mesh mutation updates VBO/EBO in place via glBufferSubData without allocating new VAOs/VBOs.
+    auto moved_cube = scene::EditableMesh::createCube(1.0f);
+    const std::uint32_t v0 = 0;
+    FE_REQUIRE_TRUE(moved_cube.translateVertices({&v0, 1}, {0.0f, 0.25f, 0.0f}).hasValue());
+    FE_REQUIRE_TRUE(scene.updateMeshEditable(mesh_id, std::move(moved_cube)).hasValue());
+    FE_REQUIRE_TRUE(renderer.renderScene(scene).hasValue());
+    FE_EXPECT_EQ(g_gl.live_vaos, 1);
+    FE_EXPECT_EQ(g_gl.live_buffers, 2);
+    FE_EXPECT_EQ(g_gl.buffer_sub_data_calls, 2);
 
     FE_REQUIRE_TRUE(renderer.resize(1920, 1080).hasValue());
     FE_EXPECT_EQ(g_gl.last_viewport_w, 1920);

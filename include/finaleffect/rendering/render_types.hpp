@@ -50,6 +50,20 @@ struct DirectionalLightUniforms {
     math::Vec3 ambient{0.18f, 0.20f, 0.24f};
 };
 
+// Metallic-roughness PBR surface & overlay shading parameters.
+struct PbrSurfaceParams {
+    math::Vec3 base_color{1.0f, 1.0f, 1.0f};
+    float metallic{0.0f};
+    float roughness{0.48f};
+    float ambient_occlusion{1.0f};
+    math::Vec3 emissive_radiance{0.0f, 0.0f, 0.0f};
+    float opacity{1.0f};
+    // 1.0 modulates base_color by mesh vertex colors; 0.0 uses pure material base_color.
+    float vertex_color_weight{1.0f};
+    // True renders unlit flat color (used for 3D transform gizmos and mesh-edit overlays).
+    bool unlit_overlay{false};
+};
+
 struct DrawMeshCommand {
     GpuMeshHandle mesh_handle{GpuMeshHandle::invalid()};
     math::Mat4 model_matrix{math::Mat4::identity()};
@@ -57,6 +71,9 @@ struct DrawMeshCommand {
     math::Vec3 camera_position{0.0f, 0.0f, 5.0f};
     DirectionalLightUniforms lighting{};
     bool selected{false};
+    PbrSurfaceParams surface{};
+    std::uint32_t index_offset{0};
+    std::uint32_t index_count{0}; // 0 draws entire index buffer from index_offset
 };
 
 } // namespace finaleffect::rendering

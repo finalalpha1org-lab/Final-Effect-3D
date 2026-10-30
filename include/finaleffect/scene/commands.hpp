@@ -40,7 +40,8 @@ public:
     SetTransformCommand(
         ObjectId object_id,
         const math::Transform& new_transform,
-        bool allow_coalesce = false);
+        bool allow_coalesce = false,
+        std::uint64_t coalesce_group = 0);
 
     [[nodiscard]] std::string_view description() const noexcept override { return "Set Transform"; }
     [[nodiscard]] std::size_t estimatedBytes() const noexcept override { return sizeof(*this); }
@@ -55,6 +56,7 @@ private:
     math::Transform previous_transform_{};
     bool captured_previous_{false};
     bool allow_coalesce_{false};
+    std::uint64_t coalesce_group_{0};
 };
 
 class CreateObjectCommand final : public ISceneCommand {
@@ -65,7 +67,8 @@ public:
         math::Transform initial_transform = math::Transform::identity(),
         std::optional<MeshId> mesh_id = std::nullopt,
         std::optional<CameraComponent> camera = std::nullopt,
-        std::optional<DirectionalLightComponent> directional_light = std::nullopt);
+        std::optional<DirectionalLightComponent> directional_light = std::nullopt,
+        std::optional<MaterialId> material_id = std::nullopt);
 
     [[nodiscard]] std::string_view description() const noexcept override { return "Create Object"; }
     [[nodiscard]] std::size_t estimatedBytes() const noexcept override;
@@ -82,6 +85,7 @@ private:
     std::optional<MeshId> mesh_id_;
     std::optional<CameraComponent> camera_;
     std::optional<DirectionalLightComponent> directional_light_;
+    std::optional<MaterialId> material_id_;
     ObjectId created_id_{ObjectId::invalid()};
 };
 
@@ -103,6 +107,7 @@ private:
         math::Transform local_transform;
         ObjectId parent_id;
         std::optional<MeshId> mesh_id;
+        std::optional<MaterialId> material_id;
         std::optional<CameraComponent> camera;
         std::optional<DirectionalLightComponent> directional_light;
     };
@@ -203,6 +208,114 @@ private:
     std::optional<DirectionalLightComponent> previous_light_;
     bool captured_previous_{false};
     bool allow_coalesce_{false};
+};
+
+class ModifyMeshCommand final : public ISceneCommand {
+public:
+    ModifyMeshCommand(
+        MeshId mesh_id,
+        EditableMesh new_mesh,
+        std::string label = "Edit Mesh",
+        bool allow_coalesce = false,
+        std::uint64_t coalesce_group = 0);
+
+    [[nodiscard]] std::string_view description() const noexcept override { return label_; }
+    [[nodiscard]] std::size_t estimatedBytes() const noexcept override;
+
+    [[nodiscard]] core::Status execute(Scene& scene) override;
+    [[nodiscard]] core::Status undo(Scene& scene) override;
+    [[nodiscard]] bool tryCoalesceWith(const ISceneCommand& incoming) noexcept override;
+
+private:
+    MeshId mesh_id_;
+    EditableMesh new_mesh_;
+    EditableMesh previous_mesh_;
+    std::string label_;
+    bool captured_previous_{false};
+    bool allow_coalesce_{false};
+    std::uint64_t coalesce_group_{0};
+};
+
+class CreateMaterialCommand final : public ISceneCommand {
+public:
+    explicit CreateMaterialCommand(PbrMaterial material, std::string label = "Create Material");
+
+    [[nodiscard]] std::string_view description() const noexcept override { return label_; }
+    [[nodiscard]] std::size_t estimatedBytes() const noexcept override;
+
+    [[nodiscard]] core::Status execute(Scene& scene) override;
+    [[nodiscard]] core::Status undo(Scene& scene) override;
+
+    [[nodiscard]] MaterialId createdMaterialId() const noexcept { return created_id_; }
+
+private:
+    PbrMaterial material_;
+    std::string label_;
+    MaterialId created_id_{MaterialId::invalid()};
+};
+
+class UpdateMaterialCommand final : public ISceneCommand {
+public:
+    UpdateMaterialCommand(
+        MaterialId material_id,
+        PbrMaterial updated_material,
+        bool allow_coalesce = false,
+        std::uint64_t coalesce_group = 0);
+
+    [[nodiscard]] std::string_view description() const noexcept override { return "Edit Material"; }
+    [[nodiscard]] std::size_t estimatedBytes() const noexcept override;
+
+    [[nodiscard]] core::Status execute(Scene& scene) override;
+    [[nodiscard]] core::Status undo(Scene& scene) override;
+    [[nodiscard]] bool tryCoalesceWith(const ISceneCommand& incoming) noexcept override;
+
+private:
+    MaterialId material_id_;
+    PbrMaterial updated_material_;
+    PbrMaterial previous_material_{};
+    bool captured_previous_{false};
+    bool allow_coalesce_{false};
+    std::uint64_t coalesce_group_{0};
+};
+
+class DeleteMaterialCommand final : public ISceneCommand {
+public:
+    explicit DeleteMaterialCommand(MaterialId material_id);
+
+    [[nodiscard]] std::string_view description() const noexcept override { return "Delete Material"; }
+    [[nodiscard]] std::size_t estimatedBytes() const noexcept override;
+
+    [[nodiscard]] core::Status execute(Scene& scene) override;
+    [[nodiscard]] core::Status undo(Scene& scene) override;
+
+private:
+    struct FaceMaterialRef {
+        MeshId mesh_id;
+        std::uint32_t face_index;
+    };
+
+    MaterialId material_id_;
+    PbrMaterial snapshot_{};
+    bool captured_{false};
+    std::vector<ObjectId> affected_objects_;
+    std::vector<FaceMaterialRef> affected_faces_;
+};
+
+class AssignObjectMaterialCommand final : public ISceneCommand {
+public:
+    AssignObjectMaterialCommand(ObjectId object_id, std::optional<MaterialId> material_id);
+
+    [[nodiscard]] std::string_view description() const noexcept override { return "Assign Material"; }
+    [[nodiscard]] std::size_t estimatedBytes() const noexcept override { return sizeof(*this); }
+
+    [[nodiscard]] core::Status execute(Scene& scene) override;
+    [[nodiscard]] core::Status undo(Scene& scene) override;
+
+private:
+    ObjectId object_id_;
+    std::optional<MaterialId> new_material_id_;
+    std::optional<MaterialId> previous_material_id_;
+    bool captured_previous_{false};
 };
 
 // Atomic multi-step transaction; rolls back already-executed steps if any step fails.

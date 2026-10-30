@@ -12,11 +12,13 @@ namespace finaleffect::core {
 struct ResourceStats {
     std::size_t scene_object_count{0};
     std::size_t mesh_asset_count{0};
+    std::size_t material_count{0};
     std::size_t total_cpu_vertices{0};
     std::size_t total_cpu_indices{0};
     std::size_t cpu_mesh_bytes{0};
     std::size_t gpu_mesh_buffer_count{0};
     std::size_t gpu_mesh_bytes{0};
+    std::size_t gpu_buffer_update_count{0};
     std::size_t undo_command_count{0};
     std::size_t redo_command_count{0};
     std::size_t command_history_bytes{0};

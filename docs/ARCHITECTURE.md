@@ -1,4 +1,4 @@
-# Final Effect 3D — Stage 1 & Stage 2 Architecture
+# Final Effect 3D — Stage 1–4 Architecture (`v0.4.0`)
 
 ## 1. Architectural Principles
 
@@ -18,19 +18,19 @@ Final Effect 3D is architected as a modular C++20 engine core surrounded by thin
 finaleffect::platform   (IFileSystem, IClock, AppPaths, IWindow, InputEvent)
         │
         ▼
-finaleffect::core       (Version, Error/Result, Logger, ResourceStats, Engine, IApplication)
+finaleffect::core       (Version 0.4.0, Error/Result, Logger, ResourceStats, Engine, IApplication)
         │
         ▼
 finaleffect::math       (Vec2..4, Quat, Mat4, Transform, Ray, AABB, Intersections)
         │
         ▼
-finaleffect::scene      (Scene, MeshAsset, Camera, Light, RaycastPicking, CommandStack)
+finaleffect::scene      (Scene, EditableMesh, PbrMaterial, Camera, Light, RaycastPicking, CommandStack)
        ╱ ╲
       ▼   ▼
-project   rendering     (.fe3d JSON + .fe3dbin chunks)   (Renderer, IRenderDevice, Null, Software)
+project   rendering     (.fe3d v1.2 + .fe3dbin v1.0)    (Renderer, IRenderDevice, Software, MaterialPreview)
       ╲   ╱                                                 ├──► finaleffect::rendering_opengl33
        ▼ ▼                                                  └──► finaleffect::rendering_webgl2
-finaleffect::app        (StarterScene, OrbitCameraController, StudioSession)
+finaleffect::app        (TransformGizmo, WorkspaceManager, OrbitCameraController, StudioSession, EditorController)
         │
         ├──────────────────────────────► finaleffect_desktop (+ optional finaleffect_window_glfw)
         └──────────────────────────────► finaleffect_web     (Emscripten HTML5 Canvas + WebGL 2.0)
@@ -42,66 +42,70 @@ finaleffect::app        (StarterScene, OrbitCameraController, StudioSession)
 
 * **Handedness**: Right-handed 3D coordinate space (`+X × +Y = +Z`).
 * **World Axes**: `+X` Right, `+Y` Up, `+Z` Outward (`-Z` is local/camera forward).
-* **Matrix Layout**: Column-major `float[16]` (`element(row, col) = data[col * 4 + row]`), matching GLSL, GLSL ES, Metal Shading Language, and WGSL `mat4` layout.
+* **Matrix Layout**: Column-major `float[16]` (`element(row, col) = data[col * 4 + row]`), matching GLSL 330, GLSL ES 3.00, Metal Shading Language, and WGSL `mat4` layout.
 * **Vector Multiplication**: Column-vector convention (`v' = M * v`), root-to-leaf hierarchy composition (`M_world = M_parent * M_local`).
-* **Rotations & Angles**: Unit quaternions `(x, y, z, w)` with identity `(0, 0, 0, 1)`; all math APIs use **radians**.
+* **Rotations & Angles**: Unit quaternions `(x, y, z, w)` with identity `(0, 0, 0, 1)`; all math APIs use **radians** (converted to/from XYZ Euler degrees only at Inspector boundaries).
 * **Clip-Space Depth Abstraction**: `math::ClipSpaceDepth::NegativeOneToOne` (`[-1, 1]`, OpenGL 3.3, WebGL 2.0, Software) and `ZeroToOne` (`[0, 1]`, future Vulkan, Metal, WebGPU).
 
 ---
 
-## 4. Interactive Viewport, Raycast Picking & Undo/Redo Command Stack
+## 4. Stage 4 Professional Editing Architecture
 
-### Raycast Picking (`scene::raycastScene`)
+### A. 3D Transform Gizmo System (`app::TransformGizmo`)
 
-1. **Screen-to-World Unprojection**: `OrbitCameraController::screenPointToWorldRay` converts top-left window pixel coordinates `(x, y)` analytically into world-space `math::Ray`s for both perspective and orthographic cameras.
-2. **Broad-Phase AABB Culling**: Each `MeshAsset` caches its local-space `math::AABB`. `Scene::computeObjectWorldBounds` transforms local bounds into world space without corner heap allocations, and `intersectRayAabb` culls non-intersecting objects before triangle traversal.
-3. **Narrow-Phase Local-Space Möller–Trumbore**: Rays are transformed into object local space via `M_world^-1` so meshes with thousands of triangles avoid per-vertex world transformations, returning exact world hit position, surface normal, distance, and triangle index.
+`TransformGizmo` (`include/finaleffect/app/transform_gizmo.hpp`) implements genuine 3D geometric manipulation without screen-space approximations:
 
-### Deterministic Memory-Bounded Command System (`scene::CommandStack`)
+* **Handles & Procedural 3D Meshes**: Generates 3D shafts + arrow cones + dual-axis planar quads for **Translate** (`X`, `Y`, `Z`, `XY`, `XZ`, `YZ`), 3D torus-tube rings for **Rotate** (`X`, `Y`, `Z`), and 3D shafts + box tips + uniform center cube for **Scale** (`X`, `Y`, `Z`, `Uniform`).
+* **Constant Screen-Space Sizing**: `computeFrame` scales gizmo geometry proportionally to camera distance (`dist * tan(fov/2) * 0.30`) in Perspective projection and `orthographic_height * 0.16` in Orthographic projection.
+* **Exact 3D Ray-Handle Picking & Drag Math**:
+  * Axis shafts/tips use analytical closest-approach between the world `math::Ray` and finite 3D handle segments (`closestRaySegment`, including degenerate zero-length point projection for `ScaleUniform`), constrained onto a camera-facing drag plane containing the active axis.
+  * Planar handles (`XY`/`XZ`/`YZ`) intersect directly with their 3D world/local plane.
+  * Rotation handles (`RotateX`/`RotateY`/`RotateZ`) intersect the true 3D axis-perpendicular ring plane (with perpendicular fallback plane at near-grazing angles) and compute signed angular deltas via `atan2((v0 × v1)·axis, v0·v1)`.
+* **Hierarchy-Correct World & Local Space**: World deltas convert cleanly through `M_parent^-1` into local object `Transform` updates (`SetTransformCommand` with drag coalescing) or local `EditableMesh` vertex translations (`ModifyMeshCommand`) when in Mesh Edit mode, with instant `Escape` cancellation restoring the pre-drag snapshot.
+* **Depth-Cleared Overlay Pass**: Rendered after scene geometry via `IRenderDevice::beginOverlayPass()`, clearing only the depth buffer so gizmos and selected sub-element overlays remain visible through occluding geometry while preserving 3D handle self-occlusion.
 
-All interactive `Scene` edits execute through reversible `ISceneCommand` transactions:
+### B. Polygon Mesh Editing Foundation (`scene::EditableMesh`)
 
-* **`SetTransformCommand`**: Captures pre/post `Transform` and coalesces consecutive drag updates on the same `ObjectId` when coalescing is enabled.
-* **`CreateObjectCommand` / `DeleteObjectCommand`**: Preserves exact `ObjectId`s across undo/redo cycles using `Scene::createObjectWithId` and snapshots full subtrees, mesh/camera/light components, and active camera bindings.
-* **`RenameObjectCommand` / `SetVisibilityCommand`**: Reversible object naming and viewport visibility toggles.
-* **`SetCameraComponentCommand` / `SetDirectionalLightCommand`**: Reversible camera projection/clipping edits and coalescing directional light color/intensity edits.
-* **`ReparentObjectCommand`**: Cycle-checked reversible hierarchy reparenting.
-* **`CompoundTransactionCommand`**: Atomic multi-command batch that rolls back already-executed steps in reverse order if any step fails.
-* **Bounded Low-Memory Footprint**: `CommandStack` enforces both entry-count and byte-size budgets (default 16 MiB), evicting the oldest undo entries first and reporting live usage in `core::ResourceStats`.
+`EditableMesh` (`include/finaleffect/scene/editable_mesh.hpp`) separates authoring polygon topology from triangulated GPU buffers:
 
-### Portable Studio Editor Controller (`app::EditorController`)
+* **Representation**: Shared `positions` (`Vec3`), polygon `faces` (`PolygonFace` with arbitrary vertex valence `>= 3`, per-corner `uvs`, `colors`, optional smooth normals, cached `face_normal`, and optional `material_id`), and canonical undirected `edges` (`Edge` with sorted endpoint indices and incident face count so `incident_faces == 1` identifies open boundary edges).
+* **Explicit Modes**: `scene::EditMode::{Object, Vertex, Edge, Face}` with single/Shift-additive/clear viewport picking (`pickVertex`, `pickEdge`, `pickFace`) and highlighted 3D overlay markers rendered in `StudioSession`.
+* **Topology-Validated Modeling Operations**:
+  * **Move Vertices / Edges / Faces**: Translates unique affected vertices, recomputes normals and local `AABB`, and updates GPU buffers in place.
+  * **Face Extrusion (`extrudeFaces`)**: Duplicates boundary loop vertices, stitches quad side walls with consistent outward winding, offsets extruded cap faces along their area-weighted normal, and selects the new cap faces.
+  * **Delete Faces / Dissolve or Delete Edges & Vertices**: Rejects operations that would leave fewer than 1 valid polygon face or produce degenerate/non-manifold faces **before** mutating the mesh.
+  * **Boundary-Loop Face Fill (`selectOpenBoundaryLoop` / `fillBoundaryLoop`)**: Traces ordered open boundary edges (`incident_faces == 1`) and constructs a new manifold polygon face with outward-consistent winding, rejecting non-boundary or self-intersecting selections cleanly.
+* **Undo/Redo**: Every mesh mutation executes via `scene::ModifyMeshCommand` (with drag coalescing during interactive gizmo pulls and exact byte-footprint accounting in `CommandStack`).
 
-`EditorController` (`include/finaleffect/app/editor_controller.hpp`) sits directly over `StudioSession` without any OS or DOM dependencies:
+### C. Metallic-Roughness PBR Material System & Live 3D Sphere Preview
 
-* Executes all authoring mutations (spawning shared-mesh presets, duplicating, deleting with active-camera protection, renaming, visibility toggling, parent hierarchy editing, XYZ Euler degree transform editing via `Quat::toEulerXYZ`/`fromEulerXYZ`, camera/light component editing, undo/redo, and `.fe3d`/`.fe3dbin` project load/export) against the real `Scene`, `CommandStack`, `Renderer`, and `ProjectSerializer`.
-* Exposes both strongly typed C++ methods and a deterministic JSON state/action bridge (`serializeStateJson` / `executeActionJson`) using `finaleffect_project`'s self-contained JSON codec, powering the connected WebAssembly Studio UI (`apps/web/main.cpp` + `web/index.html`, `web/editor.css`, `web/editor.js`) without mock objects or duplicated UI state.
-* Passes `selectedObject()` into `Renderer::renderScene`, applying a warm Fresnel rim/selection highlight across `SoftwareRenderDevice`, `OpenGL33RenderDevice`, and `WebGL2RenderDevice`.
+* **Material Model (`scene::PbrMaterial`)**: Stable `MaterialId`, `name`, `base_color`, `metallic`, `roughness` (clamped `>= 0.045` to prevent GGX singularities), `ambient_occlusion`, `emissive_color`, `emissive_strength`, and `opacity`. Safe deletion (`Scene::removeMaterial` + `DeleteMaterialCommand`) automatically clears dangling object and per-face references and restores them on Undo.
+* **Consistent Multi-Backend PBR Shading**:
+  * **OpenGL 3.3 Core (GLSL 330)** & **WebGL 2.0 (GLSL ES 3.00)**: Energy-conserving metallic-roughness Cook-Torrance microfacet BRDF with Trowbridge-Reitz GGX normal distribution, Smith Schlick-GGX geometry masking/shadowing, Schlick Fresnel (`F0 = mix(0.04, albedo, metallic)`), hemisphere ambient occlusion, emissive radiance, Reinhard HDR tone mapping, and sRGB gamma output.
+  * **CPU `SoftwareRenderDevice`**: Evaluates the same Cook-Torrance GGX + Schlick Fresnel + Reinhard + sRGB pipeline per fragment on the CPU (documented single key+fill directional light + hemisphere irradiance approximation without IBL cubemaps).
+  * **Multi-Material Submeshes & Transparency**: `EditableMesh::triangulate()` groups triangles by `material_id` into `SubMeshRange` slices. `Renderer` draws opaque submeshes front-to-back with depth writes enabled, then sorts translucent (`opacity < 0.999`) submeshes back-to-front with alpha blending.
+* **Live 3D Material Preview (`rendering::MaterialPreviewRenderer`)**: Owns a dedicated offscreen `SoftwareRenderDevice` + procedural UV sphere + 3-point studio lighting rig, re-rendering live RGBA8 pixels whenever the active material changes and blitting directly into `<canvas id="material-preview-canvas">` via WebAssembly shared memory.
 
----
+### D. Modular Workspace Architecture (`app::WorkspaceManager`)
 
-## 5. Project Format (`.fe3d` Schema `1.1`) & Binary Asset Container (`.fe3dbin` `1.0`)
+* Manages panel descriptors (`Viewport3D`, `SceneOutliner`, `Properties`, `MaterialEditor`, `AssetBrowser`, `Timeline`, `Console`), dock slots (`Left`, `Right`, `Bottom`, `Center`), proportional split ratios, and built-in presets (`Default Studio`, `Modeling`, `Shading`, `Animation Prep`).
+* Enforces non-duplicating input routing (`routePointerDown`, `routeKeyEvent`) so active text fields and non-viewport panels never leak shortcuts or pointer drags into 3D viewport camera/gizmo controllers, while active viewport drags remain captured until pointer release.
 
-### `.fe3d` Metadata Format
+### E. In-Place GPU Buffer Updates (`IRenderDevice::updateMesh`)
 
-* `"format"`: `"finaleffect.project"`
-* `"schema_version"`: `{ "major": 1, "minor": 1 }` (backward-compatible reader for `1.0` inline meshes and `1.1` binary-chunked bundles)
-* `"coordinate_system"`: `"right-handed-y-up"`
-* Companion `binary_chunk` references validate strictly against path traversal (`..`, `/`, `\`, drive prefixes rejected).
-
-### `.fe3dbin` Binary Geometry Container (`include/finaleffect/project/binary_asset.hpp`)
-
-Designed for fast, low-memory loading on laptops, browsers, and future mobile targets without unsafe struct memory dumps:
-
-* **Header (32 bytes, little-endian)**: Magic `"FE3DBIN\0"`, `uint16 major=1`, `uint16 minor=0`, `uint32 chunk_count`, `uint64 directory_offset`, `uint32 directory_crc32`, `uint32 reserved`.
-* **Portable Encoding**: Every vertex attribute (`position`, `normal`, `color`, `uv` = 44 bytes/vertex) is serialized with `std::bit_cast<uint32_t>(float)` in explicit little-endian byte order (`-0.0f` normalized to `+0.0f` for canonical hashing).
-* **Content-Addressed Deduplication**: Chunks are addressed by 64-bit FNV-1a hashes formatted as lossless 16-character hex strings in `.fe3d` JSON (avoiding IEEE-754 JSON `double` 53-bit integer truncation). Duplicate meshes in a scene write only **one** binary payload.
-* **IEEE 802.3 CRC-32 Integrity**: Both the chunk directory and every mesh payload carry CRC-32 checksums verified prior to decoding.
+* Each `MeshAsset` carries a monotonically increasing `geometry_revision`. `Renderer` tracks uploaded `(revision, vertex_capacity, index_capacity)` per `MeshId`: when vertex/edge/face movement mutates an existing mesh without exceeding buffer capacity, `OpenGL33RenderDevice` and `WebGL2RenderDevice` stream updated vertices/indices in place via `glBufferSubData` without reallocating VAOs/VBOs/EBOs, incrementing `ResourceStats::gpu_buffer_update_count`.
 
 ---
 
-## 6. Planned Repository Modules (Not Yet Populated)
+## 5. Project Format (`.fe3d` Schema `1.2`) & Binary Asset Container (`.fe3dbin` `1.0`)
 
-To avoid shipping empty placeholder directories, native mobile host directories will be added only when their implementations land:
+* **Schema Version**: `{ "major": 1, "minor": 2 }` while maintaining full backward compatibility when loading `.fe3d` `1.0` and `1.1` files and `.fe3dbin` `1.0` binary geometry bundles.
+* **Stage 4 Persisted Data**: Full `materials` table, per-object `material_id`, polygon `editable_mesh` topology (`positions`, n-gon `faces`, corner `uvs`/`colors`, per-face `material_id`), `editor_state` (`edit_mode`, `gizmo_tool`, `gizmo_space`, `selected_object_id`, `active_material_id`, `mesh_selection`), and `workspace` layout state.
+* **Lossless Forward/Unknown Field Preservation**: Unknown top-level, scene-level, object-level, mesh-level, and material-level JSON properties are captured in `ProjectDocument::preserved_fields` (`ProjectPreservedFields`) alongside structured `load_warnings`, ensuring future or external extensions are never silently discarded during load/save round-trips.
+
+---
+
+## 6. Planned Repository Modules (Stage 5+)
 
 * `platform/ios/`: Objective-C++ / Swift `UIViewController` + `CAMetalLayer` host integration.
 * `platform/android/`: Android NDK `GameActivity` / `ANativeWindow` host integration.

@@ -7,14 +7,22 @@
 #include "finaleffect/math/aabb.hpp"
 #include "finaleffect/math/vec2.hpp"
 #include "finaleffect/math/vec3.hpp"
+#include "finaleffect/scene/editable_mesh.hpp"
 #include "finaleffect/scene/object_id.hpp"
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
 namespace finaleffect::scene {
+
+struct SubmeshRange {
+    std::uint32_t index_offset{0};
+    std::uint32_t index_count{0};
+    MaterialId material_id{MaterialId::invalid()};
+};
 
 struct Vertex {
     math::Vec3 position{};
@@ -30,6 +38,8 @@ struct Vertex {
 struct MeshData {
     std::vector<Vertex> vertices;
     std::vector<std::uint32_t> indices;
+    std::vector<SubmeshRange> submeshes;
+    std::vector<std::uint32_t> triangle_face_ids;
 
     [[nodiscard]] core::Status validate() const {
         if (vertices.empty()) {
@@ -77,6 +87,7 @@ struct MeshAsset {
     MeshData data;
     math::AABB local_bounds{math::AABB::empty()};
     std::uint64_t revision{1};
+    std::optional<EditableMesh> editable_mesh{std::nullopt};
 };
 
 } // namespace finaleffect::scene

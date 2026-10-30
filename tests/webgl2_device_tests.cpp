@@ -7,6 +7,7 @@
 
 #include "finaleffect/rendering/renderer.hpp"
 #include "finaleffect/rendering/webgl2_render_device.hpp"
+#include "finaleffect/scene/editable_mesh.hpp"
 #include "finaleffect/scene/primitives.hpp"
 
 #include <cstddef>
@@ -35,6 +36,7 @@ struct MockGles3State {
     int live_shaders{0};
     int live_programs{0};
     int draw_elements_calls{0};
+    int buffer_sub_data_calls{0};
     int clear_depthf_calls{0};
     float last_clear_depth{0.0f};
     std::vector<std::string> uploaded_shader_sources;
@@ -58,6 +60,9 @@ void FE_GLES_APIENTRY mockClearDepthf(float d) {
 }
 void FE_GLES_APIENTRY mockClear(std::uint32_t) {}
 void FE_GLES_APIENTRY mockEnable(std::uint32_t) {}
+void FE_GLES_APIENTRY mockDisable(std::uint32_t) {}
+void FE_GLES_APIENTRY mockBlendFunc(std::uint32_t, std::uint32_t) {}
+void FE_GLES_APIENTRY mockDepthMask(std::uint8_t) {}
 void FE_GLES_APIENTRY mockDepthFunc(std::uint32_t) {}
 void FE_GLES_APIENTRY mockCullFace(std::uint32_t) {}
 void FE_GLES_APIENTRY mockFrontFace(std::uint32_t) {}
@@ -84,6 +89,9 @@ void FE_GLES_APIENTRY mockGenBuffers(std::int32_t n, std::uint32_t* ids) {
 }
 void FE_GLES_APIENTRY mockBindBuffer(std::uint32_t, std::uint32_t) {}
 void FE_GLES_APIENTRY mockBufferData(std::uint32_t, std::ptrdiff_t, const void*, std::uint32_t) {}
+void FE_GLES_APIENTRY mockBufferSubData(std::uint32_t, std::ptrdiff_t, std::ptrdiff_t, const void*) {
+    ++g_gles.buffer_sub_data_calls;
+}
 void FE_GLES_APIENTRY mockDeleteBuffers(std::int32_t n, const std::uint32_t* ids) {
     for (std::int32_t i = 0; i < n; ++i) {
         if (ids[i] != 0) --g_gles.live_buffers;
@@ -162,6 +170,9 @@ platform::GlProcAddressFn mockGles3Loader(const char* name) {
     if (sym == "glClearDepthf") return toProc(&mockClearDepthf);
     if (sym == "glClear") return toProc(&mockClear);
     if (sym == "glEnable") return toProc(&mockEnable);
+    if (sym == "glDisable") return toProc(&mockDisable);
+    if (sym == "glBlendFunc") return toProc(&mockBlendFunc);
+    if (sym == "glDepthMask") return toProc(&mockDepthMask);
     if (sym == "glDepthFunc") return toProc(&mockDepthFunc);
     if (sym == "glCullFace") return toProc(&mockCullFace);
     if (sym == "glFrontFace") return toProc(&mockFrontFace);
@@ -172,6 +183,7 @@ platform::GlProcAddressFn mockGles3Loader(const char* name) {
     if (sym == "glGenBuffers") return toProc(&mockGenBuffers);
     if (sym == "glBindBuffer") return toProc(&mockBindBuffer);
     if (sym == "glBufferData") return toProc(&mockBufferData);
+    if (sym == "glBufferSubData") return toProc(&mockBufferSubData);
     if (sym == "glDeleteBuffers") return toProc(&mockDeleteBuffers);
     if (sym == "glVertexAttribPointer") return toProc(&mockVertexAttribPointer);
     if (sym == "glEnableVertexAttribArray") return toProc(&mockEnableVertexAttribArray);
@@ -215,9 +227,10 @@ FE_TEST(WebGL2Device, GlslEs300ComplianceClearDepthfAndZeroLeakLifecycle) {
         FE_EXPECT_TRUE(src.rfind("#version 300 es\n", 0) == 0);
         FE_EXPECT_TRUE(src.find("precision highp float;") != std::string::npos);
     }
+    FE_EXPECT_TRUE(g_gles.uploaded_shader_sources[1].find("evalCookTorranceLobe") != std::string::npos);
 
     scene::Scene scene;
-    const auto pyr_mesh = scene.registerMesh("Pyramid", scene::Primitives::createPyramid()).value();
+    const auto pyr_mesh = scene.registerEditableMesh("Pyramid", scene::EditableMesh::createPyramid()).value();
     const auto obj = scene.createObject("WebPyramid").value();
     FE_REQUIRE_TRUE(scene.assignMesh(obj, pyr_mesh).hasValue());
 
@@ -225,6 +238,16 @@ FE_TEST(WebGL2Device, GlslEs300ComplianceClearDepthfAndZeroLeakLifecycle) {
     FE_EXPECT_EQ(g_gles.clear_depthf_calls, 1);
     FE_EXPECT_NEAR(g_gles.last_clear_depth, 1.0f, 1e-5f);
     FE_EXPECT_EQ(g_gles.draw_elements_calls, 1);
+
+    // Same-capacity mesh mutation updates VBO/EBO in place via glBufferSubData without allocating new VAOs/VBOs.
+    auto moved_pyr = scene::EditableMesh::createPyramid();
+    const std::uint32_t v0 = 0;
+    FE_REQUIRE_TRUE(moved_pyr.translateVertices({&v0, 1}, {0.0f, 0.35f, 0.0f}).hasValue());
+    FE_REQUIRE_TRUE(scene.updateMeshEditable(pyr_mesh, std::move(moved_pyr)).hasValue());
+    FE_REQUIRE_TRUE(renderer.renderScene(scene).hasValue());
+    FE_EXPECT_EQ(g_gles.live_vaos, 1);
+    FE_EXPECT_EQ(g_gles.live_buffers, 2);
+    FE_EXPECT_EQ(g_gles.buffer_sub_data_calls, 2);
 
     renderer.shutdown();
     FE_EXPECT_EQ(g_gles.live_vaos, 0);

@@ -23,6 +23,7 @@ struct SceneObject {
     std::vector<ObjectId> children;
 
     std::optional<MeshId> mesh_id;
+    std::optional<MaterialId> material_id;
     std::optional<CameraComponent> camera;
     std::optional<DirectionalLightComponent> directional_light;
 };

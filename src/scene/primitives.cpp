@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Final Effect 3D Contributors
 
 #include "finaleffect/scene/primitives.hpp"
+#include "finaleffect/scene/editable_mesh.hpp"
 
 #include <algorithm>
 #include <array>
@@ -128,6 +129,14 @@ MeshData Primitives::createCheckerPlane(
     }
 
     return mesh;
+}
+
+MeshData Primitives::createUvSphere(
+    float radius,
+    std::uint32_t rings,
+    std::uint32_t sectors,
+    const math::Vec3& base_color) {
+    return EditableMesh::createUvSphere(radius, rings, sectors, base_color).toMeshData();
 }
 
 } // namespace finaleffect::scene

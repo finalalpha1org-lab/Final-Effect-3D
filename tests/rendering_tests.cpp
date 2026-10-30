@@ -10,6 +10,7 @@
 #include "finaleffect/platform/clock.hpp"
 #include "finaleffect/platform/paths.hpp"
 #include "finaleffect/platform/window.hpp"
+#include "finaleffect/rendering/material_preview.hpp"
 #include "finaleffect/rendering/null_render_device.hpp"
 #include "finaleffect/rendering/renderer.hpp"
 #include "finaleffect/rendering/software_render_device.hpp"
@@ -144,6 +145,81 @@ FE_TEST(Rendering, StudioSessionEndToEndAnimationAndProjectReload) {
     engine.shutdown();
     window.shutdown();
     std::filesystem::remove_all(tmp.parent_path(), ec);
+}
+
+FE_TEST(Rendering, Live3DMaterialPreviewAndInPlaceMeshBufferUpdates) {
+    rendering::MaterialPreviewRenderer preview;
+    FE_REQUIRE_TRUE(preview.initialize(80, 80).hasValue());
+    FE_EXPECT_EQ(preview.width(), 80u);
+    FE_EXPECT_EQ(preview.height(), 80u);
+    FE_EXPECT_TRUE(preview.rawRgbaBytes() != nullptr);
+
+    // 1. Dark matte dielectric vs bright emissive cyan on the shadow side of the 3D sphere
+    scene::PbrMaterial matte{
+        .name = "CharcoalMatte",
+        .base_color = {0.10f, 0.10f, 0.12f},
+        .metallic = 0.0f,
+        .roughness = 0.92f,
+    };
+    FE_REQUIRE_TRUE(preview.renderMaterial(matte).hasValue());
+    const auto shadow_matte = preview.pixelAt(28, 52);
+
+    scene::PbrMaterial emissive = matte;
+    emissive.emissive_color = {0.10f, 0.92f, 1.0f};
+    emissive.emissive_strength = 3.0f;
+    FE_REQUIRE_TRUE(preview.renderMaterial(emissive).hasValue());
+    const auto shadow_emissive = preview.pixelAt(28, 52);
+    FE_EXPECT_TRUE(shadow_emissive.b > shadow_matte.b + 80);
+
+    // 2. Mirror-polished gold vs translucent glass
+    scene::PbrMaterial gold{
+        .name = "Gold",
+        .base_color = {1.0f, 0.76f, 0.30f},
+        .metallic = 1.0f,
+        .roughness = 0.08f,
+    };
+    FE_REQUIRE_TRUE(preview.renderMaterial(gold).hasValue());
+    const auto gold_center = preview.pixelAt(40, 40);
+
+    scene::PbrMaterial clear_glass = gold;
+    clear_glass.opacity = 0.15f;
+    FE_REQUIRE_TRUE(preview.renderMaterial(clear_glass).hasValue());
+    const auto glass_center = preview.pixelAt(40, 40);
+    FE_EXPECT_TRUE(gold_center != glass_center);
+    FE_EXPECT_TRUE(preview.renderGeneration() >= 4u);
+
+    // 3. Verify in-place GPU buffer update (updateMesh) and overlay pool reuse without buffer leaks!
+    auto sw_dev = std::make_unique<rendering::SoftwareRenderDevice>();
+    auto* sw_ptr = sw_dev.get();
+    rendering::Renderer renderer(std::move(sw_dev));
+    FE_REQUIRE_TRUE(renderer.initialize(96, 96).hasValue());
+
+    scene::Scene scene;
+    const auto mesh_id = scene.registerEditableMesh("EditableCube", scene::EditableMesh::createCube(1.5f)).value();
+    const auto obj_id = scene.createObject("Cube").value();
+    FE_REQUIRE_TRUE(scene.assignMesh(obj_id, mesh_id).hasValue());
+
+    const scene::MeshData gizmo_stub = scene::Primitives::createPyramid(0.3f, 0.5f, {1.0f, 0.2f, 0.2f});
+    const rendering::ViewportOverlayMesh ov{.mesh_data = &gizmo_stub, .model_matrix = math::Mat4::identity()};
+
+    FE_REQUIRE_TRUE(renderer.renderScene(scene, {}, obj_id, {&ov, 1}).hasValue());
+    FE_EXPECT_EQ(sw_ptr->liveMeshCount(), std::size_t{2}); // 1 scene mesh + 1 reusable overlay slot
+    FE_EXPECT_EQ(sw_ptr->bufferUpdateCount(), std::size_t{0});
+
+    // Mutate EditableMesh across 3 frames -> updates existing GPU buffer in-place without allocating new handles!
+    for (int i = 0; i < 3; ++i) {
+        scene::EditableMesh edited = scene.findMesh(mesh_id)->editable_mesh.value();
+        const std::uint32_t top = 4;
+        FE_REQUIRE_TRUE(edited.translateFaces({&top, 1}, {0.0f, 0.1f, 0.0f}).hasValue());
+        FE_REQUIRE_TRUE(scene.updateMeshEditable(mesh_id, std::move(edited)).hasValue());
+        FE_REQUIRE_TRUE(renderer.renderScene(scene, {}, obj_id, {&ov, 1}).hasValue());
+    }
+    FE_EXPECT_EQ(sw_ptr->liveMeshCount(), std::size_t{2});
+    // 3 scene mesh updates + 3 overlay slot updates = 6 in-place buffer updates, zero leaks!
+    FE_EXPECT_EQ(sw_ptr->bufferUpdateCount(), std::size_t{6});
+
+    renderer.shutdown();
+    FE_EXPECT_EQ(sw_ptr->liveMeshCount(), std::size_t{0});
 }
 
 } // namespace

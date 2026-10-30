@@ -4,7 +4,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 project(FinalEffect3D
-    VERSION 0.3.0
+    VERSION 0.4.0
     DESCRIPTION "Final Effect 3D - Open-Source Creative 3D Engine & Studio Foundation"
     LANGUAGES CXX
 )
@@ -107,6 +107,7 @@ finaleffect_apply_compiler_settings(finaleffect_math)
 # Scene Module (finaleffect_scene)
 # ------------------------------------------------------------------------------
 add_library(finaleffect_scene STATIC
+    src/scene/editable_mesh.cpp
     src/scene/primitives.cpp
     src/scene/scene.cpp
     src/scene/picking.cpp
@@ -155,6 +156,7 @@ add_library(finaleffect_rendering STATIC
     src/rendering/null_render_device.cpp
     src/rendering/software_render_device.cpp
     src/rendering/renderer.cpp
+    src/rendering/material_preview.cpp
 )
 add_library(finaleffect::rendering ALIAS finaleffect_rendering)
 target_include_directories(finaleffect_rendering
@@ -176,8 +178,11 @@ finaleffect_apply_compiler_settings(finaleffect_rendering)
 add_library(finaleffect_app STATIC
     src/app/orbit_camera_controller.cpp
     src/app/starter_scene.cpp
+    src/app/transform_gizmo.cpp
+    src/app/workspace_manager.cpp
     src/app/studio_session.cpp
     src/app/editor_controller.cpp
+    src/app/editor_controller_json.cpp
 )
 add_library(finaleffect::app ALIAS finaleffect_app)
 target_include_directories(finaleffect_app
@@ -287,8 +292,8 @@ if(FINALEFFECT_PLATFORM_IS_WEB)
             "-sALLOW_MEMORY_GROWTH=1"
             "-sINITIAL_MEMORY=33554432"
             "-sFILESYSTEM=1"
-            "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_fe3d_is_ready','_fe3d_get_init_error','_fe3d_get_state_json','_fe3d_dispatch_action','_fe3d_export_inline_project','_fe3d_save_bundle_to_vfs','_fe3d_load_file_from_vfs']"
-            "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','stringToNewUTF8','FS']"
+            "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_fe3d_is_ready','_fe3d_get_init_error','_fe3d_get_state_json','_fe3d_dispatch_action','_fe3d_export_inline_project','_fe3d_save_bundle_to_vfs','_fe3d_load_file_from_vfs','_fe3d_state_revision','_fe3d_material_preview_ptr','_fe3d_material_preview_width','_fe3d_material_preview_height','_fe3d_material_preview_generation','_fe3d_export_workspace_json']"
+            "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','stringToNewUTF8','FS','HEAPU8']"
     )
     configure_file(
         "${CMAKE_CURRENT_SOURCE_DIR}/web/index.html"
@@ -357,6 +362,26 @@ if(FINALEFFECT_BUILD_TESTS)
     target_link_libraries(finaleffect_editor_tests PRIVATE finaleffect::app finaleffect::rendering)
     finaleffect_apply_compiler_settings(finaleffect_editor_tests)
     add_test(NAME finaleffect.editor COMMAND finaleffect_editor_tests)
+
+    add_executable(finaleffect_gizmo_tests tests/gizmo_tests.cpp)
+    target_link_libraries(finaleffect_gizmo_tests PRIVATE finaleffect::app finaleffect::rendering)
+    finaleffect_apply_compiler_settings(finaleffect_gizmo_tests)
+    add_test(NAME finaleffect.gizmo COMMAND finaleffect_gizmo_tests)
+
+    add_executable(finaleffect_mesh_edit_tests tests/mesh_edit_tests.cpp)
+    target_link_libraries(finaleffect_mesh_edit_tests PRIVATE finaleffect::scene)
+    finaleffect_apply_compiler_settings(finaleffect_mesh_edit_tests)
+    add_test(NAME finaleffect.mesh_edit COMMAND finaleffect_mesh_edit_tests)
+
+    add_executable(finaleffect_material_tests tests/material_tests.cpp)
+    target_link_libraries(finaleffect_material_tests PRIVATE finaleffect::scene)
+    finaleffect_apply_compiler_settings(finaleffect_material_tests)
+    add_test(NAME finaleffect.material COMMAND finaleffect_material_tests)
+
+    add_executable(finaleffect_workspace_tests tests/workspace_tests.cpp)
+    target_link_libraries(finaleffect_workspace_tests PRIVATE finaleffect::app)
+    finaleffect_apply_compiler_settings(finaleffect_workspace_tests)
+    add_test(NAME finaleffect.workspace COMMAND finaleffect_workspace_tests)
 
     if(FINALEFFECT_BUILD_RENDERER_DESKTOP AND FINALEFFECT_PLATFORM_IS_DESKTOP)
         add_executable(finaleffect_opengl33_tests tests/opengl33_device_tests.cpp)

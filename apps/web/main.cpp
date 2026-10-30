@@ -94,9 +94,16 @@ finaleffect::platform::KeyCode translateDomKeyCode(std::string_view code) noexce
     if (code == "KeyZ") return KeyCode::Z;
     if (code == "KeyY") return KeyCode::Y;
     if (code == "KeyW") return KeyCode::W;
+    if (code == "KeyE") return KeyCode::E;
+    if (code == "KeyR") return KeyCode::R;
     if (code == "KeyA") return KeyCode::A;
     if (code == "KeyS") return KeyCode::S;
     if (code == "KeyD") return KeyCode::D;
+    if (code == "Tab") return KeyCode::Tab;
+    if (code == "Digit1") return KeyCode::Digit1;
+    if (code == "Digit2") return KeyCode::Digit2;
+    if (code == "Digit3") return KeyCode::Digit3;
+    if (code == "Digit4") return KeyCode::Digit4;
     if (code == "ShiftLeft" || code == "ShiftRight") return KeyCode::LeftShift;
     if (code == "ControlLeft" || code == "ControlRight") return KeyCode::LeftControl;
     if (code == "AltLeft" || code == "AltRight") return KeyCode::LeftAlt;
@@ -281,12 +288,19 @@ private:
 
     static EM_BOOL onMouseMove(int /*event_type*/, const EmscriptenMouseEvent* ev, void* user_data) {
         auto* self = static_cast<Html5CanvasWindow*>(user_data);
-        if (self == nullptr || ev == nullptr || !self->pointer_captured_) {
+        if (self == nullptr || ev == nullptr) {
             return EM_FALSE;
         }
         double fb_x = 0.0;
         double fb_y = 0.0;
         self->mapClientToFramebuffer(ev->clientX, ev->clientY, fb_x, fb_y);
+        const bool inside_canvas =
+            (fb_x >= 0.0 && fb_y >= 0.0 &&
+             fb_x <= static_cast<double>(self->fb_size_.width) &&
+             fb_y <= static_cast<double>(self->fb_size_.height));
+        if (!self->pointer_captured_ && !inside_canvas) {
+            return EM_FALSE;
+        }
         self->pending_events_.emplace_back(finaleffect::platform::CursorMoveEvent{
             .x = fb_x,
             .y = fb_y,
@@ -360,6 +374,7 @@ struct WebHostContext {
     std::string init_error;
     std::string state_json_buffer{"{}"};
     std::string export_json_buffer;
+    std::string workspace_json_buffer;
 
     explicit WebHostContext(const finaleffect::core::EngineConfig& cfg) : engine(cfg) {}
 };
@@ -441,6 +456,56 @@ EMSCRIPTEN_KEEPALIVE int fe3d_load_file_from_vfs(const char* fe3d_vfs_path) {
     }
     const auto st = g_web_ctx->editor->loadProjectFile(fe3d_vfs_path, g_web_ctx->fs);
     return st.hasValue() ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE double fe3d_state_revision() {
+    if (g_web_ctx == nullptr || g_web_ctx->editor == nullptr) {
+        return 0.0;
+    }
+    return static_cast<double>(g_web_ctx->editor->stateRevision());
+}
+
+EMSCRIPTEN_KEEPALIVE const std::uint8_t* fe3d_material_preview_ptr() {
+    if (g_web_ctx == nullptr || g_web_ctx->editor == nullptr) {
+        return nullptr;
+    }
+    g_web_ctx->editor->refreshMaterialPreview();
+    return g_web_ctx->editor->materialPreviewRgbaBytes();
+}
+
+EMSCRIPTEN_KEEPALIVE int fe3d_material_preview_width() {
+    if (g_web_ctx == nullptr || g_web_ctx->editor == nullptr) {
+        return 0;
+    }
+    return static_cast<int>(g_web_ctx->editor->materialPreviewWidth());
+}
+
+EMSCRIPTEN_KEEPALIVE int fe3d_material_preview_height() {
+    if (g_web_ctx == nullptr || g_web_ctx->editor == nullptr) {
+        return 0;
+    }
+    return static_cast<int>(g_web_ctx->editor->materialPreviewHeight());
+}
+
+EMSCRIPTEN_KEEPALIVE double fe3d_material_preview_generation() {
+    if (g_web_ctx == nullptr || g_web_ctx->editor == nullptr) {
+        return 0.0;
+    }
+    g_web_ctx->editor->refreshMaterialPreview();
+    return static_cast<double>(g_web_ctx->editor->materialPreviewGeneration());
+}
+
+EMSCRIPTEN_KEEPALIVE const char* fe3d_export_workspace_json() {
+    if (g_web_ctx == nullptr || g_web_ctx->editor == nullptr) {
+        return "";
+    }
+    auto res = g_web_ctx->editor->exportWorkspaceLayoutJson();
+    if (!res) {
+        g_web_ctx->workspace_json_buffer.clear();
+        return "";
+    }
+    g_web_ctx->workspace_json_buffer = std::move(res).value();
+    return g_web_ctx->workspace_json_buffer.c_str();
 }
 
 } // extern "C"

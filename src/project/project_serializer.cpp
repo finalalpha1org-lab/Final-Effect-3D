@@ -7,8 +7,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <initializer_list>
 #include <limits>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace finaleffect::project {
 
@@ -33,6 +35,35 @@ JsonValue encodeQuat(const math::Quat& q) {
         JsonValue(static_cast<double>(q.z)),
         JsonValue(static_cast<double>(q.w)),
     };
+}
+
+void appendExtraFields(JsonValue& target_obj, const JsonObject& extra) {
+    for (const auto& [k, v] : extra) {
+        if (target_obj.findKey(k) == nullptr) {
+            target_obj.setKey(k, v);
+        }
+    }
+}
+
+void captureUnknownFields(
+    const JsonValue& source_obj,
+    std::initializer_list<std::string_view> known_keys,
+    std::string_view scope_label,
+    JsonObject& out_extra,
+    std::vector<std::string>* out_warnings) {
+    if (!source_obj.isObject()) {
+        return;
+    }
+    const std::unordered_set<std::string_view> known(known_keys.begin(), known_keys.end());
+    for (const auto& [k, v] : source_obj.asObject()) {
+        if (!known.contains(k)) {
+            out_extra.emplace_back(k, v);
+            if (out_warnings != nullptr) {
+                out_warnings->push_back(
+                    "Preserved unrecognized field '" + std::string(scope_label) + "." + k + "'");
+            }
+        }
+    }
 }
 
 core::Result<std::uint64_t> decodeUint64(const JsonValue* val, std::string_view field_name) {
@@ -131,6 +162,40 @@ core::Result<math::Quat> decodeQuat(const JsonValue* val, std::string_view field
     return core::Result<math::Quat>::ok(q.normalized());
 }
 
+core::Result<std::vector<std::uint32_t>> decodeUint32Array(
+    const JsonValue* val,
+    std::string_view field_name) {
+    if (val == nullptr || !val->isArray()) {
+        return core::Result<std::vector<std::uint32_t>>::fail(
+            core::ErrorCode::ValidationError,
+            "Expected integer array",
+            std::string(field_name));
+    }
+    std::vector<std::uint32_t> out;
+    out.reserve(val->asArray().size());
+    for (const auto& entry : val->asArray()) {
+        auto v = decodeUint64(&entry, field_name);
+        if (!v) return v.error();
+        if (v.value() > static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max())) {
+            return core::Result<std::vector<std::uint32_t>>::fail(
+                core::ErrorCode::ValidationError,
+                "Element index exceeds uint32_t range",
+                std::string(field_name));
+        }
+        out.push_back(static_cast<std::uint32_t>(v.value()));
+    }
+    return core::Result<std::vector<std::uint32_t>>::ok(std::move(out));
+}
+
+JsonArray encodeUint32Array(std::span<const std::uint32_t> values) {
+    JsonArray arr;
+    arr.reserve(values.size());
+    for (const std::uint32_t v : values) {
+        arr.emplace_back(static_cast<std::uint64_t>(v));
+    }
+    return arr;
+}
+
 bool isSafeCompanionFilename(std::string_view uri) noexcept {
     if (uri.empty() || uri == "." || uri == "..") {
         return false;
@@ -142,6 +207,159 @@ bool isSafeCompanionFilename(std::string_view uri) noexcept {
         return false;
     }
     return true;
+}
+
+std::string_view editModeSlug(scene::EditMode mode) noexcept {
+    switch (mode) {
+        case scene::EditMode::Object: return "object";
+        case scene::EditMode::Vertex: return "vertex";
+        case scene::EditMode::Edge:   return "edge";
+        case scene::EditMode::Face:   return "face";
+    }
+    return "object";
+}
+
+core::Result<scene::EditMode> parseEditModeSlug(std::string_view s) {
+    if (s == "object") return core::Result<scene::EditMode>::ok(scene::EditMode::Object);
+    if (s == "vertex") return core::Result<scene::EditMode>::ok(scene::EditMode::Vertex);
+    if (s == "edge")   return core::Result<scene::EditMode>::ok(scene::EditMode::Edge);
+    if (s == "face")   return core::Result<scene::EditMode>::ok(scene::EditMode::Face);
+    return core::Result<scene::EditMode>::fail(
+        core::ErrorCode::ValidationError,
+        "Unknown editor_state.edit_mode: " + std::string(s));
+}
+
+JsonValue encodeEditableMesh(const scene::EditableMesh& em) {
+    JsonValue em_json{JsonObject{}};
+
+    JsonArray verts_arr;
+    verts_arr.reserve(em.vertices().size());
+    for (const auto& ev : em.vertices()) {
+        JsonValue v_obj{JsonObject{}};
+        v_obj.setKey("position", encodeVec3(ev.position));
+        v_obj.setKey("color", encodeVec3(ev.color));
+        verts_arr.push_back(std::move(v_obj));
+    }
+    em_json.setKey("vertices", std::move(verts_arr));
+
+    JsonArray faces_arr;
+    faces_arr.reserve(em.faces().size());
+    for (const auto& ef : em.faces()) {
+        JsonValue f_obj{JsonObject{}};
+        JsonArray corners_arr;
+        corners_arr.reserve(ef.corners.size());
+        for (const auto& c : ef.corners) {
+            JsonValue c_obj{JsonObject{}};
+            c_obj.setKey("vertex", static_cast<std::uint64_t>(c.vertex));
+            c_obj.setKey("uv", encodeVec2(c.uv));
+            corners_arr.push_back(std::move(c_obj));
+        }
+        f_obj.setKey("corners", std::move(corners_arr));
+        f_obj.setKey("color", encodeVec3(ef.color));
+        f_obj.setKey("material_id", ef.material_id.value);
+        f_obj.setKey("smooth_shading", ef.smooth_shading);
+        faces_arr.push_back(std::move(f_obj));
+    }
+    em_json.setKey("faces", std::move(faces_arr));
+    return em_json;
+}
+
+core::Result<scene::EditableMesh> decodeEditableMesh(const JsonValue& em_json) {
+    if (!em_json.isObject()) {
+        return core::Result<scene::EditableMesh>::fail(
+            core::ErrorCode::ValidationError,
+            "'mesh.editable_mesh' must be an object");
+    }
+    const auto* verts_val = em_json.findKey("vertices");
+    const auto* faces_val = em_json.findKey("faces");
+    if (verts_val == nullptr || !verts_val->isArray() || faces_val == nullptr || !faces_val->isArray()) {
+        return core::Result<scene::EditableMesh>::fail(
+            core::ErrorCode::ValidationError,
+            "'mesh.editable_mesh' requires 'vertices' and 'faces' arrays");
+    }
+
+    std::vector<scene::EditVertex> edit_verts;
+    edit_verts.reserve(verts_val->asArray().size());
+    for (const auto& v_json : verts_val->asArray()) {
+        if (!v_json.isObject()) {
+            return core::Result<scene::EditableMesh>::fail(
+                core::ErrorCode::ValidationError,
+                "'editable_mesh.vertices[]' entry must be an object");
+        }
+        auto pos = decodeVec3(v_json.findKey("position"), "editable_mesh.vertex.position");
+        if (!pos) return pos.error();
+        math::Vec3 col{1.0f, 1.0f, 1.0f};
+        if (const auto* col_val = v_json.findKey("color"); col_val != nullptr) {
+            auto c_res = decodeVec3(col_val, "editable_mesh.vertex.color");
+            if (!c_res) return c_res.error();
+            col = c_res.value();
+        }
+        edit_verts.push_back(scene::EditVertex{.position = pos.value(), .normal = {}, .color = col});
+    }
+
+    std::vector<scene::EditFace> edit_faces;
+    edit_faces.reserve(faces_val->asArray().size());
+    for (const auto& f_json : faces_val->asArray()) {
+        if (!f_json.isObject()) {
+            return core::Result<scene::EditableMesh>::fail(
+                core::ErrorCode::ValidationError,
+                "'editable_mesh.faces[]' entry must be an object");
+        }
+        const auto* corners_val = f_json.findKey("corners");
+        if (corners_val == nullptr || !corners_val->isArray()) {
+            return core::Result<scene::EditableMesh>::fail(
+                core::ErrorCode::ValidationError,
+                "'editable_mesh.face.corners' must be an array");
+        }
+        scene::EditFace ef;
+        ef.corners.reserve(corners_val->asArray().size());
+        for (const auto& c_json : corners_val->asArray()) {
+            if (!c_json.isObject()) {
+                return core::Result<scene::EditableMesh>::fail(
+                    core::ErrorCode::ValidationError,
+                    "'editable_mesh.face.corners[]' must be an object");
+            }
+            auto v_idx = decodeUint64(c_json.findKey("vertex"), "editable_mesh.corner.vertex");
+            auto uv_res = decodeVec2(c_json.findKey("uv"), "editable_mesh.corner.uv");
+            if (!v_idx) return v_idx.error();
+            if (!uv_res) return uv_res.error();
+            if (v_idx.value() > static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max())) {
+                return core::Result<scene::EditableMesh>::fail(
+                    core::ErrorCode::ValidationError,
+                    "EditableMesh corner vertex index exceeds uint32_t range");
+            }
+            ef.corners.push_back(scene::FaceCorner{
+                .vertex = static_cast<std::uint32_t>(v_idx.value()),
+                .uv = uv_res.value(),
+            });
+        }
+        if (const auto* col_val = f_json.findKey("color"); col_val != nullptr) {
+            auto c_res = decodeVec3(col_val, "editable_mesh.face.color");
+            if (!c_res) return c_res.error();
+            ef.color = c_res.value();
+        }
+        if (const auto* mid_val = f_json.findKey("material_id"); mid_val != nullptr && !mid_val->isNull()) {
+            auto m_res = decodeUint64(mid_val, "editable_mesh.face.material_id");
+            if (!m_res) return m_res.error();
+            ef.material_id = scene::MaterialId{m_res.value()};
+        }
+        if (const auto* sm_val = f_json.findKey("smooth_shading"); sm_val != nullptr) {
+            if (!sm_val->isBool()) {
+                return core::Result<scene::EditableMesh>::fail(
+                    core::ErrorCode::ValidationError,
+                    "'editable_mesh.face.smooth_shading' must be a boolean");
+            }
+            ef.smooth_shading = sm_val->asBool();
+        }
+        edit_faces.push_back(std::move(ef));
+    }
+
+    scene::EditableMesh result(std::move(edit_verts), std::move(edit_faces));
+    auto st = result.validateAndRebuild();
+    if (!st) {
+        return st.error();
+    }
+    return core::Result<scene::EditableMesh>::ok(std::move(result));
 }
 
 core::Result<std::string> serializeDocumentImpl(
@@ -163,13 +381,45 @@ core::Result<std::string> serializeDocumentImpl(
     meta.setKey("author", document.metadata.author);
     meta.setKey("description", document.metadata.description);
     meta.setKey("engine_version", document.metadata.engine_version);
+    appendExtraFields(meta, document.preserved_fields.metadata_extra);
     root.setKey("metadata", std::move(meta));
 
     JsonValue scene_json{JsonObject{}};
     scene_json.setKey("name", document.scene.name());
     scene_json.setKey("active_camera_id", document.scene.activeCamera().value);
 
-    // Sort meshes by MeshId for deterministic output.
+    // 1. Sort and serialize PBR materials deterministically by MaterialId.
+    std::vector<const scene::PbrMaterial*> sorted_materials;
+    sorted_materials.reserve(document.scene.materials().size());
+    for (const auto& mat : document.scene.materials()) {
+        sorted_materials.push_back(&mat);
+    }
+    std::sort(sorted_materials.begin(), sorted_materials.end(), [](const auto* a, const auto* b) {
+        return a->id < b->id;
+    });
+
+    JsonArray materials_arr;
+    materials_arr.reserve(sorted_materials.size());
+    for (const auto* mat : sorted_materials) {
+        JsonValue mat_obj{JsonObject{}};
+        mat_obj.setKey("id", mat->id.value);
+        mat_obj.setKey("name", mat->name);
+        mat_obj.setKey("base_color", encodeVec3(mat->base_color));
+        mat_obj.setKey("metallic", static_cast<double>(mat->metallic));
+        mat_obj.setKey("roughness", static_cast<double>(mat->roughness));
+        mat_obj.setKey("ambient_occlusion", static_cast<double>(mat->ambient_occlusion));
+        mat_obj.setKey("emissive_color", encodeVec3(mat->emissive_color));
+        mat_obj.setKey("emissive_strength", static_cast<double>(mat->emissive_strength));
+        mat_obj.setKey("opacity", static_cast<double>(mat->opacity));
+        if (const auto it = document.preserved_fields.material_extra.find(mat->id);
+            it != document.preserved_fields.material_extra.end()) {
+            appendExtraFields(mat_obj, it->second);
+        }
+        materials_arr.push_back(std::move(mat_obj));
+    }
+    scene_json.setKey("materials", std::move(materials_arr));
+
+    // 2. Sort and serialize meshes by MeshId.
     std::vector<const scene::MeshAsset*> sorted_meshes;
     sorted_meshes.reserve(document.scene.meshes().size());
     for (const auto& m : document.scene.meshes()) {
@@ -216,11 +466,20 @@ core::Result<std::string> serializeDocumentImpl(
             mesh_obj.setKey("indices", std::move(idx_arr));
         }
 
+        if (mesh->editable_mesh.has_value()) {
+            mesh_obj.setKey("editable_mesh", encodeEditableMesh(mesh->editable_mesh.value()));
+        }
+
+        if (const auto it = document.preserved_fields.mesh_extra.find(mesh->id);
+            it != document.preserved_fields.mesh_extra.end()) {
+            appendExtraFields(mesh_obj, it->second);
+        }
+
         meshes_arr.push_back(std::move(mesh_obj));
     }
     scene_json.setKey("meshes", std::move(meshes_arr));
 
-    // Sort objects by ObjectId for deterministic output.
+    // 3. Sort and serialize objects by ObjectId.
     std::vector<const scene::SceneObject*> sorted_objects;
     sorted_objects.reserve(document.scene.objects().size());
     for (const auto& obj : document.scene.objects()) {
@@ -248,6 +507,9 @@ core::Result<std::string> serializeDocumentImpl(
         if (obj->mesh_id.has_value()) {
             obj_json.setKey("mesh_id", obj->mesh_id->value);
         }
+        if (obj->material_id.has_value()) {
+            obj_json.setKey("material_id", obj->material_id->value);
+        }
 
         if (obj->camera.has_value()) {
             const auto& cam = obj->camera.value();
@@ -270,11 +532,38 @@ core::Result<std::string> serializeDocumentImpl(
             obj_json.setKey("directional_light", std::move(light_json));
         }
 
+        if (const auto it = document.preserved_fields.object_extra.find(obj->id);
+            it != document.preserved_fields.object_extra.end()) {
+            appendExtraFields(obj_json, it->second);
+        }
+
         objects_arr.push_back(std::move(obj_json));
     }
     scene_json.setKey("objects", std::move(objects_arr));
+    appendExtraFields(scene_json, document.preserved_fields.scene_extra);
     root.setKey("scene", std::move(scene_json));
 
+    // 4. Serialize Stage 4 editor_state & workspace layout.
+    JsonValue ed_json{JsonObject{}};
+    ed_json.setKey("edit_mode", std::string(editModeSlug(document.editor_state.edit_mode)));
+    ed_json.setKey("gizmo_tool", document.editor_state.gizmo_tool);
+    ed_json.setKey("gizmo_space", document.editor_state.gizmo_space);
+    ed_json.setKey("selected_object_id", document.editor_state.selected_object_id.value);
+    ed_json.setKey("active_material_id", document.editor_state.active_material_id.value);
+
+    JsonValue sel_json{JsonObject{}};
+    sel_json.setKey("vertices", encodeUint32Array(document.editor_state.mesh_selection.vertices));
+    sel_json.setKey("edges", encodeUint32Array(document.editor_state.mesh_selection.edges));
+    sel_json.setKey("faces", encodeUint32Array(document.editor_state.mesh_selection.faces));
+    ed_json.setKey("mesh_selection", std::move(sel_json));
+    appendExtraFields(ed_json, document.preserved_fields.editor_state_extra);
+    root.setKey("editor_state", std::move(ed_json));
+
+    root.setKey(
+        "workspace",
+        ProjectSerializer::encodeWorkspaceJson(document.workspace, document.preserved_fields.workspace_extra));
+
+    appendExtraFields(root, document.preserved_fields.root_extra);
     return writeJson(root, pretty);
 }
 
@@ -332,6 +621,12 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
     }
 
     ProjectDocument doc;
+    captureUnknownFields(
+        root,
+        {"format", "schema_version", "coordinate_system", "metadata", "scene", "editor_state", "workspace"},
+        "root",
+        doc.preserved_fields.root_extra,
+        &doc.load_warnings);
 
     if (const JsonValue* meta_val = root.findKey("metadata"); meta_val != nullptr) {
         if (!meta_val->isObject()) {
@@ -356,6 +651,12 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
         if (const auto* ev = meta_val->findKey("engine_version"); ev != nullptr && ev->isString()) {
             doc.metadata.engine_version = ev->asString();
         }
+        captureUnknownFields(
+            *meta_val,
+            {"project_name", "author", "description", "engine_version"},
+            "metadata",
+            doc.preserved_fields.metadata_extra,
+            &doc.load_warnings);
     }
 
     const JsonValue* scene_val = root.findKey("scene");
@@ -373,11 +674,94 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
         }
         doc.scene.setName(sn->asString());
     }
+    captureUnknownFields(
+        *scene_val,
+        {"name", "active_camera_id", "materials", "meshes", "objects"},
+        "scene",
+        doc.preserved_fields.scene_extra,
+        &doc.load_warnings);
+
+    // 1. Load PBR materials FIRST so mesh face assignments and object assignments validate against them.
+    if (const JsonValue* mats_val = scene_val->findKey("materials"); mats_val != nullptr && !mats_val->isNull()) {
+        if (!mats_val->isArray()) {
+            return core::Result<ProjectDocument>::fail(
+                core::ErrorCode::ValidationError,
+                "'scene.materials' must be an array");
+        }
+        for (const auto& mat_json : mats_val->asArray()) {
+            if (!mat_json.isObject()) {
+                return core::Result<ProjectDocument>::fail(
+                    core::ErrorCode::ValidationError,
+                    "Each entry in 'scene.materials' must be an object");
+            }
+            auto id_res = decodeUint64(mat_json.findKey("id"), "material.id");
+            if (!id_res) return id_res.error();
+            const scene::MaterialId mat_id{id_res.value()};
+
+            const auto* m_name = mat_json.findKey("name");
+            if (m_name == nullptr || !m_name->isString() || m_name->asString().empty()) {
+                return core::Result<ProjectDocument>::fail(
+                    core::ErrorCode::ValidationError,
+                    "Material 'name' must be a non-empty string");
+            }
+            auto base_col = decodeVec3(mat_json.findKey("base_color"), "material.base_color");
+            auto metallic = decodeFloat(mat_json.findKey("metallic"), "material.metallic");
+            auto roughness = decodeFloat(mat_json.findKey("roughness"), "material.roughness");
+            if (!base_col) return base_col.error();
+            if (!metallic) return metallic.error();
+            if (!roughness) return roughness.error();
+
+            scene::PbrMaterial mat{
+                .id = mat_id,
+                .name = m_name->asString(),
+                .base_color = base_col.value(),
+                .metallic = metallic.value(),
+                .roughness = roughness.value(),
+            };
+            if (const auto* ao_val = mat_json.findKey("ambient_occlusion"); ao_val != nullptr) {
+                auto ao = decodeFloat(ao_val, "material.ambient_occlusion");
+                if (!ao) return ao.error();
+                mat.ambient_occlusion = ao.value();
+            }
+            if (const auto* ec_val = mat_json.findKey("emissive_color"); ec_val != nullptr) {
+                auto ec = decodeVec3(ec_val, "material.emissive_color");
+                if (!ec) return ec.error();
+                mat.emissive_color = ec.value();
+            }
+            if (const auto* es_val = mat_json.findKey("emissive_strength"); es_val != nullptr) {
+                auto es = decodeFloat(es_val, "material.emissive_strength");
+                if (!es) return es.error();
+                mat.emissive_strength = es.value();
+            }
+            if (const auto* op_val = mat_json.findKey("opacity"); op_val != nullptr) {
+                auto op = decodeFloat(op_val, "material.opacity");
+                if (!op) return op.error();
+                mat.opacity = op.value();
+            }
+
+            auto create_st = doc.scene.createMaterialWithId(mat_id, std::move(mat));
+            if (!create_st) {
+                return create_st.error();
+            }
+
+            JsonObject mat_extra;
+            captureUnknownFields(
+                mat_json,
+                {"id", "name", "base_color", "metallic", "roughness",
+                 "ambient_occlusion", "emissive_color", "emissive_strength", "opacity"},
+                "scene.materials[" + std::to_string(mat_id.value) + "]",
+                mat_extra,
+                &doc.load_warnings);
+            if (!mat_extra.empty()) {
+                doc.preserved_fields.material_extra.emplace(mat_id, std::move(mat_extra));
+            }
+        }
+    }
 
     // Cache decoded .fe3dbin archives per companion filename during load.
     std::unordered_map<std::string, BinaryAssetArchive> archive_cache;
 
-    // 1. Load and validate meshes.
+    // 2. Load and validate meshes (supporting both triangulated v1.0/v1.1 and editable_mesh v1.2).
     if (const JsonValue* meshes_val = scene_val->findKey("meshes"); meshes_val != nullptr) {
         if (!meshes_val->isArray()) {
             return core::Result<ProjectDocument>::fail(
@@ -392,6 +776,7 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
             }
             auto id_res = decodeUint64(m_json.findKey("id"), "mesh.id");
             if (!id_res) return id_res.error();
+            const scene::MeshId mesh_id{id_res.value()};
 
             const auto* m_name = m_json.findKey("name");
             if (m_name == nullptr || !m_name->isString() || m_name->asString().empty()) {
@@ -400,9 +785,12 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
                     "Mesh 'name' must be a non-empty string");
             }
 
+            // Always validate companion binary_chunk or inline triangulated data if present so corrupted archives fail cleanly!
             scene::MeshData mesh_data;
+            bool has_tri_payload = false;
             if (const auto* chunk_val = m_json.findKey("binary_chunk");
                 chunk_val != nullptr && !chunk_val->isNull()) {
+                has_tri_payload = true;
                 if (file_system == nullptr) {
                     return core::Result<ProjectDocument>::fail(
                         core::ErrorCode::ValidationError,
@@ -451,7 +839,8 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
                     return extracted.error();
                 }
                 mesh_data = std::move(extracted.value());
-            } else {
+            } else if (m_json.findKey("vertices") != nullptr || m_json.findKey("indices") != nullptr) {
+                has_tri_payload = true;
                 const auto* verts_val = m_json.findKey("vertices");
                 const auto* idx_val = m_json.findKey("indices");
                 if (verts_val == nullptr || !verts_val->isArray() || idx_val == nullptr || !idx_val->isArray()) {
@@ -496,17 +885,47 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
                 }
             }
 
-            auto reg_status = doc.scene.registerMeshWithId(
-                scene::MeshId{id_res.value()},
-                m_name->asString(),
-                std::move(mesh_data));
-            if (!reg_status) {
-                return reg_status.error();
+            if (const auto* em_val = m_json.findKey("editable_mesh"); em_val != nullptr && !em_val->isNull()) {
+                auto em_res = decodeEditableMesh(*em_val);
+                if (!em_res) {
+                    return em_res.error();
+                }
+                auto reg_st = doc.scene.registerEditableMeshWithId(
+                    mesh_id,
+                    m_name->asString(),
+                    std::move(em_res.value()));
+                if (!reg_st) {
+                    return reg_st.error();
+                }
+            } else {
+                if (!has_tri_payload) {
+                    return core::Result<ProjectDocument>::fail(
+                        core::ErrorCode::ValidationError,
+                        "Mesh requires 'vertices'+'indices', 'binary_chunk', or 'editable_mesh'");
+                }
+                auto reg_status = doc.scene.registerMeshWithId(
+                    mesh_id,
+                    m_name->asString(),
+                    std::move(mesh_data));
+                if (!reg_status) {
+                    return reg_status.error();
+                }
+            }
+
+            JsonObject mesh_extra;
+            captureUnknownFields(
+                m_json,
+                {"id", "name", "vertices", "indices", "binary_chunk", "editable_mesh"},
+                "scene.meshes[" + std::to_string(mesh_id.value) + "]",
+                mesh_extra,
+                &doc.load_warnings);
+            if (!mesh_extra.empty()) {
+                doc.preserved_fields.mesh_extra.emplace(mesh_id, std::move(mesh_extra));
             }
         }
     }
 
-    // 2. Load objects in two passes so parent/child order in JSON is order-independent and cycle-checked.
+    // 3. Load objects in two passes so parent/child order in JSON is order-independent and cycle-checked.
     const JsonValue* objects_val = scene_val->findKey("objects");
     if (objects_val == nullptr || !objects_val->isArray()) {
         return core::Result<ProjectDocument>::fail(
@@ -601,6 +1020,21 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
             }
         }
 
+        if (const auto* mat_id_val = obj_json.findKey("material_id");
+            mat_id_val != nullptr && !mat_id_val->isNull()) {
+            auto mat_res = decodeUint64(mat_id_val, "object.material_id");
+            if (!mat_res) return mat_res.error();
+            if (mat_res.value() != 0) {
+                auto mat_st = doc.scene.assignMaterial(obj_id, scene::MaterialId{mat_res.value()});
+                if (!mat_st) {
+                    return core::Result<ProjectDocument>::fail(
+                        core::ErrorCode::ValidationError,
+                        mat_st.error().message,
+                        mat_st.error().context);
+                }
+            }
+        }
+
         if (const auto* cam_val = obj_json.findKey("camera"); cam_val != nullptr && !cam_val->isNull()) {
             if (!cam_val->isObject()) {
                 return core::Result<ProjectDocument>::fail(
@@ -661,6 +1095,18 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
             auto l_st = doc.scene.assignDirectionalLight(obj_id, light);
             if (!l_st) return l_st.error();
         }
+
+        JsonObject obj_extra;
+        captureUnknownFields(
+            obj_json,
+            {"id", "name", "visible", "parent_id", "local_transform",
+             "mesh_id", "material_id", "camera", "directional_light"},
+            "scene.objects[" + std::to_string(obj_id.value) + "]",
+            obj_extra,
+            &doc.load_warnings);
+        if (!obj_extra.empty()) {
+            doc.preserved_fields.object_extra.emplace(obj_id, std::move(obj_extra));
+        }
     }
 
     for (const auto& link : pending_links) {
@@ -689,10 +1135,256 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
         }
     }
 
+    // 4. Decode optional Stage 4 editor_state.
+    if (const JsonValue* ed_val = root.findKey("editor_state"); ed_val != nullptr && !ed_val->isNull()) {
+        if (!ed_val->isObject()) {
+            return core::Result<ProjectDocument>::fail(
+                core::ErrorCode::ValidationError,
+                "'editor_state' must be an object");
+        }
+        if (const auto* em_s = ed_val->findKey("edit_mode"); em_s != nullptr) {
+            if (!em_s->isString()) {
+                return core::Result<ProjectDocument>::fail(
+                    core::ErrorCode::ValidationError,
+                    "'editor_state.edit_mode' must be a string");
+            }
+            auto em_res = parseEditModeSlug(em_s->asString());
+            if (!em_res) return em_res.error();
+            doc.editor_state.edit_mode = em_res.value();
+        }
+        if (const auto* gt = ed_val->findKey("gizmo_tool"); gt != nullptr) {
+            if (!gt->isString() ||
+                (gt->asString() != "translate" && gt->asString() != "rotate" && gt->asString() != "scale")) {
+                return core::Result<ProjectDocument>::fail(
+                    core::ErrorCode::ValidationError,
+                    "'editor_state.gizmo_tool' must be 'translate', 'rotate', or 'scale'");
+            }
+            doc.editor_state.gizmo_tool = gt->asString();
+        }
+        if (const auto* gs = ed_val->findKey("gizmo_space"); gs != nullptr) {
+            if (!gs->isString() || (gs->asString() != "world" && gs->asString() != "local")) {
+                return core::Result<ProjectDocument>::fail(
+                    core::ErrorCode::ValidationError,
+                    "'editor_state.gizmo_space' must be 'world' or 'local'");
+            }
+            doc.editor_state.gizmo_space = gs->asString();
+        }
+        if (const auto* so = ed_val->findKey("selected_object_id"); so != nullptr && !so->isNull()) {
+            auto so_res = decodeUint64(so, "editor_state.selected_object_id");
+            if (!so_res) return so_res.error();
+            const scene::ObjectId cand{so_res.value()};
+            if (!cand.isValid() || doc.scene.findObject(cand) != nullptr) {
+                doc.editor_state.selected_object_id = cand;
+            }
+        }
+        if (const auto* am = ed_val->findKey("active_material_id"); am != nullptr && !am->isNull()) {
+            auto am_res = decodeUint64(am, "editor_state.active_material_id");
+            if (!am_res) return am_res.error();
+            const scene::MaterialId cand{am_res.value()};
+            if (!cand.isValid() || doc.scene.findMaterial(cand) != nullptr) {
+                doc.editor_state.active_material_id = cand;
+            }
+        }
+        if (const auto* ms = ed_val->findKey("mesh_selection"); ms != nullptr && !ms->isNull()) {
+            if (!ms->isObject()) {
+                return core::Result<ProjectDocument>::fail(
+                    core::ErrorCode::ValidationError,
+                    "'editor_state.mesh_selection' must be an object");
+            }
+            if (const auto* sv = ms->findKey("vertices"); sv != nullptr) {
+                auto v_res = decodeUint32Array(sv, "mesh_selection.vertices");
+                if (!v_res) return v_res.error();
+                doc.editor_state.mesh_selection.vertices = std::move(v_res.value());
+            }
+            if (const auto* se = ms->findKey("edges"); se != nullptr) {
+                auto e_res = decodeUint32Array(se, "mesh_selection.edges");
+                if (!e_res) return e_res.error();
+                doc.editor_state.mesh_selection.edges = std::move(e_res.value());
+            }
+            if (const auto* sf = ms->findKey("faces"); sf != nullptr) {
+                auto f_res = decodeUint32Array(sf, "mesh_selection.faces");
+                if (!f_res) return f_res.error();
+                doc.editor_state.mesh_selection.faces = std::move(f_res.value());
+            }
+
+            // Sanitize element selection against selected object's EditableMesh counts if present.
+            if (const auto* sel_obj = doc.scene.findObject(doc.editor_state.selected_object_id);
+                sel_obj != nullptr && sel_obj->mesh_id.has_value()) {
+                if (const auto* ma = doc.scene.findMesh(sel_obj->mesh_id.value());
+                    ma != nullptr && ma->editable_mesh.has_value()) {
+                    doc.editor_state.mesh_selection.sanitizeForCounts(
+                        ma->editable_mesh->vertexCount(),
+                        ma->editable_mesh->edgeCount(),
+                        ma->editable_mesh->faceCount());
+                }
+            }
+        }
+        captureUnknownFields(
+            *ed_val,
+            {"edit_mode", "gizmo_tool", "gizmo_space", "selected_object_id", "active_material_id", "mesh_selection"},
+            "editor_state",
+            doc.preserved_fields.editor_state_extra,
+            &doc.load_warnings);
+    }
+
+    // 5. Decode optional Stage 4 workspace state.
+    if (const JsonValue* ws_val = root.findKey("workspace"); ws_val != nullptr && !ws_val->isNull()) {
+        auto ws_res = ProjectSerializer::decodeWorkspaceJson(
+            *ws_val,
+            &doc.preserved_fields.workspace_extra,
+            &doc.load_warnings);
+        if (!ws_res) {
+            return ws_res.error();
+        }
+        doc.workspace = std::move(ws_res.value());
+    }
+
     return core::Result<ProjectDocument>::ok(std::move(doc));
 }
 
 } // namespace
+
+JsonValue ProjectSerializer::encodeWorkspaceJson(
+    const WorkspaceState& state,
+    const JsonObject& extra_fields) {
+    JsonValue ws{JsonObject{}};
+    ws.setKey("layout_name", state.layout_name);
+    ws.setKey("focused_panel", std::string(workspacePanelSlug(state.focused_panel)));
+    ws.setKey("left_dock_width_ratio", static_cast<double>(state.left_dock_width_ratio));
+    ws.setKey("right_dock_width_ratio", static_cast<double>(state.right_dock_width_ratio));
+    ws.setKey("bottom_dock_height_ratio", static_cast<double>(state.bottom_dock_height_ratio));
+
+    JsonArray panels_arr;
+    panels_arr.reserve(state.panels.size());
+    for (const auto& p : state.panels) {
+        JsonValue p_obj{JsonObject{}};
+        p_obj.setKey("id", std::string(workspacePanelSlug(p.id)));
+        p_obj.setKey("visible", p.visible);
+        p_obj.setKey("dock_region", std::string(dockRegionSlug(p.dock_region)));
+        p_obj.setKey("tab_order", static_cast<std::uint64_t>(p.tab_order));
+        panels_arr.push_back(std::move(p_obj));
+    }
+    ws.setKey("panels", std::move(panels_arr));
+    appendExtraFields(ws, extra_fields);
+    return ws;
+}
+
+core::Result<WorkspaceState> ProjectSerializer::decodeWorkspaceJson(
+    const JsonValue& json,
+    JsonObject* out_extra_fields,
+    std::vector<std::string>* out_warnings) {
+    if (!json.isObject()) {
+        return core::Result<WorkspaceState>::fail(
+            core::ErrorCode::ValidationError,
+            "'workspace' must be a JSON object");
+    }
+
+    WorkspaceState ws{};
+    if (const auto* ln = json.findKey("layout_name"); ln != nullptr) {
+        if (!ln->isString() || ln->asString().empty()) {
+            return core::Result<WorkspaceState>::fail(
+                core::ErrorCode::ValidationError,
+                "'workspace.layout_name' must be a non-empty string");
+        }
+        ws.layout_name = ln->asString();
+    }
+    if (const auto* fp = json.findKey("focused_panel"); fp != nullptr) {
+        if (!fp->isString()) {
+            return core::Result<WorkspaceState>::fail(
+                core::ErrorCode::ValidationError,
+                "'workspace.focused_panel' must be a string");
+        }
+        const auto parsed_fp = parseWorkspacePanelSlug(fp->asString());
+        if (!parsed_fp.has_value()) {
+            return core::Result<WorkspaceState>::fail(
+                core::ErrorCode::ValidationError,
+                "Unknown workspace panel id: " + fp->asString());
+        }
+        ws.focused_panel = parsed_fp.value();
+    }
+    if (const auto* lw = json.findKey("left_dock_width_ratio"); lw != nullptr) {
+        auto v = decodeFloat(lw, "workspace.left_dock_width_ratio");
+        if (!v) return v.error();
+        ws.left_dock_width_ratio = std::clamp(v.value(), 0.08f, 0.45f);
+    }
+    if (const auto* rw = json.findKey("right_dock_width_ratio"); rw != nullptr) {
+        auto v = decodeFloat(rw, "workspace.right_dock_width_ratio");
+        if (!v) return v.error();
+        ws.right_dock_width_ratio = std::clamp(v.value(), 0.08f, 0.45f);
+    }
+    if (const auto* bh = json.findKey("bottom_dock_height_ratio"); bh != nullptr) {
+        auto v = decodeFloat(bh, "workspace.bottom_dock_height_ratio");
+        if (!v) return v.error();
+        ws.bottom_dock_height_ratio = std::clamp(v.value(), 0.08f, 0.50f);
+    }
+
+    if (const auto* panels_val = json.findKey("panels"); panels_val != nullptr) {
+        if (!panels_val->isArray()) {
+            return core::Result<WorkspaceState>::fail(
+                core::ErrorCode::ValidationError,
+                "'workspace.panels' must be an array");
+        }
+        for (const auto& p_json : panels_val->asArray()) {
+            if (!p_json.isObject()) {
+                return core::Result<WorkspaceState>::fail(
+                    core::ErrorCode::ValidationError,
+                    "Each entry in 'workspace.panels' must be an object");
+            }
+            const auto* id_val = p_json.findKey("id");
+            if (id_val == nullptr || !id_val->isString()) {
+                return core::Result<WorkspaceState>::fail(
+                    core::ErrorCode::ValidationError,
+                    "'workspace.panels[].id' must be a string");
+            }
+            const auto pid = parseWorkspacePanelSlug(id_val->asString());
+            if (!pid.has_value()) {
+                return core::Result<WorkspaceState>::fail(
+                    core::ErrorCode::ValidationError,
+                    "Unknown workspace panel slug: " + id_val->asString());
+            }
+            auto& slot = ws.panels[static_cast<std::size_t>(pid.value())];
+            if (const auto* vis = p_json.findKey("visible"); vis != nullptr) {
+                if (!vis->isBool()) {
+                    return core::Result<WorkspaceState>::fail(
+                        core::ErrorCode::ValidationError,
+                        "'workspace.panels[].visible' must be a boolean");
+                }
+                slot.visible = vis->asBool();
+            }
+            if (const auto* dr = p_json.findKey("dock_region"); dr != nullptr) {
+                if (!dr->isString()) {
+                    return core::Result<WorkspaceState>::fail(
+                        core::ErrorCode::ValidationError,
+                        "'workspace.panels[].dock_region' must be a string");
+                }
+                const auto reg = parseDockRegionSlug(dr->asString());
+                if (!reg.has_value()) {
+                    return core::Result<WorkspaceState>::fail(
+                        core::ErrorCode::ValidationError,
+                        "Unknown dock region: " + dr->asString());
+                }
+                slot.dock_region = reg.value();
+            }
+            if (const auto* ord = p_json.findKey("tab_order"); ord != nullptr) {
+                auto o_res = decodeUint64(ord, "workspace.panels[].tab_order");
+                if (!o_res) return o_res.error();
+                slot.tab_order = static_cast<std::uint32_t>(std::min<std::uint64_t>(o_res.value(), 1000u));
+            }
+        }
+    }
+
+    if (out_extra_fields != nullptr) {
+        captureUnknownFields(
+            json,
+            {"layout_name", "focused_panel", "left_dock_width_ratio",
+             "right_dock_width_ratio", "bottom_dock_height_ratio", "panels"},
+            "workspace",
+            *out_extra_fields,
+            out_warnings);
+    }
+
+    return core::Result<WorkspaceState>::ok(std::move(ws));
+}
 
 core::Result<std::string> ProjectSerializer::serializeToString(const ProjectDocument& document, bool pretty) {
     return serializeDocumentImpl(document, {}, nullptr, pretty);

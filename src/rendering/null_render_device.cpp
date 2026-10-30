@@ -36,6 +36,7 @@ core::Status NullRenderDevice::initialize(std::uint32_t width, std::uint32_t hei
 void NullRenderDevice::shutdown() noexcept {
     live_meshes_.clear();
     total_bytes_ = 0;
+    buffer_updates_ = 0;
     in_frame_ = false;
     initialized_ = false;
 }
@@ -67,6 +68,25 @@ core::Result<GpuMeshHandle> NullRenderDevice::createMesh(const scene::MeshData& 
     return core::Result<GpuMeshHandle>::ok(GpuMeshHandle{id});
 }
 
+core::Status NullRenderDevice::updateMesh(GpuMeshHandle handle, const scene::MeshData& mesh) {
+    if (!initialized_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "Device not initialized");
+    }
+    const auto it = live_meshes_.find(handle.value);
+    if (it == live_meshes_.end()) {
+        return core::Status::fail(core::ErrorCode::NotFound, "updateMesh referenced unknown GpuMeshHandle");
+    }
+    auto valid = mesh.validate();
+    if (!valid) {
+        return valid;
+    }
+    const std::size_t new_bytes = mesh.byteSize();
+    total_bytes_ = (total_bytes_ - it->second) + new_bytes;
+    it->second = new_bytes;
+    ++buffer_updates_;
+    return core::Status::ok();
+}
+
 void NullRenderDevice::destroyMesh(GpuMeshHandle handle) noexcept {
     const auto it = live_meshes_.find(handle.value);
     if (it != live_meshes_.end()) {
@@ -80,6 +100,13 @@ core::Status NullRenderDevice::beginFrame(const FrameClearDesc&) {
         return core::Status::fail(core::ErrorCode::InvalidState, "Invalid beginFrame state");
     }
     in_frame_ = true;
+    return core::Status::ok();
+}
+
+core::Status NullRenderDevice::beginOverlayPass(float) {
+    if (!initialized_ || !in_frame_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "beginOverlayPass called outside active frame");
+    }
     return core::Status::ok();
 }
 

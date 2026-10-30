@@ -24,14 +24,18 @@ public:
     [[nodiscard]] virtual const DeviceCapabilities& capabilities() const noexcept = 0;
 
     [[nodiscard]] virtual core::Result<GpuMeshHandle> createMesh(const scene::MeshData& mesh) = 0;
+    [[nodiscard]] virtual core::Status updateMesh(GpuMeshHandle handle, const scene::MeshData& mesh) = 0;
     virtual void destroyMesh(GpuMeshHandle handle) noexcept = 0;
 
     [[nodiscard]] virtual core::Status beginFrame(const FrameClearDesc& clear) = 0;
+    // Clears depth buffer only so 3D gizmos & edit-mode cages render cleanly over scene geometry.
+    [[nodiscard]] virtual core::Status beginOverlayPass(float clear_depth = 1.0f) = 0;
     [[nodiscard]] virtual core::Status drawMesh(const DrawMeshCommand& command) = 0;
     [[nodiscard]] virtual core::Status endFrame() = 0;
 
     [[nodiscard]] virtual std::size_t liveMeshCount() const noexcept = 0;
     [[nodiscard]] virtual std::size_t liveMeshBytes() const noexcept = 0;
+    [[nodiscard]] virtual std::size_t bufferUpdateCount() const noexcept { return 0; }
 };
 
 } // namespace finaleffect::rendering

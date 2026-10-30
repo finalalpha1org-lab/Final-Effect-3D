@@ -14,10 +14,12 @@ namespace finaleffect::scene {
 SetTransformCommand::SetTransformCommand(
     ObjectId object_id,
     const math::Transform& new_transform,
-    bool allow_coalesce)
+    bool allow_coalesce,
+    std::uint64_t coalesce_group)
     : object_id_(object_id),
       new_transform_(new_transform),
-      allow_coalesce_(allow_coalesce) {}
+      allow_coalesce_(allow_coalesce),
+      coalesce_group_(coalesce_group) {}
 
 core::Status SetTransformCommand::execute(Scene& scene) {
     const auto* obj = scene.findObject(object_id_);
@@ -43,7 +45,9 @@ bool SetTransformCommand::tryCoalesceWith(const ISceneCommand& incoming) noexcep
         return false;
     }
     const auto* next_tf = dynamic_cast<const SetTransformCommand*>(&incoming);
-    if (next_tf == nullptr || !next_tf->allow_coalesce_ || next_tf->object_id_ != object_id_) {
+    if (next_tf == nullptr || !next_tf->allow_coalesce_ ||
+        next_tf->object_id_ != object_id_ ||
+        next_tf->coalesce_group_ != coalesce_group_) {
         return false;
     }
     new_transform_ = next_tf->new_transform_;
@@ -59,13 +63,15 @@ CreateObjectCommand::CreateObjectCommand(
     math::Transform initial_transform,
     std::optional<MeshId> mesh_id,
     std::optional<CameraComponent> camera,
-    std::optional<DirectionalLightComponent> directional_light)
+    std::optional<DirectionalLightComponent> directional_light,
+    std::optional<MaterialId> material_id)
     : object_name_(std::move(object_name)),
       parent_id_(parent_id),
       initial_transform_(initial_transform),
       mesh_id_(mesh_id),
       camera_(camera),
-      directional_light_(directional_light) {}
+      directional_light_(directional_light),
+      material_id_(material_id) {}
 
 std::size_t CreateObjectCommand::estimatedBytes() const noexcept {
     return sizeof(*this) + object_name_.capacity();
@@ -103,6 +109,14 @@ core::Status CreateObjectCommand::execute(Scene& scene) {
         if (!m_st) {
             (void)scene.removeObject(created_id_, RemovalMode::Recursive);
             return m_st;
+        }
+    }
+
+    if (material_id_.has_value()) {
+        auto mat_st = scene.assignMaterial(created_id_, material_id_);
+        if (!mat_st) {
+            (void)scene.removeObject(created_id_, RemovalMode::Recursive);
+            return mat_st;
         }
     }
 
@@ -166,6 +180,7 @@ core::Status DeleteObjectCommand::execute(Scene& scene) {
             .local_transform = obj.local_transform,
             .parent_id = obj.parent_id,
             .mesh_id = obj.mesh_id,
+            .material_id = obj.material_id,
             .camera = obj.camera,
             .directional_light = obj.directional_light,
         };
@@ -207,6 +222,9 @@ core::Status DeleteObjectCommand::undo(Scene& scene) {
         if (auto tf_st = scene.setObjectTransform(snap.id, snap.local_transform); !tf_st) return tf_st;
         if (snap.mesh_id.has_value()) {
             if (auto m_st = scene.assignMesh(snap.id, snap.mesh_id); !m_st) return m_st;
+        }
+        if (snap.material_id.has_value() && scene.findMaterial(snap.material_id.value()) != nullptr) {
+            if (auto mat_st = scene.assignMaterial(snap.id, snap.material_id); !mat_st) return mat_st;
         }
         if (snap.camera.has_value()) {
             if (auto c_st = scene.assignCamera(snap.id, snap.camera); !c_st) return c_st;
@@ -385,6 +403,247 @@ bool SetDirectionalLightCommand::tryCoalesceWith(const ISceneCommand& incoming) 
     }
     new_light_ = next_light->new_light_;
     return true;
+}
+
+// -----------------------------------------------------------------------------
+// ModifyMeshCommand
+// -----------------------------------------------------------------------------
+ModifyMeshCommand::ModifyMeshCommand(
+    MeshId mesh_id,
+    EditableMesh new_mesh,
+    std::string label,
+    bool allow_coalesce,
+    std::uint64_t coalesce_group)
+    : mesh_id_(mesh_id),
+      new_mesh_(std::move(new_mesh)),
+      label_(label.empty() ? "Edit Mesh" : std::move(label)),
+      allow_coalesce_(allow_coalesce),
+      coalesce_group_(coalesce_group) {}
+
+std::size_t ModifyMeshCommand::estimatedBytes() const noexcept {
+    const std::size_t new_b = new_mesh_.vertexCount() * sizeof(EditVertex) +
+                              new_mesh_.faceCount() * sizeof(EditFace);
+    const std::size_t old_b = previous_mesh_.vertexCount() * sizeof(EditVertex) +
+                              previous_mesh_.faceCount() * sizeof(EditFace);
+    return sizeof(*this) + label_.capacity() + new_b + old_b;
+}
+
+core::Status ModifyMeshCommand::execute(Scene& scene) {
+    auto ensure_st = scene.ensureEditableMesh(mesh_id_);
+    if (!ensure_st) {
+        return ensure_st;
+    }
+    const auto* asset = scene.findMesh(mesh_id_);
+    if (asset == nullptr || !asset->editable_mesh.has_value()) {
+        return core::Status::fail(core::ErrorCode::NotFound, "ModifyMeshCommand target editable mesh not found");
+    }
+    if (!captured_previous_) {
+        previous_mesh_ = asset->editable_mesh.value();
+        captured_previous_ = true;
+    }
+    return scene.updateMeshEditable(mesh_id_, new_mesh_);
+}
+
+core::Status ModifyMeshCommand::undo(Scene& scene) {
+    if (!captured_previous_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "ModifyMeshCommand was never executed");
+    }
+    return scene.updateMeshEditable(mesh_id_, previous_mesh_);
+}
+
+bool ModifyMeshCommand::tryCoalesceWith(const ISceneCommand& incoming) noexcept {
+    if (!allow_coalesce_) {
+        return false;
+    }
+    const auto* next_m = dynamic_cast<const ModifyMeshCommand*>(&incoming);
+    if (next_m == nullptr || !next_m->allow_coalesce_ ||
+        next_m->mesh_id_ != mesh_id_ ||
+        next_m->coalesce_group_ != coalesce_group_) {
+        return false;
+    }
+    new_mesh_ = next_m->new_mesh_;
+    return true;
+}
+
+// -----------------------------------------------------------------------------
+// CreateMaterialCommand
+// -----------------------------------------------------------------------------
+CreateMaterialCommand::CreateMaterialCommand(PbrMaterial material, std::string label)
+    : material_(std::move(material)),
+      label_(label.empty() ? "Create Material" : std::move(label)) {}
+
+std::size_t CreateMaterialCommand::estimatedBytes() const noexcept {
+    return sizeof(*this) + material_.name.capacity() + label_.capacity();
+}
+
+core::Status CreateMaterialCommand::execute(Scene& scene) {
+    if (!created_id_.isValid()) {
+        auto res = scene.createMaterial(material_);
+        if (!res) {
+            return res.error();
+        }
+        created_id_ = res.value();
+        return core::Status::ok();
+    }
+    return scene.createMaterialWithId(created_id_, material_);
+}
+
+core::Status CreateMaterialCommand::undo(Scene& scene) {
+    if (!created_id_.isValid()) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "CreateMaterialCommand was never executed");
+    }
+    return scene.removeMaterial(created_id_);
+}
+
+// -----------------------------------------------------------------------------
+// UpdateMaterialCommand
+// -----------------------------------------------------------------------------
+UpdateMaterialCommand::UpdateMaterialCommand(
+    MaterialId material_id,
+    PbrMaterial updated_material,
+    bool allow_coalesce,
+    std::uint64_t coalesce_group)
+    : material_id_(material_id),
+      updated_material_(std::move(updated_material)),
+      allow_coalesce_(allow_coalesce),
+      coalesce_group_(coalesce_group) {}
+
+std::size_t UpdateMaterialCommand::estimatedBytes() const noexcept {
+    return sizeof(*this) + updated_material_.name.capacity() + previous_material_.name.capacity();
+}
+
+core::Status UpdateMaterialCommand::execute(Scene& scene) {
+    const auto* existing = scene.findMaterial(material_id_);
+    if (existing == nullptr) {
+        return core::Status::fail(core::ErrorCode::NotFound, "UpdateMaterialCommand target material not found");
+    }
+    if (!captured_previous_) {
+        previous_material_ = *existing;
+        captured_previous_ = true;
+    }
+    return scene.updateMaterial(material_id_, updated_material_);
+}
+
+core::Status UpdateMaterialCommand::undo(Scene& scene) {
+    if (!captured_previous_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "UpdateMaterialCommand was never executed");
+    }
+    return scene.updateMaterial(material_id_, previous_material_);
+}
+
+bool UpdateMaterialCommand::tryCoalesceWith(const ISceneCommand& incoming) noexcept {
+    if (!allow_coalesce_) {
+        return false;
+    }
+    const auto* next_mat = dynamic_cast<const UpdateMaterialCommand*>(&incoming);
+    if (next_mat == nullptr || !next_mat->allow_coalesce_ ||
+        next_mat->material_id_ != material_id_ ||
+        next_mat->coalesce_group_ != coalesce_group_) {
+        return false;
+    }
+    updated_material_ = next_mat->updated_material_;
+    return true;
+}
+
+// -----------------------------------------------------------------------------
+// DeleteMaterialCommand
+// -----------------------------------------------------------------------------
+DeleteMaterialCommand::DeleteMaterialCommand(MaterialId material_id)
+    : material_id_(material_id) {}
+
+std::size_t DeleteMaterialCommand::estimatedBytes() const noexcept {
+    return sizeof(*this) + snapshot_.name.capacity() +
+           affected_objects_.capacity() * sizeof(ObjectId) +
+           affected_faces_.capacity() * sizeof(FaceMaterialRef);
+}
+
+core::Status DeleteMaterialCommand::execute(Scene& scene) {
+    const auto* mat = scene.findMaterial(material_id_);
+    if (mat == nullptr) {
+        return core::Status::fail(core::ErrorCode::NotFound, "DeleteMaterialCommand target material not found");
+    }
+
+    snapshot_ = *mat;
+    affected_objects_.clear();
+    affected_faces_.clear();
+
+    for (const auto& obj : scene.objects()) {
+        if (obj.material_id.has_value() && obj.material_id.value() == material_id_) {
+            affected_objects_.push_back(obj.id);
+        }
+    }
+    for (const auto& mesh : scene.meshes()) {
+        if (mesh.editable_mesh.has_value()) {
+            const auto& faces = mesh.editable_mesh->faces();
+            for (std::size_t fi = 0; fi < faces.size(); ++fi) {
+                if (faces[fi].material_id == material_id_) {
+                    affected_faces_.push_back(FaceMaterialRef{
+                        .mesh_id = mesh.id,
+                        .face_index = static_cast<std::uint32_t>(fi),
+                    });
+                }
+            }
+        }
+    }
+    captured_ = true;
+    return scene.removeMaterial(material_id_);
+}
+
+core::Status DeleteMaterialCommand::undo(Scene& scene) {
+    if (!captured_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "DeleteMaterialCommand was never executed");
+    }
+    auto st = scene.createMaterialWithId(material_id_, snapshot_);
+    if (!st) {
+        return st;
+    }
+    for (const ObjectId obj_id : affected_objects_) {
+        if (scene.findObject(obj_id) != nullptr) {
+            (void)scene.assignMaterial(obj_id, material_id_);
+        }
+    }
+    // Restore per-face material assignments grouped by MeshId.
+    for (const auto& ref : affected_faces_) {
+        const auto* mesh_asset = scene.findMesh(ref.mesh_id);
+        if (mesh_asset != nullptr && mesh_asset->editable_mesh.has_value()) {
+            EditableMesh restored = mesh_asset->editable_mesh.value();
+            const std::uint32_t f_idx = ref.face_index;
+            if (restored.assignMaterialToFaces(std::span<const std::uint32_t>(&f_idx, 1), material_id_).hasValue()) {
+                (void)scene.updateMeshEditable(ref.mesh_id, std::move(restored));
+            }
+        }
+    }
+    return core::Status::ok();
+}
+
+// -----------------------------------------------------------------------------
+// AssignObjectMaterialCommand
+// -----------------------------------------------------------------------------
+AssignObjectMaterialCommand::AssignObjectMaterialCommand(
+    ObjectId object_id,
+    std::optional<MaterialId> material_id)
+    : object_id_(object_id), new_material_id_(material_id) {}
+
+core::Status AssignObjectMaterialCommand::execute(Scene& scene) {
+    const auto* obj = scene.findObject(object_id_);
+    if (obj == nullptr) {
+        return core::Status::fail(core::ErrorCode::NotFound, "AssignObjectMaterialCommand target object not found");
+    }
+    if (!captured_previous_) {
+        previous_material_id_ = obj->material_id;
+        captured_previous_ = true;
+    }
+    return scene.assignMaterial(object_id_, new_material_id_);
+}
+
+core::Status AssignObjectMaterialCommand::undo(Scene& scene) {
+    if (!captured_previous_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "AssignObjectMaterialCommand was never executed");
+    }
+    if (previous_material_id_.has_value() && scene.findMaterial(previous_material_id_.value()) == nullptr) {
+        return scene.assignMaterial(object_id_, std::nullopt);
+    }
+    return scene.assignMaterial(object_id_, previous_material_id_);
 }
 
 // -----------------------------------------------------------------------------

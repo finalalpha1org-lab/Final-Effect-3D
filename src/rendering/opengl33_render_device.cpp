@@ -3,6 +3,7 @@
 
 #include "finaleffect/rendering/opengl33_render_device.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -31,25 +32,29 @@ using GLfloat = float;
 using GLchar = char;
 using GLubyte = std::uint8_t;
 using GLsizeiptr = std::ptrdiff_t;
+using GLintptr = std::ptrdiff_t;
 
 constexpr GLboolean kGlFalse = 0;
+constexpr GLboolean kGlTrue = 1;
 constexpr GLenum kGlDepthBufferBit = 0x00000100u;
 constexpr GLenum kGlColorBufferBit = 0x00004000u;
 constexpr GLenum kGlTriangles = 0x0004u;
 constexpr GLenum kGlLess = 0x0201u;
+constexpr GLenum kGlSrcAlpha = 0x0302u;
+constexpr GLenum kGlOneMinusSrcAlpha = 0x0303u;
 constexpr GLenum kGlBack = 0x0405u;
 constexpr GLenum kGlCcw = 0x0901u;
 constexpr GLenum kGlCullFace = 0x0B44u;
 constexpr GLenum kGlDepthTest = 0x0B71u;
+constexpr GLenum kGlBlend = 0x0BE2u;
 constexpr GLenum kGlMaxViewportDims = 0x0D3Au;
 constexpr GLenum kGlUnsignedInt = 0x1405u;
 constexpr GLenum kGlFloat = 0x1406u;
-constexpr GLenum kGlVendor = 0x1F00u;
 constexpr GLenum kGlRenderer = 0x1F01u;
-constexpr GLenum kGlVersion = 0x1F02u;
 constexpr GLenum kGlArrayBuffer = 0x8892u;
 constexpr GLenum kGlElementArrayBuffer = 0x8893u;
 constexpr GLenum kGlStaticDraw = 0x88E4u;
+constexpr GLenum kGlDynamicDraw = 0x88E8u;
 constexpr GLenum kGlFragmentShader = 0x8B30u;
 constexpr GLenum kGlVertexShader = 0x8B31u;
 constexpr GLenum kGlCompileStatus = 0x8B81u;
@@ -69,20 +74,24 @@ uniform mat4 u_view_proj;
 out vec3 v_world_pos;
 out vec3 v_world_normal;
 out vec3 v_color;
+out vec2 v_uv;
 
 void main() {
     vec4 world_pos = u_model * vec4(a_position, 1.0);
     v_world_pos = world_pos.xyz;
     v_world_normal = normalize((u_normal_matrix * vec4(a_normal, 0.0)).xyz);
     v_color = a_color;
+    v_uv = a_uv;
     gl_Position = u_view_proj * world_pos;
 }
 )";
 
+// Energy-conserving metallic-roughness Cook-Torrance GGX + Schlick Fresnel PBR fragment shader.
 constexpr const char* kFragmentShaderGlsl330 = R"(#version 330 core
 in vec3 v_world_pos;
 in vec3 v_world_normal;
 in vec3 v_color;
+in vec2 v_uv;
 
 uniform vec3 u_camera_pos;
 uniform vec3 u_light_dir;
@@ -90,23 +99,93 @@ uniform vec3 u_light_radiance;
 uniform vec3 u_ambient;
 uniform vec3 u_selection_tint;
 
+uniform vec3 u_base_color;
+uniform vec3 u_pbr_params;        // x = metallic, y = roughness, z = ambient_occlusion
+uniform vec3 u_emissive_radiance;
+uniform vec3 u_surface_flags;     // x = opacity, y = vertex_color_weight, z = unlit_overlay
+
 out vec4 o_frag_color;
 
-void main() {
-    vec3 n = normalize(v_world_normal);
-    vec3 l = normalize(u_light_dir);
-    vec3 v = normalize(u_camera_pos - v_world_pos);
-    vec3 h = normalize(l + v);
+const float kPi = 3.14159265359;
 
+vec3 fresnelSchlick(float cos_theta, vec3 f0) {
+    float x = clamp(1.0 - cos_theta, 0.0, 1.0);
+    float x2 = x * x;
+    return f0 + (1.0 - f0) * (x2 * x2 * x);
+}
+
+float distributionGgx(float ndoth, float roughness) {
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float denom = ndoth * ndoth * (a2 - 1.0) + 1.0;
+    return a2 / max(kPi * denom * denom, 1.0e-6);
+}
+
+float geometrySchlickGgx(float ndotx, float k) {
+    return ndotx / max(ndotx * (1.0 - k) + k, 1.0e-5);
+}
+
+vec3 evalCookTorranceLobe(vec3 n, vec3 v, vec3 l, vec3 radiance, vec3 albedo, vec3 f0, float metallic, float roughness, float k_direct) {
     float ndotl = max(dot(n, l), 0.0);
-    float spec = (ndotl > 0.0) ? pow(max(dot(n, h), 0.0), 32.0) * 0.18 : 0.0;
-    float hemi = 0.5 * n.y + 0.5;
-    vec3 ambient_term = u_ambient * mix(0.75, 1.15, hemi);
-    float rim = 1.0 - max(dot(n, v), 0.0);
+    if (ndotl <= 0.0) {
+        return vec3(0.0);
+    }
+    float ndotv = max(dot(n, v), 1.0e-4);
+    vec3 h = normalize(v + l);
+    float ndoth = max(dot(n, h), 0.0);
+    float hdotv = max(dot(h, v), 0.0);
 
-    vec3 lit = v_color * (ambient_term + u_light_radiance * ndotl) + u_light_radiance * spec;
-    lit += u_selection_tint * (0.35 + 0.85 * rim * rim);
-    o_frag_color = vec4(clamp(lit, 0.0, 1.0), 1.0);
+    float ndf = distributionGgx(ndoth, roughness);
+    float geom = geometrySchlickGgx(ndotv, k_direct) * geometrySchlickGgx(ndotl, k_direct);
+    vec3 fresnel = fresnelSchlick(hdotv, f0);
+
+    vec3 kd = (vec3(1.0) - fresnel) * (1.0 - metallic);
+    vec3 diffuse = kd * albedo * (1.0 / kPi);
+    vec3 specular = (ndf * geom * fresnel) / max(4.0 * ndotv * ndotl, 1.0e-4);
+    return (diffuse + specular) * radiance * ndotl;
+}
+
+void main() {
+    float opacity = clamp(u_surface_flags.x, 0.0, 1.0);
+    vec3 weighted_vcol = mix(vec3(1.0), v_color, clamp(u_surface_flags.y, 0.0, 1.0));
+    vec3 albedo = u_base_color * weighted_vcol;
+
+    if (u_surface_flags.z > 0.5) {
+        o_frag_color = vec4(clamp(albedo + u_selection_tint, 0.0, 1.0), opacity);
+        return;
+    }
+
+    vec3 n = normalize(v_world_normal);
+    vec3 v = normalize(u_camera_pos - v_world_pos);
+    float ndotv = max(dot(n, v), 1.0e-4);
+
+    float metallic = clamp(u_pbr_params.x, 0.0, 1.0);
+    float roughness = clamp(u_pbr_params.y, 0.045, 1.0);
+    float ao = clamp(u_pbr_params.z, 0.0, 1.0);
+    float k_direct = ((roughness + 1.0) * (roughness + 1.0)) * 0.125;
+
+    vec3 f0 = mix(vec3(0.04), albedo, metallic);
+
+    vec3 key_l = normalize(u_light_dir);
+    vec3 fill_l = normalize(vec3(-0.55, 0.35, -0.65));
+
+    vec3 lo = evalCookTorranceLobe(n, v, key_l, u_light_radiance, albedo, f0, metallic, roughness, k_direct)
+            + evalCookTorranceLobe(n, v, fill_l, u_light_radiance * 0.22, albedo, f0, metallic, roughness, k_direct);
+
+    float sky = n.y * 0.5 + 0.5;
+    vec3 env_irradiance = u_ambient * (0.65 + 0.70 * sky);
+    vec3 f_env = fresnelSchlick(ndotv, f0);
+    vec3 kd_env = (vec3(1.0) - f_env) * (1.0 - metallic);
+    vec3 env_spec = f_env * env_irradiance * (1.0 - 0.75 * roughness);
+    vec3 ambient_term = (kd_env * albedo * env_irradiance + env_spec) * ao;
+
+    vec3 hdr = ambient_term + lo + u_emissive_radiance;
+    float rim = 1.0 - ndotv;
+    hdr += u_selection_tint * (0.30 + 0.80 * rim * rim);
+
+    vec3 mapped = hdr / (vec3(1.0) + max(hdr, vec3(0.0)));
+    vec3 srgb = pow(clamp(mapped, 0.0, 1.0), vec3(1.0 / 2.2));
+    o_frag_color = vec4(srgb, opacity);
 }
 )";
 
@@ -121,6 +200,9 @@ struct OpenGL33RenderDevice::GlDispatchTable {
     void (FE_GL_APIENTRY* ClearDepth)(double) = nullptr;
     void (FE_GL_APIENTRY* Clear)(GLbitfield) = nullptr;
     void (FE_GL_APIENTRY* Enable)(GLenum) = nullptr;
+    void (FE_GL_APIENTRY* Disable)(GLenum) = nullptr;
+    void (FE_GL_APIENTRY* BlendFunc)(GLenum, GLenum) = nullptr;
+    void (FE_GL_APIENTRY* DepthMask)(GLboolean) = nullptr;
     void (FE_GL_APIENTRY* DepthFunc)(GLenum) = nullptr;
     void (FE_GL_APIENTRY* CullFace)(GLenum) = nullptr;
     void (FE_GL_APIENTRY* FrontFace)(GLenum) = nullptr;
@@ -133,6 +215,7 @@ struct OpenGL33RenderDevice::GlDispatchTable {
     void (FE_GL_APIENTRY* GenBuffers)(GLsizei, GLuint*) = nullptr;
     void (FE_GL_APIENTRY* BindBuffer)(GLenum, GLuint) = nullptr;
     void (FE_GL_APIENTRY* BufferData)(GLenum, GLsizeiptr, const void*, GLenum) = nullptr;
+    void (FE_GL_APIENTRY* BufferSubData)(GLenum, GLintptr, GLsizeiptr, const void*) = nullptr;
     void (FE_GL_APIENTRY* DeleteBuffers)(GLsizei, const GLuint*) = nullptr;
 
     void (FE_GL_APIENTRY* VertexAttribPointer)(GLuint, GLint, GLenum, GLboolean, GLsizei, const void*) = nullptr;
@@ -198,6 +281,13 @@ core::Status OpenGL33RenderDevice::initialize(std::uint32_t width, std::uint32_t
         std::memcpy(&target_fn, &raw, sizeof(target_fn));
         return true;
     };
+    auto loadOptSym = [&](auto& target_fn, const char* name) {
+        const auto raw = proc_loader_(name);
+        if (raw != nullptr) {
+            static_assert(sizeof(target_fn) == sizeof(raw));
+            std::memcpy(&target_fn, &raw, sizeof(target_fn));
+        }
+    };
 
     const bool all_loaded =
         loadSym(gl_->GetString, "glGetString") &&
@@ -244,6 +334,11 @@ core::Status OpenGL33RenderDevice::initialize(std::uint32_t width, std::uint32_t
             "Failed to resolve required OpenGL 3.3 Core entry point",
             missing_symbol);
     }
+
+    loadOptSym(gl_->BufferSubData, "glBufferSubData");
+    loadOptSym(gl_->Disable, "glDisable");
+    loadOptSym(gl_->BlendFunc, "glBlendFunc");
+    loadOptSym(gl_->DepthMask, "glDepthMask");
 
     if (const GLubyte* renderer_str = gl_->GetString(kGlRenderer); renderer_str != nullptr) {
         capabilities_.device_name = reinterpret_cast<const char*>(renderer_str);
@@ -355,6 +450,10 @@ core::Status OpenGL33RenderDevice::buildShaderPipeline() {
     loc_light_radiance_ = gl_->GetUniformLocation(shader_program_, "u_light_radiance");
     loc_ambient_ = gl_->GetUniformLocation(shader_program_, "u_ambient");
     loc_selection_tint_ = gl_->GetUniformLocation(shader_program_, "u_selection_tint");
+    loc_base_color_ = gl_->GetUniformLocation(shader_program_, "u_base_color");
+    loc_pbr_params_ = gl_->GetUniformLocation(shader_program_, "u_pbr_params");
+    loc_emissive_radiance_ = gl_->GetUniformLocation(shader_program_, "u_emissive_radiance");
+    loc_surface_flags_ = gl_->GetUniformLocation(shader_program_, "u_surface_flags");
     return core::Status::ok();
 }
 
@@ -371,6 +470,7 @@ void OpenGL33RenderDevice::shutdown() noexcept {
     }
     meshes_.clear();
     total_gpu_bytes_ = 0;
+    buffer_updates_ = 0;
 
     if (shader_program_ != 0) {
         gl_->UseProgram(0);
@@ -425,21 +525,16 @@ core::Result<GpuMeshHandle> OpenGL33RenderDevice::createMesh(const scene::MeshDa
             "Failed to allocate OpenGL VAO/VBO/EBO");
     }
 
+    const std::size_t vbo_bytes = mesh.vertices.size() * sizeof(scene::Vertex);
+    const std::size_t ebo_bytes = mesh.indices.size() * sizeof(std::uint32_t);
+
     gl_->BindVertexArray(rec.vao);
 
     gl_->BindBuffer(kGlArrayBuffer, rec.vbo);
-    gl_->BufferData(
-        kGlArrayBuffer,
-        static_cast<GLsizeiptr>(mesh.vertices.size() * sizeof(scene::Vertex)),
-        mesh.vertices.data(),
-        kGlStaticDraw);
+    gl_->BufferData(kGlArrayBuffer, static_cast<GLsizeiptr>(vbo_bytes), mesh.vertices.data(), kGlStaticDraw);
 
     gl_->BindBuffer(kGlElementArrayBuffer, rec.ebo);
-    gl_->BufferData(
-        kGlElementArrayBuffer,
-        static_cast<GLsizeiptr>(mesh.indices.size() * sizeof(std::uint32_t)),
-        mesh.indices.data(),
-        kGlStaticDraw);
+    gl_->BufferData(kGlElementArrayBuffer, static_cast<GLsizeiptr>(ebo_bytes), mesh.indices.data(), kGlStaticDraw);
 
     constexpr auto stride = static_cast<GLsizei>(sizeof(scene::Vertex));
     const auto pos_offset = offsetof(scene::Vertex, position);
@@ -464,11 +559,62 @@ core::Result<GpuMeshHandle> OpenGL33RenderDevice::createMesh(const scene::MeshDa
 
     rec.index_count = static_cast<GLsizei>(mesh.indices.size());
     rec.byte_size = mesh.byteSize();
+    rec.vbo_capacity_bytes = vbo_bytes;
+    rec.ebo_capacity_bytes = ebo_bytes;
 
     const std::uint64_t handle_val = next_handle_++;
     total_gpu_bytes_ += rec.byte_size;
     meshes_.emplace(handle_val, rec);
     return core::Result<GpuMeshHandle>::ok(GpuMeshHandle{handle_val});
+}
+
+core::Status OpenGL33RenderDevice::updateMesh(GpuMeshHandle handle, const scene::MeshData& mesh) {
+    if (!initialized_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "Device not initialized");
+    }
+    const auto it = meshes_.find(handle.value);
+    if (it == meshes_.end()) {
+        return core::Status::fail(core::ErrorCode::NotFound, "updateMesh referenced unknown GpuMeshHandle");
+    }
+    auto valid = mesh.validate();
+    if (!valid) {
+        return valid;
+    }
+    if (mesh.indices.size() > static_cast<std::size_t>(std::numeric_limits<GLsizei>::max())) {
+        return core::Status::fail(core::ErrorCode::InvalidArgument, "Mesh index count exceeds OpenGL GLsizei limit");
+    }
+
+    GpuMeshRecord& rec = it->second;
+    const std::size_t vbo_bytes = mesh.vertices.size() * sizeof(scene::Vertex);
+    const std::size_t ebo_bytes = mesh.indices.size() * sizeof(std::uint32_t);
+
+    gl_->BindVertexArray(rec.vao);
+
+    gl_->BindBuffer(kGlArrayBuffer, rec.vbo);
+    if (gl_->BufferSubData != nullptr && vbo_bytes <= rec.vbo_capacity_bytes) {
+        gl_->BufferSubData(kGlArrayBuffer, 0, static_cast<GLsizeiptr>(vbo_bytes), mesh.vertices.data());
+    } else {
+        gl_->BufferData(kGlArrayBuffer, static_cast<GLsizeiptr>(vbo_bytes), mesh.vertices.data(), kGlDynamicDraw);
+        rec.vbo_capacity_bytes = vbo_bytes;
+    }
+
+    gl_->BindBuffer(kGlElementArrayBuffer, rec.ebo);
+    if (gl_->BufferSubData != nullptr && ebo_bytes <= rec.ebo_capacity_bytes) {
+        gl_->BufferSubData(kGlElementArrayBuffer, 0, static_cast<GLsizeiptr>(ebo_bytes), mesh.indices.data());
+    } else {
+        gl_->BufferData(kGlElementArrayBuffer, static_cast<GLsizeiptr>(ebo_bytes), mesh.indices.data(), kGlDynamicDraw);
+        rec.ebo_capacity_bytes = ebo_bytes;
+    }
+
+    gl_->BindVertexArray(0);
+    gl_->BindBuffer(kGlArrayBuffer, 0);
+
+    const std::size_t new_byte_size = mesh.byteSize();
+    total_gpu_bytes_ = (total_gpu_bytes_ - rec.byte_size) + new_byte_size;
+    rec.byte_size = new_byte_size;
+    rec.index_count = static_cast<GLsizei>(mesh.indices.size());
+    ++buffer_updates_;
+    return core::Status::ok();
 }
 
 void OpenGL33RenderDevice::destroyMesh(GpuMeshHandle handle) noexcept {
@@ -509,6 +655,20 @@ core::Status OpenGL33RenderDevice::beginFrame(const FrameClearDesc& clear) {
     return core::Status::ok();
 }
 
+core::Status OpenGL33RenderDevice::beginOverlayPass(float clear_depth) {
+    if (!initialized_ || !in_frame_) {
+        return core::Status::fail(
+            core::ErrorCode::InvalidState,
+            "OpenGL33RenderDevice::beginOverlayPass called outside active frame");
+    }
+    if (width_ == 0 || height_ == 0) {
+        return core::Status::ok();
+    }
+    gl_->ClearDepth(static_cast<double>(clear_depth));
+    gl_->Clear(kGlDepthBufferBit);
+    return core::Status::ok();
+}
+
 core::Status OpenGL33RenderDevice::drawMesh(const DrawMeshCommand& command) {
     if (!initialized_ || !in_frame_) {
         return core::Status::fail(core::ErrorCode::InvalidState, "drawMesh called outside active frame");
@@ -520,6 +680,16 @@ core::Status OpenGL33RenderDevice::drawMesh(const DrawMeshCommand& command) {
     if (width_ == 0 || height_ == 0) {
         return core::Status::ok();
     }
+
+    const GpuMeshRecord& rec = it->second;
+    const auto total_idx = static_cast<std::uint32_t>(rec.index_count);
+    if (command.index_offset >= total_idx) {
+        return core::Status::ok();
+    }
+    const std::uint32_t max_rem = total_idx - command.index_offset;
+    const std::uint32_t draw_count = (command.index_count == 0)
+                                         ? max_rem
+                                         : std::min(command.index_count, max_rem);
 
     const auto inv_model = command.model_matrix.inverted();
     const math::Mat4 normal_matrix =
@@ -567,10 +737,59 @@ core::Status OpenGL33RenderDevice::drawMesh(const DrawMeshCommand& command) {
         };
         gl_->Uniform3fv(loc_selection_tint_, 1, tint);
     }
+    if (loc_base_color_ >= 0) {
+        const float bc[3] = {
+            command.surface.base_color.x,
+            command.surface.base_color.y,
+            command.surface.base_color.z,
+        };
+        gl_->Uniform3fv(loc_base_color_, 1, bc);
+    }
+    if (loc_pbr_params_ >= 0) {
+        const float pbr[3] = {
+            command.surface.metallic,
+            command.surface.roughness,
+            command.surface.ambient_occlusion,
+        };
+        gl_->Uniform3fv(loc_pbr_params_, 1, pbr);
+    }
+    if (loc_emissive_radiance_ >= 0) {
+        const float em[3] = {
+            command.surface.emissive_radiance.x,
+            command.surface.emissive_radiance.y,
+            command.surface.emissive_radiance.z,
+        };
+        gl_->Uniform3fv(loc_emissive_radiance_, 1, em);
+    }
+    if (loc_surface_flags_ >= 0) {
+        const float flags[3] = {
+            command.surface.opacity,
+            command.surface.vertex_color_weight,
+            command.surface.unlit_overlay ? 1.0f : 0.0f,
+        };
+        gl_->Uniform3fv(loc_surface_flags_, 1, flags);
+    }
 
-    gl_->BindVertexArray(it->second.vao);
-    gl_->DrawElements(kGlTriangles, it->second.index_count, kGlUnsignedInt, nullptr);
+    const bool translucent = (command.surface.opacity < 0.999f) && !command.surface.unlit_overlay;
+    if (translucent && gl_->BlendFunc != nullptr && gl_->Disable != nullptr && gl_->DepthMask != nullptr) {
+        gl_->Enable(kGlBlend);
+        gl_->BlendFunc(kGlSrcAlpha, kGlOneMinusSrcAlpha);
+        gl_->DepthMask(kGlFalse);
+    }
+
+    const auto byte_offset = static_cast<std::uintptr_t>(command.index_offset) * sizeof(std::uint32_t);
+    gl_->BindVertexArray(rec.vao);
+    gl_->DrawElements(
+        kGlTriangles,
+        static_cast<GLsizei>(draw_count),
+        kGlUnsignedInt,
+        reinterpret_cast<const void*>(byte_offset));
     gl_->BindVertexArray(0);
+
+    if (translucent && gl_->BlendFunc != nullptr && gl_->Disable != nullptr && gl_->DepthMask != nullptr) {
+        gl_->DepthMask(kGlTrue);
+        gl_->Disable(kGlBlend);
+    }
     return core::Status::ok();
 }
 

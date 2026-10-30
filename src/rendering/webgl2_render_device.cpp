@@ -3,6 +3,7 @@
 
 #include "finaleffect/rendering/webgl2_render_device.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -30,16 +31,21 @@ using GLfloat = float;
 using GLchar = char;
 using GLubyte = std::uint8_t;
 using GLsizeiptr = std::ptrdiff_t;
+using GLintptr = std::ptrdiff_t;
 
 constexpr GLboolean kGlFalse = 0;
+constexpr GLboolean kGlTrue = 1;
 constexpr GLenum kGlDepthBufferBit = 0x00000100u;
 constexpr GLenum kGlColorBufferBit = 0x00004000u;
 constexpr GLenum kGlTriangles = 0x0004u;
 constexpr GLenum kGlLess = 0x0201u;
+constexpr GLenum kGlSrcAlpha = 0x0302u;
+constexpr GLenum kGlOneMinusSrcAlpha = 0x0303u;
 constexpr GLenum kGlBack = 0x0405u;
 constexpr GLenum kGlCcw = 0x0901u;
 constexpr GLenum kGlCullFace = 0x0B44u;
 constexpr GLenum kGlDepthTest = 0x0B71u;
+constexpr GLenum kGlBlend = 0x0BE2u;
 constexpr GLenum kGlMaxViewportDims = 0x0D3Au;
 constexpr GLenum kGlUnsignedInt = 0x1405u;
 constexpr GLenum kGlFloat = 0x1406u;
@@ -47,6 +53,7 @@ constexpr GLenum kGlRenderer = 0x1F01u;
 constexpr GLenum kGlArrayBuffer = 0x8892u;
 constexpr GLenum kGlElementArrayBuffer = 0x8893u;
 constexpr GLenum kGlStaticDraw = 0x88E4u;
+constexpr GLenum kGlDynamicDraw = 0x88E8u;
 constexpr GLenum kGlFragmentShader = 0x8B30u;
 constexpr GLenum kGlVertexShader = 0x8B31u;
 constexpr GLenum kGlCompileStatus = 0x8B81u;
@@ -67,39 +74,96 @@ constexpr const char* kVertexShaderGlslEs300 =
     "out vec3 v_world_pos;\n"
     "out vec3 v_world_normal;\n"
     "out vec3 v_color;\n"
+    "out vec2 v_uv;\n"
     "void main() {\n"
     "    vec4 world_pos = u_model * vec4(a_position, 1.0);\n"
     "    v_world_pos = world_pos.xyz;\n"
     "    v_world_normal = normalize((u_normal_matrix * vec4(a_normal, 0.0)).xyz);\n"
     "    v_color = a_color;\n"
+    "    v_uv = a_uv;\n"
     "    gl_Position = u_view_proj * world_pos;\n"
     "}\n";
 
+// Energy-conserving metallic-roughness Cook-Torrance GGX + Schlick Fresnel PBR fragment shader (GLSL ES 3.00).
 constexpr const char* kFragmentShaderGlslEs300 =
     "#version 300 es\n"
     "precision highp float;\n"
     "in vec3 v_world_pos;\n"
     "in vec3 v_world_normal;\n"
     "in vec3 v_color;\n"
+    "in vec2 v_uv;\n"
     "uniform vec3 u_camera_pos;\n"
     "uniform vec3 u_light_dir;\n"
     "uniform vec3 u_light_radiance;\n"
     "uniform vec3 u_ambient;\n"
     "uniform vec3 u_selection_tint;\n"
+    "uniform vec3 u_base_color;\n"
+    "uniform vec3 u_pbr_params;\n"
+    "uniform vec3 u_emissive_radiance;\n"
+    "uniform vec3 u_surface_flags;\n"
     "out vec4 o_frag_color;\n"
-    "void main() {\n"
-    "    vec3 n = normalize(v_world_normal);\n"
-    "    vec3 l = normalize(u_light_dir);\n"
-    "    vec3 v = normalize(u_camera_pos - v_world_pos);\n"
-    "    vec3 h = normalize(l + v);\n"
+    "const float kPi = 3.14159265359;\n"
+    "vec3 fresnelSchlick(float cos_theta, vec3 f0) {\n"
+    "    float x = clamp(1.0 - cos_theta, 0.0, 1.0);\n"
+    "    float x2 = x * x;\n"
+    "    return f0 + (1.0 - f0) * (x2 * x2 * x);\n"
+    "}\n"
+    "float distributionGgx(float ndoth, float roughness) {\n"
+    "    float a = roughness * roughness;\n"
+    "    float a2 = a * a;\n"
+    "    float denom = ndoth * ndoth * (a2 - 1.0) + 1.0;\n"
+    "    return a2 / max(kPi * denom * denom, 1.0e-6);\n"
+    "}\n"
+    "float geometrySchlickGgx(float ndotx, float k) {\n"
+    "    return ndotx / max(ndotx * (1.0 - k) + k, 1.0e-5);\n"
+    "}\n"
+    "vec3 evalCookTorranceLobe(vec3 n, vec3 v, vec3 l, vec3 radiance, vec3 albedo, vec3 f0, float metallic, float roughness, float k_direct) {\n"
     "    float ndotl = max(dot(n, l), 0.0);\n"
-    "    float spec = (ndotl > 0.0) ? pow(max(dot(n, h), 0.0), 32.0) * 0.18 : 0.0;\n"
-    "    float hemi = 0.5 * n.y + 0.5;\n"
-    "    vec3 ambient_term = u_ambient * mix(0.75, 1.15, hemi);\n"
-    "    float rim = 1.0 - max(dot(n, v), 0.0);\n"
-    "    vec3 lit = v_color * (ambient_term + u_light_radiance * ndotl) + u_light_radiance * spec;\n"
-    "    lit += u_selection_tint * (0.35 + 0.85 * rim * rim);\n"
-    "    o_frag_color = vec4(clamp(lit, 0.0, 1.0), 1.0);\n"
+    "    if (ndotl <= 0.0) { return vec3(0.0); }\n"
+    "    float ndotv = max(dot(n, v), 1.0e-4);\n"
+    "    vec3 h = normalize(v + l);\n"
+    "    float ndoth = max(dot(n, h), 0.0);\n"
+    "    float hdotv = max(dot(h, v), 0.0);\n"
+    "    float ndf = distributionGgx(ndoth, roughness);\n"
+    "    float geom = geometrySchlickGgx(ndotv, k_direct) * geometrySchlickGgx(ndotl, k_direct);\n"
+    "    vec3 fresnel = fresnelSchlick(hdotv, f0);\n"
+    "    vec3 kd = (vec3(1.0) - fresnel) * (1.0 - metallic);\n"
+    "    vec3 diffuse = kd * albedo * (1.0 / kPi);\n"
+    "    vec3 specular = (ndf * geom * fresnel) / max(4.0 * ndotv * ndotl, 1.0e-4);\n"
+    "    return (diffuse + specular) * radiance * ndotl;\n"
+    "}\n"
+    "void main() {\n"
+    "    float opacity = clamp(u_surface_flags.x, 0.0, 1.0);\n"
+    "    vec3 weighted_vcol = mix(vec3(1.0), v_color, clamp(u_surface_flags.y, 0.0, 1.0));\n"
+    "    vec3 albedo = u_base_color * weighted_vcol;\n"
+    "    if (u_surface_flags.z > 0.5) {\n"
+    "        o_frag_color = vec4(clamp(albedo + u_selection_tint, 0.0, 1.0), opacity);\n"
+    "        return;\n"
+    "    }\n"
+    "    vec3 n = normalize(v_world_normal);\n"
+    "    vec3 v = normalize(u_camera_pos - v_world_pos);\n"
+    "    float ndotv = max(dot(n, v), 1.0e-4);\n"
+    "    float metallic = clamp(u_pbr_params.x, 0.0, 1.0);\n"
+    "    float roughness = clamp(u_pbr_params.y, 0.045, 1.0);\n"
+    "    float ao = clamp(u_pbr_params.z, 0.0, 1.0);\n"
+    "    float k_direct = ((roughness + 1.0) * (roughness + 1.0)) * 0.125;\n"
+    "    vec3 f0 = mix(vec3(0.04), albedo, metallic);\n"
+    "    vec3 key_l = normalize(u_light_dir);\n"
+    "    vec3 fill_l = normalize(vec3(-0.55, 0.35, -0.65));\n"
+    "    vec3 lo = evalCookTorranceLobe(n, v, key_l, u_light_radiance, albedo, f0, metallic, roughness, k_direct)\n"
+    "            + evalCookTorranceLobe(n, v, fill_l, u_light_radiance * 0.22, albedo, f0, metallic, roughness, k_direct);\n"
+    "    float sky = n.y * 0.5 + 0.5;\n"
+    "    vec3 env_irradiance = u_ambient * (0.65 + 0.70 * sky);\n"
+    "    vec3 f_env = fresnelSchlick(ndotv, f0);\n"
+    "    vec3 kd_env = (vec3(1.0) - f_env) * (1.0 - metallic);\n"
+    "    vec3 env_spec = f_env * env_irradiance * (1.0 - 0.75 * roughness);\n"
+    "    vec3 ambient_term = (kd_env * albedo * env_irradiance + env_spec) * ao;\n"
+    "    vec3 hdr = ambient_term + lo + u_emissive_radiance;\n"
+    "    float rim = 1.0 - ndotv;\n"
+    "    hdr += u_selection_tint * (0.30 + 0.80 * rim * rim);\n"
+    "    vec3 mapped = hdr / (vec3(1.0) + max(hdr, vec3(0.0)));\n"
+    "    vec3 srgb = pow(clamp(mapped, 0.0, 1.0), vec3(1.0 / 2.2));\n"
+    "    o_frag_color = vec4(srgb, opacity);\n"
     "}\n";
 
 } // namespace
@@ -113,6 +177,9 @@ struct WebGL2RenderDevice::GlEs3DispatchTable {
     void (FE_GLES_APIENTRY* ClearDepthf)(GLfloat) = nullptr;
     void (FE_GLES_APIENTRY* Clear)(GLbitfield) = nullptr;
     void (FE_GLES_APIENTRY* Enable)(GLenum) = nullptr;
+    void (FE_GLES_APIENTRY* Disable)(GLenum) = nullptr;
+    void (FE_GLES_APIENTRY* BlendFunc)(GLenum, GLenum) = nullptr;
+    void (FE_GLES_APIENTRY* DepthMask)(GLboolean) = nullptr;
     void (FE_GLES_APIENTRY* DepthFunc)(GLenum) = nullptr;
     void (FE_GLES_APIENTRY* CullFace)(GLenum) = nullptr;
     void (FE_GLES_APIENTRY* FrontFace)(GLenum) = nullptr;
@@ -125,6 +192,7 @@ struct WebGL2RenderDevice::GlEs3DispatchTable {
     void (FE_GLES_APIENTRY* GenBuffers)(GLsizei, GLuint*) = nullptr;
     void (FE_GLES_APIENTRY* BindBuffer)(GLenum, GLuint) = nullptr;
     void (FE_GLES_APIENTRY* BufferData)(GLenum, GLsizeiptr, const void*, GLenum) = nullptr;
+    void (FE_GLES_APIENTRY* BufferSubData)(GLenum, GLintptr, GLsizeiptr, const void*) = nullptr;
     void (FE_GLES_APIENTRY* DeleteBuffers)(GLsizei, const GLuint*) = nullptr;
 
     void (FE_GLES_APIENTRY* VertexAttribPointer)(GLuint, GLint, GLenum, GLboolean, GLsizei, const void*) = nullptr;
@@ -154,8 +222,8 @@ WebGL2RenderDevice::WebGL2RenderDevice(platform::GlProcLoaderFn proc_loader)
     : proc_loader_(proc_loader),
       gl_(std::make_unique<GlEs3DispatchTable>()) {
     capabilities_.backend = BackendType::WebGL2;
-    capabilities_.backend_name = "WebGL 2.0 (OpenGL ES 3.0)";
-    capabilities_.device_name = "Uninitialized WebGL2 Device";
+    capabilities_.backend_name = "WebGL 2.0";
+    capabilities_.device_name = "Uninitialized WebGL 2.0 Context";
     capabilities_.clip_space_depth = math::ClipSpaceDepth::NegativeOneToOne;
     capabilities_.max_viewport_dimension = 4096;
 }
@@ -176,7 +244,7 @@ core::Status WebGL2RenderDevice::initialize(std::uint32_t width, std::uint32_t h
     if (width == 0 || height == 0) {
         return core::Status::fail(
             core::ErrorCode::InvalidArgument,
-            "Initial WebGL2 canvas dimensions must be non-zero");
+            "Initial WebGL 2.0 framebuffer dimensions must be non-zero");
     }
 
     std::string missing_symbol;
@@ -189,6 +257,13 @@ core::Status WebGL2RenderDevice::initialize(std::uint32_t width, std::uint32_t h
         static_assert(sizeof(target_fn) == sizeof(raw));
         std::memcpy(&target_fn, &raw, sizeof(target_fn));
         return true;
+    };
+    auto loadOptSym = [&](auto& target_fn, const char* name) {
+        const auto raw = proc_loader_(name);
+        if (raw != nullptr) {
+            static_assert(sizeof(target_fn) == sizeof(raw));
+            std::memcpy(&target_fn, &raw, sizeof(target_fn));
+        }
     };
 
     const bool all_loaded =
@@ -236,6 +311,11 @@ core::Status WebGL2RenderDevice::initialize(std::uint32_t width, std::uint32_t h
             "Failed to resolve required WebGL 2.0 / GLES 3.0 entry point",
             missing_symbol);
     }
+
+    loadOptSym(gl_->BufferSubData, "glBufferSubData");
+    loadOptSym(gl_->Disable, "glDisable");
+    loadOptSym(gl_->BlendFunc, "glBlendFunc");
+    loadOptSym(gl_->DepthMask, "glDepthMask");
 
     if (const GLubyte* renderer_str = gl_->GetString(kGlRenderer); renderer_str != nullptr) {
         capabilities_.device_name = reinterpret_cast<const char*>(renderer_str);
@@ -347,6 +427,10 @@ core::Status WebGL2RenderDevice::buildShaderPipeline() {
     loc_light_radiance_ = gl_->GetUniformLocation(shader_program_, "u_light_radiance");
     loc_ambient_ = gl_->GetUniformLocation(shader_program_, "u_ambient");
     loc_selection_tint_ = gl_->GetUniformLocation(shader_program_, "u_selection_tint");
+    loc_base_color_ = gl_->GetUniformLocation(shader_program_, "u_base_color");
+    loc_pbr_params_ = gl_->GetUniformLocation(shader_program_, "u_pbr_params");
+    loc_emissive_radiance_ = gl_->GetUniformLocation(shader_program_, "u_emissive_radiance");
+    loc_surface_flags_ = gl_->GetUniformLocation(shader_program_, "u_surface_flags");
     return core::Status::ok();
 }
 
@@ -363,6 +447,7 @@ void WebGL2RenderDevice::shutdown() noexcept {
     }
     meshes_.clear();
     total_gpu_bytes_ = 0;
+    buffer_updates_ = 0;
 
     if (shader_program_ != 0) {
         gl_->UseProgram(0);
@@ -417,21 +502,16 @@ core::Result<GpuMeshHandle> WebGL2RenderDevice::createMesh(const scene::MeshData
             "Failed to allocate WebGL2 VAO/VBO/EBO");
     }
 
+    const std::size_t vbo_bytes = mesh.vertices.size() * sizeof(scene::Vertex);
+    const std::size_t ebo_bytes = mesh.indices.size() * sizeof(std::uint32_t);
+
     gl_->BindVertexArray(rec.vao);
 
     gl_->BindBuffer(kGlArrayBuffer, rec.vbo);
-    gl_->BufferData(
-        kGlArrayBuffer,
-        static_cast<GLsizeiptr>(mesh.vertices.size() * sizeof(scene::Vertex)),
-        mesh.vertices.data(),
-        kGlStaticDraw);
+    gl_->BufferData(kGlArrayBuffer, static_cast<GLsizeiptr>(vbo_bytes), mesh.vertices.data(), kGlStaticDraw);
 
     gl_->BindBuffer(kGlElementArrayBuffer, rec.ebo);
-    gl_->BufferData(
-        kGlElementArrayBuffer,
-        static_cast<GLsizeiptr>(mesh.indices.size() * sizeof(std::uint32_t)),
-        mesh.indices.data(),
-        kGlStaticDraw);
+    gl_->BufferData(kGlElementArrayBuffer, static_cast<GLsizeiptr>(ebo_bytes), mesh.indices.data(), kGlStaticDraw);
 
     constexpr auto stride = static_cast<GLsizei>(sizeof(scene::Vertex));
     const auto pos_offset = offsetof(scene::Vertex, position);
@@ -456,11 +536,62 @@ core::Result<GpuMeshHandle> WebGL2RenderDevice::createMesh(const scene::MeshData
 
     rec.index_count = static_cast<GLsizei>(mesh.indices.size());
     rec.byte_size = mesh.byteSize();
+    rec.vbo_capacity_bytes = vbo_bytes;
+    rec.ebo_capacity_bytes = ebo_bytes;
 
     const std::uint64_t handle_val = next_handle_++;
     total_gpu_bytes_ += rec.byte_size;
     meshes_.emplace(handle_val, rec);
     return core::Result<GpuMeshHandle>::ok(GpuMeshHandle{handle_val});
+}
+
+core::Status WebGL2RenderDevice::updateMesh(GpuMeshHandle handle, const scene::MeshData& mesh) {
+    if (!initialized_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "Device not initialized");
+    }
+    const auto it = meshes_.find(handle.value);
+    if (it == meshes_.end()) {
+        return core::Status::fail(core::ErrorCode::NotFound, "updateMesh referenced unknown GpuMeshHandle");
+    }
+    auto valid = mesh.validate();
+    if (!valid) {
+        return valid;
+    }
+    if (mesh.indices.size() > static_cast<std::size_t>(std::numeric_limits<GLsizei>::max())) {
+        return core::Status::fail(core::ErrorCode::InvalidArgument, "Mesh index count exceeds WebGL2 GLsizei limit");
+    }
+
+    GpuMeshRecord& rec = it->second;
+    const std::size_t vbo_bytes = mesh.vertices.size() * sizeof(scene::Vertex);
+    const std::size_t ebo_bytes = mesh.indices.size() * sizeof(std::uint32_t);
+
+    gl_->BindVertexArray(rec.vao);
+
+    gl_->BindBuffer(kGlArrayBuffer, rec.vbo);
+    if (gl_->BufferSubData != nullptr && vbo_bytes <= rec.vbo_capacity_bytes) {
+        gl_->BufferSubData(kGlArrayBuffer, 0, static_cast<GLsizeiptr>(vbo_bytes), mesh.vertices.data());
+    } else {
+        gl_->BufferData(kGlArrayBuffer, static_cast<GLsizeiptr>(vbo_bytes), mesh.vertices.data(), kGlDynamicDraw);
+        rec.vbo_capacity_bytes = vbo_bytes;
+    }
+
+    gl_->BindBuffer(kGlElementArrayBuffer, rec.ebo);
+    if (gl_->BufferSubData != nullptr && ebo_bytes <= rec.ebo_capacity_bytes) {
+        gl_->BufferSubData(kGlElementArrayBuffer, 0, static_cast<GLsizeiptr>(ebo_bytes), mesh.indices.data());
+    } else {
+        gl_->BufferData(kGlElementArrayBuffer, static_cast<GLsizeiptr>(ebo_bytes), mesh.indices.data(), kGlDynamicDraw);
+        rec.ebo_capacity_bytes = ebo_bytes;
+    }
+
+    gl_->BindVertexArray(0);
+    gl_->BindBuffer(kGlArrayBuffer, 0);
+
+    const std::size_t new_byte_size = mesh.byteSize();
+    total_gpu_bytes_ = (total_gpu_bytes_ - rec.byte_size) + new_byte_size;
+    rec.byte_size = new_byte_size;
+    rec.index_count = static_cast<GLsizei>(mesh.indices.size());
+    ++buffer_updates_;
+    return core::Status::ok();
 }
 
 void WebGL2RenderDevice::destroyMesh(GpuMeshHandle handle) noexcept {
@@ -501,6 +632,20 @@ core::Status WebGL2RenderDevice::beginFrame(const FrameClearDesc& clear) {
     return core::Status::ok();
 }
 
+core::Status WebGL2RenderDevice::beginOverlayPass(float clear_depth) {
+    if (!initialized_ || !in_frame_) {
+        return core::Status::fail(
+            core::ErrorCode::InvalidState,
+            "WebGL2RenderDevice::beginOverlayPass called outside active frame");
+    }
+    if (width_ == 0 || height_ == 0) {
+        return core::Status::ok();
+    }
+    gl_->ClearDepthf(clear_depth);
+    gl_->Clear(kGlDepthBufferBit);
+    return core::Status::ok();
+}
+
 core::Status WebGL2RenderDevice::drawMesh(const DrawMeshCommand& command) {
     if (!initialized_ || !in_frame_) {
         return core::Status::fail(core::ErrorCode::InvalidState, "drawMesh called outside active frame");
@@ -512,6 +657,16 @@ core::Status WebGL2RenderDevice::drawMesh(const DrawMeshCommand& command) {
     if (width_ == 0 || height_ == 0) {
         return core::Status::ok();
     }
+
+    const GpuMeshRecord& rec = it->second;
+    const auto total_idx = static_cast<std::uint32_t>(rec.index_count);
+    if (command.index_offset >= total_idx) {
+        return core::Status::ok();
+    }
+    const std::uint32_t max_rem = total_idx - command.index_offset;
+    const std::uint32_t draw_count = (command.index_count == 0)
+                                         ? max_rem
+                                         : std::min(command.index_count, max_rem);
 
     const auto inv_model = command.model_matrix.inverted();
     const math::Mat4 normal_matrix =
@@ -559,10 +714,59 @@ core::Status WebGL2RenderDevice::drawMesh(const DrawMeshCommand& command) {
         };
         gl_->Uniform3fv(loc_selection_tint_, 1, tint);
     }
+    if (loc_base_color_ >= 0) {
+        const float bc[3] = {
+            command.surface.base_color.x,
+            command.surface.base_color.y,
+            command.surface.base_color.z,
+        };
+        gl_->Uniform3fv(loc_base_color_, 1, bc);
+    }
+    if (loc_pbr_params_ >= 0) {
+        const float pbr[3] = {
+            command.surface.metallic,
+            command.surface.roughness,
+            command.surface.ambient_occlusion,
+        };
+        gl_->Uniform3fv(loc_pbr_params_, 1, pbr);
+    }
+    if (loc_emissive_radiance_ >= 0) {
+        const float em[3] = {
+            command.surface.emissive_radiance.x,
+            command.surface.emissive_radiance.y,
+            command.surface.emissive_radiance.z,
+        };
+        gl_->Uniform3fv(loc_emissive_radiance_, 1, em);
+    }
+    if (loc_surface_flags_ >= 0) {
+        const float flags[3] = {
+            command.surface.opacity,
+            command.surface.vertex_color_weight,
+            command.surface.unlit_overlay ? 1.0f : 0.0f,
+        };
+        gl_->Uniform3fv(loc_surface_flags_, 1, flags);
+    }
 
-    gl_->BindVertexArray(it->second.vao);
-    gl_->DrawElements(kGlTriangles, it->second.index_count, kGlUnsignedInt, nullptr);
+    const bool translucent = (command.surface.opacity < 0.999f) && !command.surface.unlit_overlay;
+    if (translucent && gl_->BlendFunc != nullptr && gl_->Disable != nullptr && gl_->DepthMask != nullptr) {
+        gl_->Enable(kGlBlend);
+        gl_->BlendFunc(kGlSrcAlpha, kGlOneMinusSrcAlpha);
+        gl_->DepthMask(kGlFalse);
+    }
+
+    const auto byte_offset = static_cast<std::uintptr_t>(command.index_offset) * sizeof(std::uint32_t);
+    gl_->BindVertexArray(rec.vao);
+    gl_->DrawElements(
+        kGlTriangles,
+        static_cast<GLsizei>(draw_count),
+        kGlUnsignedInt,
+        reinterpret_cast<const void*>(byte_offset));
     gl_->BindVertexArray(0);
+
+    if (translucent && gl_->BlendFunc != nullptr && gl_->Disable != nullptr && gl_->DepthMask != nullptr) {
+        gl_->DepthMask(kGlTrue);
+        gl_->Disable(kGlBlend);
+    }
     return core::Status::ok();
 }
 

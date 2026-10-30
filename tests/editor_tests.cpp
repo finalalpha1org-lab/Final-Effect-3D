@@ -151,19 +151,22 @@ FE_TEST(Editor, InlineJsonAndBinaryBundleProjectRoundTrip) {
         added_light.value(),
         scene::DirectionalLightComponent{.color = {0.8f, 0.9f, 1.0f}, .intensity = 2.25f}).hasValue());
 
-    // Export inline JSON, verify backward-compatible v1.0 schema load as well as v1.1 load.
+    // Export inline JSON (v1.2), verify backward-compatible v1.0 and v1.1 schema loads as well as v1.2 load.
     const auto inline_json_res = rig.editor->exportInlineProjectJson();
     FE_REQUIRE_TRUE(inline_json_res.hasValue());
 
     std::string legacy_v10_json = inline_json_res.value();
-    const auto minor_pos = legacy_v10_json.find("\"minor\": 1");
+    const auto minor_pos = legacy_v10_json.find("\"minor\": 2");
     FE_REQUIRE_TRUE(minor_pos != std::string::npos);
+    std::string legacy_v11_json = legacy_v10_json;
     legacy_v10_json.replace(minor_pos, 10, "\"minor\": 0");
+    legacy_v11_json.replace(minor_pos, 10, "\"minor\": 1");
 
     FE_REQUIRE_TRUE(rig.editor->newStarterProject().hasValue());
     FE_EXPECT_EQ(rig.session->document().metadata.project_name, std::string("Final Effect 3D Starter Project"));
     FE_EXPECT_EQ(rig.session->document().scene.objectCount(), static_cast<std::size_t>(6));
 
+    FE_REQUIRE_TRUE(rig.editor->importInlineProjectJson(legacy_v11_json).hasValue());
     FE_REQUIRE_TRUE(rig.editor->importInlineProjectJson(legacy_v10_json).hasValue());
     FE_EXPECT_EQ(rig.session->document().metadata.project_name, std::string("Studio Stage 3 Test"));
     FE_EXPECT_EQ(rig.session->document().scene.name(), std::string("AuthoredScene"));
@@ -186,6 +189,87 @@ FE_TEST(Editor, InlineJsonAndBinaryBundleProjectRoundTrip) {
     FE_EXPECT_EQ(rig.session->document().scene.objectCount(), static_cast<std::size_t>(7));
 
     std::filesystem::remove_all(tmp_dir, ec);
+}
+
+FE_TEST(Editor, Stage4MeshEditingMaterialsLivePreviewAndWorkspaceRoundTrip) {
+    EditorTestRig rig;
+    FE_REQUIRE_TRUE(rig.init(240, 160));
+
+    const auto* hero = rig.session->document().scene.findObjectByName("HeroCube");
+    FE_REQUIRE_TRUE(hero != nullptr);
+    FE_REQUIRE_TRUE(rig.editor->selectObject(hero->id).hasValue());
+
+    // 1. Enter Face Edit mode, select top face (4), extrude +0.4, then delete top cap, select boundary loop & re-cap!
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(R"({"action":"set_editor_mode","mode":"face"})").hasValue());
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(
+        R"({"action":"select_mesh_element","kind":"face","index":4,"additive":false})").hasValue());
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(
+        R"({"action":"extrude_selected_faces","distance":0.4})").hasValue());
+
+    const auto* ma_after_ext = rig.session->document().scene.findMesh(hero->mesh_id.value());
+    FE_REQUIRE_TRUE(ma_after_ext != nullptr && ma_after_ext->editable_mesh.has_value());
+    FE_EXPECT_EQ(ma_after_ext->editable_mesh->faceCount(), std::size_t{10}); // 6 -> 10 quad faces
+
+    // Delete the newly extruded cap face -> 9 faces (open boundary loop of 4 vertices), then fill it back to 10!
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(R"({"action":"delete_mesh_selection"})").hasValue());
+    FE_EXPECT_EQ(ma_after_ext->editable_mesh->faceCount(), std::size_t{9});
+
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(R"({"action":"select_boundary_loop"})").hasValue());
+    FE_EXPECT_EQ(rig.session->meshSelection().vertices.size(), std::size_t{4});
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(R"({"action":"fill_selected_face"})").hasValue());
+    FE_EXPECT_EQ(ma_after_ext->editable_mesh->faceCount(), std::size_t{10});
+
+    // Reject invalid topology: trying to fill a face on a closed mesh must fail cleanly without mutating!
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(R"({"action":"set_editor_mode","mode":"vertex"})").hasValue());
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(
+        R"({"action":"select_mesh_element","kind":"vertex","index":0,"additive":true})").hasValue());
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(
+        R"({"action":"select_mesh_element","kind":"vertex","index":1,"additive":true})").hasValue());
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(
+        R"({"action":"select_mesh_element","kind":"vertex","index":2,"additive":true})").hasValue());
+    FE_EXPECT_TRUE(rig.editor->executeActionJson(R"({"action":"fill_selected_face"})").isError());
+    FE_EXPECT_EQ(ma_after_ext->editable_mesh->faceCount(), std::size_t{10});
+
+    // 2. PBR Material creation, parameter editing, live 3D sphere preview generation bump, face assignment & safe delete!
+    const auto gen_before = rig.editor->materialPreviewGeneration();
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(
+        R"({"action":"create_material","name":"NeonGold","base_color":[1.0,0.78,0.22],"metallic":0.95,"roughness":0.10})").hasValue());
+    const auto gold_id = rig.editor->selectedMaterial();
+    FE_REQUIRE_TRUE(gold_id.isValid());
+    FE_EXPECT_TRUE(rig.editor->materialPreviewGeneration() > gen_before);
+
+    const auto gen_mid = rig.editor->materialPreviewGeneration();
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(
+        "{\"action\":\"update_material\",\"id\":" + std::to_string(gold_id.value) +
+        ",\"emissive_color\":[0.2,0.9,1.0],\"emissive_strength\":2.5,\"opacity\":0.85}").hasValue());
+    FE_EXPECT_TRUE(rig.editor->materialPreviewGeneration() > gen_mid);
+
+    // Assign NeonGold to extruded face 0!
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(
+        R"({"action":"select_mesh_element","kind":"face","index":0,"additive":false})").hasValue());
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(
+        "{\"action\":\"assign_face_material\",\"material_id\":" + std::to_string(gold_id.value) + "}").hasValue());
+    FE_EXPECT_EQ(ma_after_ext->editable_mesh->faces()[0].material_id, gold_id);
+
+    // 3. Switch workspace preset to Shading & gizmo to Rotate Local, serialize .fe3d v1.2, reset, and reload!
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(R"({"action":"apply_workspace_preset","preset":"shading"})").hasValue());
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(R"({"action":"set_gizmo_mode","mode":"rotate"})").hasValue());
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(R"({"action":"set_gizmo_space","space":"local"})").hasValue());
+
+    const auto saved_v12 = rig.editor->exportInlineProjectJson();
+    FE_REQUIRE_TRUE(saved_v12.hasValue());
+
+    FE_REQUIRE_TRUE(rig.editor->newStarterProject().hasValue());
+    FE_REQUIRE_TRUE(rig.editor->importInlineProjectJson(saved_v12.value()).hasValue());
+
+    FE_EXPECT_EQ(rig.session->editorMode(), scene::EditMode::Face);
+    FE_EXPECT_EQ(rig.session->gizmo().mode(), app::GizmoMode::Rotate);
+    FE_EXPECT_EQ(rig.session->gizmo().space(), app::GizmoSpace::Local);
+    FE_EXPECT_EQ(rig.session->workspace().state().layout_name, std::string("Shading"));
+    const auto* reloaded_hero = rig.session->document().scene.findObjectByName("HeroCube");
+    const auto* reloaded_mesh = rig.session->document().scene.findMesh(reloaded_hero->mesh_id.value());
+    FE_EXPECT_EQ(reloaded_mesh->editable_mesh->faceCount(), std::size_t{10});
+    FE_EXPECT_TRUE(rig.session->document().scene.findMaterialByName("NeonGold") != nullptr);
 }
 
 } // namespace

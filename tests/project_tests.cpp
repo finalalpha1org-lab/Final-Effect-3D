@@ -277,6 +277,132 @@ FE_TEST(Project, BinaryAssetBundleDeduplicationCrcAndPathTraversalProtection) {
     std::filesystem::remove_all(temp_dir, ec);
 }
 
+FE_TEST(Project, Stage4EditableMeshMaterialsEditorStateAndWorkspaceRoundTrip) {
+    ProjectDocument doc;
+    doc.metadata.project_name = "Stage 4 Studio Project";
+    doc.scene.setName("SculptAndShade");
+
+    const auto titanium = doc.scene.createMaterial(scene::PbrMaterial{
+        .name = "Titanium",
+        .base_color = {0.72f, 0.75f, 0.79f},
+        .metallic = 1.0f,
+        .roughness = 0.24f,
+        .ambient_occlusion = 0.95f,
+    }).value();
+
+    const auto neon = doc.scene.createMaterial(scene::PbrMaterial{
+        .name = "NeonCyan",
+        .base_color = {0.10f, 0.85f, 0.95f},
+        .metallic = 0.0f,
+        .roughness = 0.18f,
+        .ambient_occlusion = 1.0f,
+        .emissive_color = {0.10f, 0.90f, 1.0f},
+        .emissive_strength = 2.5f,
+        .opacity = 0.80f,
+    }).value();
+
+    scene::EditableMesh cube = scene::EditableMesh::createCube(2.0f);
+    const std::uint32_t top_face = 4;
+    FE_REQUIRE_TRUE(cube.extrudeFaces({&top_face, 1}, 0.8f).hasValue());
+    FE_REQUIRE_TRUE(cube.assignMaterialToFaces({&top_face, 1}, neon).hasValue());
+
+    const auto mesh_id = doc.scene.registerEditableMesh("ExtrudedHero", std::move(cube)).value();
+    const auto obj_id = doc.scene.createObject("HeroAsset").value();
+    FE_REQUIRE_TRUE(doc.scene.assignMesh(obj_id, mesh_id).hasValue());
+    FE_REQUIRE_TRUE(doc.scene.assignMaterial(obj_id, titanium).hasValue());
+
+    doc.editor_state.edit_mode = scene::EditMode::Face;
+    doc.editor_state.gizmo_tool = "rotate";
+    doc.editor_state.gizmo_space = "local";
+    doc.editor_state.selected_object_id = obj_id;
+    doc.editor_state.active_material_id = neon;
+    doc.editor_state.mesh_selection.faces = {4u};
+
+    doc.workspace.layout_name = "Shading";
+    doc.workspace.focused_panel = WorkspacePanelId::MaterialEditor;
+    doc.workspace.left_dock_width_ratio = 0.21f;
+    doc.workspace.panels[static_cast<std::size_t>(WorkspacePanelId::Timeline)].visible = true;
+
+    const auto json_a = ProjectSerializer::serializeToString(doc).value();
+    const auto loaded_res = ProjectSerializer::deserializeFromString(json_a);
+    FE_REQUIRE_TRUE(loaded_res.hasValue());
+    const auto& loaded = loaded_res.value();
+
+    FE_EXPECT_EQ(loaded.scene.materialCount(), std::size_t{2});
+    FE_EXPECT_TRUE(loaded.scene.findMaterial(neon)->approxEqualProperties(*doc.scene.findMaterial(neon)));
+    FE_EXPECT_EQ(loaded.scene.findObject(obj_id)->material_id.value(), titanium);
+
+    const auto* loaded_mesh = loaded.scene.findMesh(mesh_id);
+    FE_REQUIRE_TRUE(loaded_mesh != nullptr && loaded_mesh->editable_mesh.has_value());
+    FE_EXPECT_EQ(loaded_mesh->editable_mesh->vertexCount(), std::size_t{12});
+    FE_EXPECT_EQ(loaded_mesh->editable_mesh->faceCount(), std::size_t{10});
+    FE_EXPECT_EQ(loaded_mesh->editable_mesh->faces()[4].material_id, neon);
+    FE_EXPECT_EQ(loaded_mesh->data.submeshes.size(), std::size_t{2});
+
+    FE_EXPECT_EQ(loaded.editor_state.edit_mode, scene::EditMode::Face);
+    FE_EXPECT_EQ(loaded.editor_state.gizmo_tool, std::string("rotate"));
+    FE_EXPECT_EQ(loaded.editor_state.gizmo_space, std::string("local"));
+    FE_EXPECT_EQ(loaded.editor_state.selected_object_id, obj_id);
+    FE_EXPECT_EQ(loaded.editor_state.active_material_id, neon);
+    FE_EXPECT_EQ(loaded.editor_state.mesh_selection.faces.size(), std::size_t{1});
+
+    FE_EXPECT_EQ(loaded.workspace.layout_name, std::string("Shading"));
+    FE_EXPECT_EQ(loaded.workspace.focused_panel, WorkspacePanelId::MaterialEditor);
+    FE_EXPECT_TRUE(loaded.workspace.panels[static_cast<std::size_t>(WorkspacePanelId::Timeline)].visible);
+
+    const auto json_b = ProjectSerializer::serializeToString(loaded).value();
+    FE_EXPECT_EQ(json_a, json_b);
+}
+
+FE_TEST(Project, BackwardCompatibilityV10V11AndLosslessUnknownFieldPreservation) {
+    const char* legacy_v10_with_extensions = R"({
+        "format": "finaleffect.project",
+        "schema_version": { "major": 1, "minor": 0 },
+        "coordinate_system": "right-handed-y-up",
+        "metadata": {
+            "project_name": "Legacy V1.0 Asset",
+            "studio_pipeline_tag": "archive-2026"
+        },
+        "scene": {
+            "name": "LegacyScene",
+            "custom_environment_note": "hdri-placeholder",
+            "objects": [
+                {
+                    "id": 1,
+                    "name": "EmptyPivot",
+                    "parent_id": 0,
+                    "local_transform": { "position": [1, 2, 3], "rotation": [0, 0, 0, 1], "scale": [1, 1, 1] },
+                    "user_tag": "hero_anchor"
+                }
+            ]
+        },
+        "custom_plugin_data": { "version": 3, "enabled": true }
+    })";
+
+    const auto loaded_res = ProjectSerializer::deserializeFromString(legacy_v10_with_extensions);
+    FE_REQUIRE_TRUE(loaded_res.hasValue());
+    const auto& loaded = loaded_res.value();
+
+    FE_EXPECT_EQ(loaded.metadata.project_name, std::string("Legacy V1.0 Asset"));
+    FE_EXPECT_EQ(loaded.scene.objectCount(), std::size_t{1});
+    // Unknown extension fields are explicitly flagged in load_warnings AND preserved on re-save!
+    FE_EXPECT_TRUE(loaded.load_warnings.size() >= std::size_t{4});
+
+    const auto saved_text = ProjectSerializer::serializeToString(loaded).value();
+    const auto reparsed = parseJson(saved_text).value();
+    FE_REQUIRE_TRUE(reparsed.findKey("custom_plugin_data") != nullptr);
+    FE_EXPECT_EQ(reparsed.findKey("custom_plugin_data")->findKey("enabled")->asBool(), true);
+    FE_EXPECT_EQ(
+        reparsed.findKey("metadata")->findKey("studio_pipeline_tag")->asString(),
+        std::string("archive-2026"));
+    FE_EXPECT_EQ(
+        reparsed.findKey("scene")->findKey("custom_environment_note")->asString(),
+        std::string("hdri-placeholder"));
+    FE_EXPECT_EQ(
+        reparsed.findKey("scene")->findKey("objects")->asArray()[0].findKey("user_tag")->asString(),
+        std::string("hero_anchor"));
+}
+
 } // namespace
 
 int main(int argc, char** argv) {

@@ -165,6 +165,120 @@ FE_TEST(Viewport, InteractivePickingOrbitDeleteAndUndoRedoSession) {
     window.shutdown();
 }
 
+FE_TEST(Viewport, Stage4InteractiveGizmoDragCancelAndMeshFacePicking) {
+    platform::HeadlessWindow window;
+    FE_REQUIRE_TRUE(window.initialize({.title = "GizmoViewportTest", .width = 400, .height = 300}).hasValue());
+
+    core::EngineConfig cfg;
+    cfg.minimum_log_level = core::LogLevel::Error;
+    core::Engine engine(cfg);
+
+    app::StudioSession session(
+        window,
+        std::make_unique<rendering::SoftwareRenderDevice>(),
+        app::StudioSessionConfig{.animate_showcase_rig = false});
+
+    FE_REQUIRE_TRUE(engine.initialize(&session).hasValue());
+    FE_REQUIRE_TRUE(engine.stepFrame().hasValue());
+
+    const auto* hero = session.document().scene.findObjectByName("HeroCube");
+    FE_REQUIRE_TRUE(hero != nullptr);
+    const scene::ObjectId hero_id = hero->id;
+    const math::Vec3 orig_pos = hero->local_transform.position;
+    session.setSelectedObject(hero_id);
+
+    // Project a point 65% along the active +X Translate handle to exact screen coordinates!
+    const auto frame = session.computeActiveGizmoFrame();
+    FE_REQUIRE_TRUE(frame.has_value());
+    const math::Vec3 handle_world_pt = frame->origin + frame->axes[0] * (frame->scale * 0.65f);
+
+    const auto* cam_obj = session.document().scene.findObject(session.document().scene.activeCamera());
+    const math::Mat4 view = session.document().scene.computeWorldMatrix(cam_obj->id).value().inverted().value();
+    const math::Mat4 proj = cam_obj->camera->computeProjectionMatrix(400.0f / 300.0f);
+    const math::Vec4 clip = (proj * view) * math::Vec4{handle_world_pt.x, handle_world_pt.y, handle_world_pt.z, 1.0f};
+    const float sx = ((clip.x / clip.w) * 0.5f + 0.5f) * 400.0f;
+    const float sy = (0.5f - (clip.y / clip.w) * 0.5f) * 300.0f;
+
+    // 1. Hover over +X handle -> sets hoveredHandle() to TranslateX!
+    window.pushInputEvent(platform::CursorMoveEvent{.x = sx, .y = sy});
+    FE_REQUIRE_TRUE(engine.stepFrame().hasValue());
+    FE_EXPECT_EQ(session.hoveredGizmoHandle(), app::GizmoHandle::TranslateX);
+
+    // 2. Begin drag on +X handle, drag right, then press Escape -> cancels cleanly without polluting Undo!
+    window.pushInputEvent(platform::MouseButtonEvent{
+        .button = platform::MouseButton::Left,
+        .action = platform::KeyAction::Press,
+        .x = sx,
+        .y = sy,
+    });
+    window.pushInputEvent(platform::CursorMoveEvent{.x = sx + 48.0, .y = sy});
+    FE_REQUIRE_TRUE(engine.stepFrame().hasValue());
+    FE_EXPECT_TRUE(session.isGizmoDragging());
+    FE_EXPECT_EQ(session.selectedObject(), hero_id); // Never reselects background object during drag!
+    FE_EXPECT_TRUE((session.document().scene.findObject(hero_id)->local_transform.position - orig_pos).length() > 0.05f);
+
+    window.pushInputEvent(platform::KeyEvent{.key = platform::KeyCode::Escape, .action = platform::KeyAction::Press});
+    window.pushInputEvent(platform::MouseButtonEvent{
+        .button = platform::MouseButton::Left,
+        .action = platform::KeyAction::Release,
+        .x = sx + 48.0,
+        .y = sy,
+    });
+    FE_REQUIRE_TRUE(engine.stepFrame().hasValue());
+    FE_EXPECT_FALSE(session.isGizmoDragging());
+    FE_EXPECT_TRUE(session.document().scene.findObject(hero_id)->local_transform.position.approxEqual(orig_pos, 1e-4f));
+    FE_EXPECT_EQ(session.commandStack().undoCount(), std::size_t{0});
+
+    // 3. Commit a real +X drag -> pushes exactly ONE atomic Undo command and supports Undo/Redo!
+    window.pushInputEvent(platform::MouseButtonEvent{
+        .button = platform::MouseButton::Left,
+        .action = platform::KeyAction::Press,
+        .x = sx,
+        .y = sy,
+    });
+    window.pushInputEvent(platform::CursorMoveEvent{.x = sx + 30.0, .y = sy});
+    window.pushInputEvent(platform::CursorMoveEvent{.x = sx + 60.0, .y = sy});
+    window.pushInputEvent(platform::MouseButtonEvent{
+        .button = platform::MouseButton::Left,
+        .action = platform::KeyAction::Release,
+        .x = sx + 60.0,
+        .y = sy,
+    });
+    FE_REQUIRE_TRUE(engine.stepFrame().hasValue());
+    const math::Vec3 dragged_pos = session.document().scene.findObject(hero_id)->local_transform.position;
+    FE_EXPECT_TRUE(dragged_pos.x > orig_pos.x + 0.1f);
+    FE_EXPECT_EQ(session.commandStack().undoCount(), std::size_t{1});
+
+    window.pushInputEvent(platform::KeyEvent{
+        .key = platform::KeyCode::Z,
+        .action = platform::KeyAction::Press,
+        .mods = {.ctrl = true},
+    });
+    FE_REQUIRE_TRUE(engine.stepFrame().hasValue());
+    FE_EXPECT_TRUE(session.document().scene.findObject(hero_id)->local_transform.position.approxEqual(orig_pos, 1e-4f));
+
+    // 4. Press Tab to enter Face Edit mode on HeroCube and click viewport center to pick a polygon face!
+    window.pushInputEvent(platform::KeyEvent{.key = platform::KeyCode::Tab, .action = platform::KeyAction::Press});
+    window.pushInputEvent(platform::MouseButtonEvent{
+        .button = platform::MouseButton::Left,
+        .action = platform::KeyAction::Press,
+        .x = 200.0,
+        .y = 150.0,
+    });
+    window.pushInputEvent(platform::MouseButtonEvent{
+        .button = platform::MouseButton::Left,
+        .action = platform::KeyAction::Release,
+        .x = 200.0,
+        .y = 150.0,
+    });
+    FE_REQUIRE_TRUE(engine.stepFrame().hasValue());
+    FE_EXPECT_EQ(session.editorMode(), scene::EditMode::Face);
+    FE_EXPECT_EQ(session.meshSelection().faces.size(), std::size_t{1});
+
+    engine.shutdown();
+    window.shutdown();
+}
+
 } // namespace
 
 int main(int argc, char** argv) {

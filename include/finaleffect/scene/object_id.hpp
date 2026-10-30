@@ -26,6 +26,14 @@ struct MeshId {
     constexpr auto operator<=>(const MeshId&) const noexcept = default;
 };
 
+struct MaterialId {
+    std::uint64_t value{0};
+
+    [[nodiscard]] static constexpr MaterialId invalid() noexcept { return MaterialId{0}; }
+    [[nodiscard]] constexpr bool isValid() const noexcept { return value != 0; }
+    constexpr auto operator<=>(const MaterialId&) const noexcept = default;
+};
+
 } // namespace finaleffect::scene
 
 namespace std {
@@ -40,6 +48,13 @@ struct hash<finaleffect::scene::ObjectId> {
 template <>
 struct hash<finaleffect::scene::MeshId> {
     std::size_t operator()(const finaleffect::scene::MeshId& id) const noexcept {
+        return std::hash<std::uint64_t>{}(id.value);
+    }
+};
+
+template <>
+struct hash<finaleffect::scene::MaterialId> {
+    std::size_t operator()(const finaleffect::scene::MaterialId& id) const noexcept {
         return std::hash<std::uint64_t>{}(id.value);
     }
 };

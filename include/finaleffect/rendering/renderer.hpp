@@ -11,12 +11,19 @@
 
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <unordered_map>
+#include <vector>
 
 namespace finaleffect::rendering {
 
-// High-level portable renderer: bridges Scene data to an abstract IRenderDevice
-// while keeping GPU/backend mesh handles completely separate from Scene objects.
+struct ViewportOverlayMesh {
+    const scene::MeshData* mesh_data{nullptr};
+    math::Mat4 model_matrix{math::Mat4::identity()};
+};
+
+// High-level portable renderer: bridges Scene data, PBR materials, submeshes, and
+// 3D viewport overlays to an abstract IRenderDevice without leaking GPU handles into Scene.
 class Renderer {
 public:
     explicit Renderer(std::unique_ptr<IRenderDevice> device);
@@ -32,7 +39,8 @@ public:
     [[nodiscard]] core::Status renderScene(
         const scene::Scene& scene,
         const FrameClearDesc& clear = {},
-        scene::ObjectId selected_object = {});
+        scene::ObjectId selected_object = {},
+        std::span<const ViewportOverlayMesh> overlays = {});
 
     void releaseSceneResources() noexcept;
 
@@ -49,12 +57,14 @@ private:
     };
 
     [[nodiscard]] core::Result<GpuMeshHandle> ensureMeshUploaded(const scene::MeshAsset& asset);
+    [[nodiscard]] core::Result<GpuMeshHandle> uploadOverlaySlot(std::size_t slot_index, const scene::MeshData& mesh);
 
     std::unique_ptr<IRenderDevice> device_;
     bool initialized_{false};
     std::uint32_t viewport_width_{0};
     std::uint32_t viewport_height_{0};
     std::unordered_map<scene::MeshId, CachedGpuMesh> gpu_mesh_cache_;
+    std::vector<GpuMeshHandle> overlay_gpu_pool_;
 };
 
 } // namespace finaleffect::rendering
