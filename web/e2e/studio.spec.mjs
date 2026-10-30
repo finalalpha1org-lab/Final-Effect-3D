@@ -2004,7 +2004,6 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await expect
       .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.view_transition_active))
       .toBe(false);
-    await page.getByTestId("btn-nav-proj-toggle").click();
     await expect(page.getByTestId("btn-nav-proj-toggle")).toHaveText("Persp");
 
     await page.getByTestId("btn-add-plane").click();
@@ -2048,6 +2047,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await page.getByTestId("cmd-toggle-editor-helpers").click();
 
     // Verify Transform Gizmo (+X Move handle) and SunLight helper still work cleanly alongside the grid:
+    await page.getByTestId("outliner-item-Plane").click();
     const planeXBefore = await page.evaluate(() => window.__FE3D_STUDIO__.getState().inspector.position[0]);
     const planeGx = await page.evaluate(() => {
       const c = document.getElementById("fe3d-canvas");
