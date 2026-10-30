@@ -153,21 +153,40 @@ std::string EditorController::serializeStateJson() const {
     proj.setKey("scene_name", scene.name());
     root.setKey("project", std::move(proj));
 
+    const auto cam_st = session_.activeCameraState();
+    const math::Vec3 cam_right = cam_st.camera_world.transformDirection({1.0f, 0.0f, 0.0f}).normalized();
+    const math::Vec3 cam_up = cam_st.camera_world.transformDirection({0.0f, 1.0f, 0.0f}).normalized();
+    const math::Vec3 cam_fwd = cam_st.camera_world.transformDirection({0.0f, 0.0f, -1.0f}).normalized();
+    const math::Vec3 cam_eye = cam_st.camera_world.transformPoint(math::Vec3::zero());
+
     JsonValue vp{JsonObject{}};
     vp.setKey("backend_name", caps.backend_name);
     vp.setKey("device_name", caps.device_name);
     vp.setKey("rig_playing", session_.isRigAnimationEnabled());
     vp.setKey("camera_view_active", session_.isCameraViewActive());
     vp.setKey("editor_helpers_visible", session_.areEditorHelpersVisible());
+    vp.setKey("projection",
+              (cam_st.camera.projection == scene::ProjectionType::Orthographic)
+                  ? "orthographic"
+                  : "perspective");
+    vp.setKey("editor_projection",
+              (session_.viewportProjection() == scene::ProjectionType::Orthographic)
+                  ? "orthographic"
+                  : "perspective");
+    vp.setKey("view_label", std::string(session_.viewportViewLabel()));
+    vp.setKey("view_transition_active", session_.isViewTransitionActive());
     vp.setKey("active_camera_id", scene.activeCamera().value);
     vp.setKey("selected_object_id", session_.selectedObject().value);
     vp.setKey("camera_target", vec3ToJson(session_.cameraController().target()));
     vp.setKey("camera_distance", static_cast<double>(session_.cameraController().distance()));
     vp.setKey("camera_yaw_deg", static_cast<double>(math::radToDeg(session_.cameraController().yawRadians())));
     vp.setKey("camera_pitch_deg", static_cast<double>(math::radToDeg(session_.cameraController().pitchRadians())));
+    vp.setKey("camera_right", vec3ToJson(cam_right));
+    vp.setKey("camera_up", vec3ToJson(cam_up));
+    vp.setKey("camera_forward", vec3ToJson(cam_fwd));
     root.setKey("viewport", std::move(vp));
 
-    // Stage 4: Editor mode, 3D Transform Gizmo state & Mesh Edit selection summary.
+    // Stage 4 / 5.3: Editor mode, 3D Transform Gizmo state & Mesh Edit selection summary.
     JsonValue ed{JsonObject{}};
     ed.setKey("mode", std::string(editModeToString(session_.editorMode())));
     ed.setKey("gizmo_mode", std::string(gizmoModeName(session_.gizmo().mode())));
@@ -177,10 +196,13 @@ std::string EditorController::serializeStateJson() const {
     ed.setKey("gizmo_dragging", session_.isGizmoDragging());
     if (const auto gframe = session_.computeActiveGizmoFrame(); gframe.has_value()) {
         JsonValue gh{JsonObject{}};
-        const float handle_dist =
-            (session_.gizmo().mode() == GizmoMode::Rotate && session_.editorMode() == scene::EditMode::Object)
-                ? (gframe->scale * 0.90f)
-                : (gframe->scale * 0.68f);
+        const bool is_rot =
+            (session_.gizmo().mode() == GizmoMode::Rotate && session_.editorMode() == scene::EditMode::Object);
+        const float shaft_dist = gframe->scale * 0.72f;
+        const float plane_dist = gframe->scale * 0.39f;
+        const float ring_dist = gframe->scale * 0.92f;
+        const math::Vec3 to_cam = (cam_eye - gframe->origin).normalized();
+
         auto projPt = [&](const math::Vec3& wp) -> JsonValue {
             if (const auto sp = session_.projectWorldPointToScreen(wp); sp.has_value()) {
                 return JsonArray{
@@ -190,10 +212,63 @@ std::string EditorController::serializeStateJson() const {
             }
             return JsonValue{};
         };
+
+        auto bestRingMidpoint = [&](std::size_t axis_i) -> math::Vec3 {
+            const math::Vec3& u = gframe->axes[(axis_i + 1) % 3];
+            const math::Vec3& v = gframe->axes[(axis_i + 2) % 3];
+            constexpr float kInvSqrt2 = 0.70710678f;
+            const std::array<math::Vec3, 4> dirs{{
+                (u + v) * kInvSqrt2,
+                (u - v) * kInvSqrt2,
+                (-u + v) * kInvSqrt2,
+                (-u - v) * kInvSqrt2,
+            }};
+            math::Vec3 best = dirs[0];
+            float best_dot = best.dot(to_cam);
+            for (std::size_t k = 1; k < dirs.size(); ++k) {
+                const float d = dirs[k].dot(to_cam);
+                if (d > best_dot) {
+                    best_dot = d;
+                    best = dirs[k];
+                }
+            }
+            return gframe->origin + best * ring_dist;
+        };
+
+        gh.setKey("world_scale", static_cast<double>(gframe->scale));
         gh.setKey("origin", projPt(gframe->origin));
-        gh.setKey("x", projPt(gframe->origin + gframe->axes[0] * handle_dist));
-        gh.setKey("y", projPt(gframe->origin + gframe->axes[1] * handle_dist));
-        gh.setKey("z", projPt(gframe->origin + gframe->axes[2] * handle_dist));
+        gh.setKey("center", projPt(gframe->origin));
+        if (is_rot) {
+            const math::Vec3 rx_pt = bestRingMidpoint(0);
+            const math::Vec3 ry_pt = bestRingMidpoint(1);
+            const math::Vec3 rz_pt = bestRingMidpoint(2);
+            gh.setKey("x", projPt(rx_pt));
+            gh.setKey("y", projPt(ry_pt));
+            gh.setKey("z", projPt(rz_pt));
+            gh.setKey("rx", projPt(rx_pt));
+            gh.setKey("ry", projPt(ry_pt));
+            gh.setKey("rz", projPt(rz_pt));
+        } else {
+            gh.setKey("x", projPt(gframe->origin + gframe->axes[0] * shaft_dist));
+            gh.setKey("y", projPt(gframe->origin + gframe->axes[1] * shaft_dist));
+            gh.setKey("z", projPt(gframe->origin + gframe->axes[2] * shaft_dist));
+            gh.setKey("xy", projPt(gframe->origin + (gframe->axes[0] + gframe->axes[1]) * plane_dist));
+            gh.setKey("xz", projPt(gframe->origin + (gframe->axes[0] + gframe->axes[2]) * plane_dist));
+            gh.setKey("yz", projPt(gframe->origin + (gframe->axes[1] + gframe->axes[2]) * plane_dist));
+        }
+        if (const auto sp_o = session_.projectWorldPointToScreen(gframe->origin); sp_o.has_value()) {
+            float max_px = 0.0f;
+            for (std::size_t ai = 0; ai < 3; ++ai) {
+                if (const auto sp_a = session_.projectWorldPointToScreen(
+                        gframe->origin + gframe->axes[ai] * gframe->scale);
+                    sp_a.has_value()) {
+                    const float dx = sp_a->x - sp_o->x;
+                    const float dy = sp_a->y - sp_o->y;
+                    max_px = std::max(max_px, std::sqrt(dx * dx + dy * dy));
+                }
+            }
+            gh.setKey("screen_radius_px", static_cast<double>(max_px));
+        }
         ed.setKey("gizmo_handles_screen", std::move(gh));
     }
 
@@ -1023,6 +1098,73 @@ core::Status EditorController::executeActionJson(std::string_view action_json) {
     if (action == "toggle_editor_helpers") {
         setEditorHelpersVisible(!session_.areEditorHelpersVisible());
         return core::Status::ok();
+    }
+
+    if (action == "set_viewport_view") {
+        const auto* vv = cmd.findKey("view");
+        if (vv == nullptr || !vv->isString()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing string 'view'");
+            recordStatus(st, {});
+            return st;
+        }
+        const auto preset = parseViewportViewPreset(vv->asString());
+        if (!preset.has_value()) {
+            auto st = core::Status::fail(
+                core::ErrorCode::InvalidArgument,
+                "Invalid viewport view preset: " + vv->asString());
+            recordStatus(st, {});
+            return st;
+        }
+        bool smooth = true;
+        if (const auto* sv = cmd.findKey("smooth"); sv != nullptr && sv->isBool()) {
+            smooth = sv->asBool();
+        }
+        setViewportViewPreset(preset.value(), smooth);
+        return core::Status::ok();
+    }
+
+    if (action == "reset_viewport_view") {
+        bool smooth = true;
+        if (const auto* sv = cmd.findKey("smooth"); sv != nullptr && sv->isBool()) {
+            smooth = sv->asBool();
+        }
+        resetViewportHomeView(smooth);
+        return core::Status::ok();
+    }
+
+    if (action == "set_viewport_projection") {
+        const auto* pv = cmd.findKey("projection");
+        if (pv == nullptr || !pv->isString()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing string 'projection'");
+            recordStatus(st, {});
+            return st;
+        }
+        const std::string& ps = pv->asString();
+        if (ps == "orthographic" || ps == "ortho") {
+            setViewportProjection(scene::ProjectionType::Orthographic);
+        } else if (ps == "perspective" || ps == "persp") {
+            setViewportProjection(scene::ProjectionType::Perspective);
+        } else {
+            auto st = core::Status::fail(
+                core::ErrorCode::InvalidArgument,
+                "Invalid viewport projection: " + ps);
+            recordStatus(st, {});
+            return st;
+        }
+        return core::Status::ok();
+    }
+
+    if (action == "toggle_viewport_projection") {
+        toggleViewportProjection();
+        return core::Status::ok();
+    }
+
+    if (action == "orbit_editor_camera") {
+        auto dx_res = parseJsonFloat(cmd.findKey("dx"), "dx");
+        auto dy_res = parseJsonFloat(cmd.findKey("dy"), "dy");
+        if (!dx_res) { recordStatus(core::Status(dx_res.error()), {}); return dx_res.error(); }
+        if (!dy_res) { recordStatus(core::Status(dy_res.error()), {}); return dy_res.error(); }
+        return orbitEditorObserverCamera(dx_res.value(), dy_res.value());
     }
 
     if (action == "undo") {

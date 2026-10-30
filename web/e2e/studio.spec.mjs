@@ -823,12 +823,17 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     const assertZeroOverlayCollisions = async (label) => {
       const hudBox = await page.getByTestId("viewport-hud-top").boundingBox();
       const navBox = await page.locator(".viewport-nav-cluster").boundingBox();
+      const viewGizmoBox = await page.getByTestId("viewport-view-gizmo").boundingBox();
       const shelfVisible = await page.getByTestId("tool-shelf").isVisible();
       const shelfBox = shelfVisible ? await page.getByTestId("tool-shelf").boundingBox() : null;
 
+      expect(viewGizmoBox, `View Gizmo visible on ${label}`).toBeTruthy();
       expect(boxesOverlap(hudBox, navBox), `HUD vs Nav overlap on ${label}`).toBe(false);
       expect(boxesOverlap(hudBox, shelfBox), `HUD vs Shelf overlap on ${label}`).toBe(false);
       expect(boxesOverlap(navBox, shelfBox), `Nav vs Shelf overlap on ${label}`).toBe(false);
+      expect(boxesOverlap(viewGizmoBox, hudBox), `ViewGizmo vs HUD overlap on ${label}`).toBe(false);
+      expect(boxesOverlap(viewGizmoBox, navBox), `ViewGizmo vs Nav overlap on ${label}`).toBe(false);
+      expect(boxesOverlap(viewGizmoBox, shelfBox), `ViewGizmo vs Shelf overlap on ${label}`).toBe(false);
     };
 
     // 0. Capture Home / Project Launcher screenshot at 1920x1080
@@ -1412,6 +1417,415 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
 
     await fs.rm(tmpDir, { recursive: true, force: true });
     await context.close();
+  });
+
+  test("9. Stage 5.3 Professional Transform Gizmos (axis/plane/center/ring/scale, zoom/HiDPI sizing, hover/active states, no reselection, Undo/Redo) & Interactive 3D View Navigation Gizmo (XYZ/diagonal clicks, drag orbit, Home, Persp/Ortho, scene isolation, desktop & mobile landscape)", async ({
+    browser,
+  }) => {
+    const outDir = process.env.FE3D_SCREENSHOT_DIR
+      ? path.resolve(process.env.FE3D_SCREENSHOT_DIR, "stage5-3")
+      : path.resolve(process.cwd(), "../../build/ci-screenshots/stage5-3");
+    await fs.mkdir(outDir, { recursive: true });
+
+    const context = await browser.newContext({
+      viewport: { width: 1920, height: 1080 },
+      deviceScaleFactor: 1,
+    });
+    const page = await context.newPage();
+
+    const waitRenderedFrames = async () => {
+      await page.evaluate(
+        () =>
+          new Promise((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(resolve));
+          })
+      );
+    };
+
+    const fbToClient = async (fbPt) => {
+      return await page.evaluate(([fx, fy]) => {
+        const c = document.getElementById("fe3d-canvas");
+        const rect = c.getBoundingClientRect();
+        const sx = rect.width / (c.width || rect.width);
+        const sy = rect.height / (c.height || rect.height);
+        return { x: rect.left + fx * sx, y: rect.top + fy * sy };
+      }, fbPt);
+    };
+
+    await bootToStudioReady(page);
+    await page.getByTestId("btn-toggle-rig").click();
+    await waitRenderedFrames();
+
+    // Select HeroCube and reset rotation to clean axes so axis & plane handle deltas are crisp
+    await page.getByTestId("outliner-item-HeroCube").click();
+    await page.evaluate(() => {
+      const hero = window.__FE3D_STUDIO__.getState().objects.find((o) => o.name === "HeroCube");
+      window.__FE3D_STUDIO__.dispatch({
+        action: "set_transform",
+        id: hero.id,
+        position: [0, 0.85, 0],
+        rotation_deg: [0, 0, 0],
+        scale: [1, 1, 1],
+      });
+    });
+    await waitRenderedFrames();
+
+    // 1. Screen-space gizmo sizing across zoom distances on Desktop 1920x1080
+    const radiusInitial = await page.evaluate(
+      () => window.__FE3D_STUDIO__.getState().editor.gizmo_handles_screen.screen_radius_px
+    );
+    expect(radiusInitial).toBeGreaterThan(85);
+
+    const canvasBox = await page.getByTestId("viewport-canvas").boundingBox();
+    await page.mouse.move(canvasBox.x + canvasBox.width * 0.5, canvasBox.y + canvasBox.height * 0.5);
+    await page.mouse.wheel(0, 420);
+    await waitRenderedFrames();
+    const radiusZoomedOut = await page.evaluate(
+      () => window.__FE3D_STUDIO__.getState().editor.gizmo_handles_screen.screen_radius_px
+    );
+    expect(Math.abs(radiusZoomedOut - radiusInitial)).toBeLessThan(18);
+    await page.getByTestId("btn-nav-home-view").click();
+    await expect
+      .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.view_transition_active))
+      .toBe(false);
+    await waitRenderedFrames();
+
+    // 2. Move Gizmo Hover + Active Highlight + Single-Axis (X) + Plane (XY) + Center (View) Drag + No Accidental Reselection
+    let moveHandles = await page.evaluate(
+      () => window.__FE3D_STUDIO__.getState().editor.gizmo_handles_screen
+    );
+    const gx = await fbToClient(moveHandles.x);
+    await page.mouse.move(gx.x, gx.y);
+    await expect
+      .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().editor.gizmo_hovered_handle))
+      .toBe("translate_x");
+    await waitRenderedFrames();
+    await page.screenshot({
+      path: path.join(outDir, "01-stage53-move-gizmo-hover-and-nav-widget-1920x1080.png"),
+    });
+
+    await page.mouse.down({ button: "left" });
+    await page.mouse.move(gx.x + 70, gx.y, { steps: 6 });
+    await expect
+      .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().editor.gizmo_active_handle))
+      .toBe("translate_x");
+    await page.mouse.up({ button: "left" });
+    await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: HeroCube");
+    const posAfterX = await page.evaluate(
+      () => window.__FE3D_STUDIO__.getState().inspector.position
+    );
+    expect(posAfterX[0]).toBeGreaterThan(0.35);
+    expect(Math.abs(posAfterX[1] - 0.85)).toBeLessThan(0.02);
+    expect(Math.abs(posAfterX[2])).toBeLessThan(0.02);
+
+    // Plane-handle drag (TranslateXY moves X & Y simultaneously while keeping Z == 0)
+    moveHandles = await page.evaluate(
+      () => window.__FE3D_STUDIO__.getState().editor.gizmo_handles_screen
+    );
+    const gxy = await fbToClient(moveHandles.xy);
+    await page.mouse.move(gxy.x, gxy.y);
+    await expect
+      .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().editor.gizmo_hovered_handle))
+      .toBe("translate_xy");
+    await page.mouse.down({ button: "left" });
+    await page.mouse.move(gxy.x - 45, gxy.y - 50, { steps: 6 });
+    await page.mouse.up({ button: "left" });
+    await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: HeroCube");
+    const posAfterXY = await page.evaluate(
+      () => window.__FE3D_STUDIO__.getState().inspector.position
+    );
+    expect(posAfterXY[1]).toBeGreaterThan(1.0);
+    expect(Math.abs(posAfterXY[2])).toBeLessThan(0.02);
+
+    // Undo / Redo verification for Move gizmo transforms
+    await page.getByTestId("btn-undo").click();
+    await page.getByTestId("btn-undo").click();
+    await expect
+      .poll(async () => (await page.evaluate(() => window.__FE3D_STUDIO__.getState().inspector.position))[0])
+      .toBeCloseTo(0, 2);
+    await page.getByTestId("btn-redo").click();
+    await expect
+      .poll(async () => (await page.evaluate(() => window.__FE3D_STUDIO__.getState().inspector.position))[0])
+      .toBeGreaterThan(0.35);
+    await page.getByTestId("btn-undo").click();
+    await waitRenderedFrames();
+
+    // 3. Rotate Gizmo Ring Hover & Drag + Local Space Coordinate Verification
+    await page.getByTestId("btn-gizmo-rotate").click();
+    await waitRenderedFrames();
+    const rotHandles = await page.evaluate(
+      () => window.__FE3D_STUDIO__.getState().editor.gizmo_handles_screen
+    );
+    const gry = await fbToClient(rotHandles.ry);
+    await page.mouse.move(gry.x, gry.y);
+    await expect
+      .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().editor.gizmo_hovered_handle))
+      .toBe("rotate_y");
+    await waitRenderedFrames();
+    await page.screenshot({
+      path: path.join(outDir, "02-stage53-rotate-gizmo-and-nav-widget-1920x1080.png"),
+    });
+
+    await page.mouse.down({ button: "left" });
+    await page.mouse.move(gry.x + 65, gry.y, { steps: 8 });
+    await page.mouse.up({ button: "left" });
+    const rotAfterY = await page.evaluate(
+      () => window.__FE3D_STUDIO__.getState().inspector.rotation_deg
+    );
+    expect(Math.abs(rotAfterY[1])).toBeGreaterThan(8);
+
+    // Verify Local Space Move moves along HeroCube's rotated local X axis (affecting both World X & Z)
+    await page.getByTestId("btn-gizmo-translate").click();
+    await page.getByTestId("btn-gizmo-space").click();
+    await expect
+      .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().editor.gizmo_space))
+      .toBe("local");
+    const localHandles = await page.evaluate(
+      () => window.__FE3D_STUDIO__.getState().editor.gizmo_handles_screen
+    );
+    const glx = await fbToClient(localHandles.x);
+    await page.mouse.move(glx.x, glx.y);
+    await page.mouse.down({ button: "left" });
+    await page.mouse.move(glx.x + 60, glx.y, { steps: 6 });
+    await page.mouse.up({ button: "left" });
+    const posLocal = await page.evaluate(
+      () => window.__FE3D_STUDIO__.getState().inspector.position
+    );
+    expect(Math.hypot(posLocal[0], posLocal[2])).toBeGreaterThan(0.25);
+    expect(Math.abs(posLocal[2])).toBeGreaterThan(0.03);
+    await page.getByTestId("btn-gizmo-space").click(); // back to World
+    await page.getByTestId("btn-undo").click();
+    await page.getByTestId("btn-undo").click();
+
+    // 4. Scale Gizmo Uniform Center Handle & Axis Handle Drag + Undo
+    await page.getByTestId("btn-gizmo-scale").click();
+    await waitRenderedFrames();
+    const sclHandles = await page.evaluate(
+      () => window.__FE3D_STUDIO__.getState().editor.gizmo_handles_screen
+    );
+    const gCenter = await fbToClient(sclHandles.center);
+    await page.mouse.move(gCenter.x, gCenter.y);
+    await expect
+      .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().editor.gizmo_hovered_handle))
+      .toBe("scale_uniform");
+    await waitRenderedFrames();
+    await page.screenshot({
+      path: path.join(outDir, "03-stage53-scale-gizmo-and-nav-widget-1920x1080.png"),
+    });
+
+    await page.mouse.down({ button: "left" });
+    await page.mouse.move(gCenter.x + 55, gCenter.y - 45, { steps: 6 });
+    await page.mouse.up({ button: "left" });
+    const sclAfterUni = await page.evaluate(
+      () => window.__FE3D_STUDIO__.getState().inspector.scale
+    );
+    expect(sclAfterUni[0]).toBeGreaterThan(1.15);
+    expect(sclAfterUni[1]).toBeCloseTo(sclAfterUni[0], 2);
+    expect(sclAfterUni[2]).toBeCloseTo(sclAfterUni[0], 2);
+
+    const sclHandles2 = await page.evaluate(
+      () => window.__FE3D_STUDIO__.getState().editor.gizmo_handles_screen
+    );
+    const gsx = await fbToClient(sclHandles2.x);
+    await page.mouse.move(gsx.x, gsx.y);
+    await page.mouse.down({ button: "left" });
+    await page.mouse.move(gsx.x + 55, gsx.y, { steps: 6 });
+    await page.mouse.up({ button: "left" });
+    const sclAfterAxis = await page.evaluate(
+      () => window.__FE3D_STUDIO__.getState().inspector.scale
+    );
+    expect(sclAfterAxis[0]).toBeGreaterThan(sclAfterUni[1] + 0.12);
+
+    await page.getByTestId("btn-undo").click();
+    await page.getByTestId("btn-undo").click();
+    await page.getByTestId("btn-gizmo-translate").click();
+    await waitRenderedFrames();
+
+    // 5. Interactive 3D View Navigation Gizmo: Click XYZ/-X/-Y/-Z + Diagonal + Drag Orbit + Persp/Ortho + Home + Strict Scene Isolation
+    const sceneSnapshotBeforeNav = await page.evaluate(() => {
+      const st = window.__FE3D_STUDIO__.getState();
+      return {
+        undoCount: st.history.undo_count,
+        selectedId: st.viewport.selected_object_id,
+        objects: st.objects.map((o) => ({
+          id: o.id,
+          name: o.name,
+          pos: o.position,
+          rot: o.rotation_deg,
+          scl: o.scale,
+        })),
+      };
+    });
+
+    const clickNavAxis = async (axisKey, expectedYaw, expectedPitch) => {
+      // Return to Home first if target cap happens to sit directly behind opposite pole
+      const layout0 = await page.evaluate(() => window.__FE3D_STUDIO__.getNavGizmoLayout());
+      if (layout0.axes[axisKey].vz < -0.92) {
+        await page.getByTestId("btn-nav-home-view").click();
+        await expect
+          .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.view_transition_active))
+          .toBe(false);
+      }
+      const layout = await page.evaluate(() => window.__FE3D_STUDIO__.getNavGizmoLayout());
+      const pt = layout.axes[axisKey];
+      await page.mouse.click(pt.x, pt.y);
+      await expect
+        .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.view_transition_active))
+        .toBe(false);
+      const vp = await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport);
+      if (expectedYaw !== null) {
+        const diff = ((((vp.camera_yaw_deg - expectedYaw) % 360) + 540) % 360) - 180;
+        expect(Math.abs(diff)).toBeLessThan(1.5);
+      }
+      expect(Math.abs(vp.camera_pitch_deg - expectedPitch)).toBeLessThan(1.5);
+    };
+
+    await clickNavAxis("pos_x", 90, 0);
+    await clickNavAxis("pos_y", null, -89);
+    await clickNavAxis("neg_z", 180, 0);
+    await clickNavAxis("neg_x", -90, 0);
+    await clickNavAxis("neg_y", null, 89);
+    await clickNavAxis("pos_z", 0, 0);
+
+    // Click a front-facing Three-Quarter Diagonal region on the 3D Navigation Gizmo
+    const diagLayout = await page.evaluate(() => window.__FE3D_STUDIO__.getNavGizmoLayout());
+    expect(diagLayout.diagonals.length).toBeGreaterThan(0);
+    await page.mouse.click(diagLayout.diagonals[0].x, diagLayout.diagonals[0].y);
+    await expect
+      .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.view_transition_active))
+      .toBe(false);
+    await expect(page.getByTestId("vp-camera-pill")).toContainText("Iso");
+
+    // Toggle Editor Perspective <-> Orthographic via Navigation Gizmo subcontrol
+    await expect(page.getByTestId("btn-nav-proj-toggle")).toHaveText("Persp");
+    await page.getByTestId("btn-nav-proj-toggle").click();
+    await expect(page.getByTestId("btn-nav-proj-toggle")).toHaveText("Ortho");
+    expect(await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.projection)).toBe("orthographic");
+    await waitRenderedFrames();
+    await page.screenshot({
+      path: path.join(outDir, "04-stage53-nav-gizmo-iso-orthographic-1920x1080.png"),
+    });
+
+    // Drag across the 3D View Navigation Gizmo to orbit editor observer camera smoothly
+    const navBeforeDrag = await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport);
+    const navCenter = (await page.evaluate(() => window.__FE3D_STUDIO__.getNavGizmoLayout())).center;
+    await page.mouse.move(navCenter.x, navCenter.y);
+    await page.mouse.down({ button: "left" });
+    await page.mouse.move(navCenter.x + 34, navCenter.y - 22, { steps: 6 });
+    await page.mouse.up({ button: "left" });
+    const navAfterDrag = await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport);
+    expect(Math.abs(navAfterDrag.camera_yaw_deg - navBeforeDrag.camera_yaw_deg)).toBeGreaterThan(4);
+
+    // Reset / Home View restores Home Perspective view cleanly
+    await page.getByTestId("btn-nav-home-view").click();
+    await expect
+      .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.view_transition_active))
+      .toBe(false);
+    await expect(page.getByTestId("btn-nav-proj-toggle")).toHaveText("Persp");
+    expect(await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.projection)).toBe("perspective");
+
+    // Verify ZERO scene object, MainCamera, or SunLight transform mutations and ZERO Undo steps from navigation widget!
+    const sceneSnapshotAfterNav = await page.evaluate(() => {
+      const st = window.__FE3D_STUDIO__.getState();
+      return {
+        undoCount: st.history.undo_count,
+        selectedId: st.viewport.selected_object_id,
+        mainCamProj: st.objects.find((o) => o.name === "MainCamera") ? "intact" : "missing",
+        objects: st.objects.map((o) => ({
+          id: o.id,
+          name: o.name,
+          pos: o.position,
+          rot: o.rotation_deg,
+          scl: o.scale,
+        })),
+      };
+    });
+    expect(sceneSnapshotAfterNav.undoCount).toBe(sceneSnapshotBeforeNav.undoCount);
+    expect(sceneSnapshotAfterNav.selectedId).toBe(sceneSnapshotBeforeNav.selectedId);
+    expect(sceneSnapshotAfterNav.objects).toEqual(sceneSnapshotBeforeNav.objects);
+    await context.close();
+
+    // 6. Mobile Landscape High-DPI (844x390 @ 2x DPR, hasTouch: true) Touch Gizmo & Navigation Gizmo Interaction
+    const mobileContext = await browser.newContext({
+      viewport: { width: 844, height: 390 },
+      deviceScaleFactor: 2,
+      hasTouch: true,
+      isMobile: true,
+    });
+    const mPage = await mobileContext.newPage();
+    await bootToStudioReady(mPage);
+    await mPage.getByTestId("btn-toggle-rig").click();
+    await expect(mPage.locator("body")).toHaveAttribute("data-layout-mode", "landscape");
+
+    // Select HeroCube and verify DPR-aware gizmo size in Mobile Landscape
+    await mPage.getByTestId("outliner-item-HeroCube").click();
+    await mPage.evaluate(
+      () =>
+        new Promise((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(resolve));
+        })
+    );
+    const mobileGizmoInfo = await mPage.evaluate(() => {
+      const gh = window.__FE3D_STUDIO__.getState().editor.gizmo_handles_screen;
+      return { fbRadius: gh.screen_radius_px, dpr: window.devicePixelRatio };
+    });
+    expect(mobileGizmoInfo.fbRadius / mobileGizmoInfo.dpr).toBeGreaterThan(60);
+
+    // Touch tap on +X endpoint of the 3D View Navigation Gizmo in Mobile Landscape
+    const mNavLayout = await mPage.evaluate(() => window.__FE3D_STUDIO__.getNavGizmoLayout());
+    await mPage.touchscreen.tap(mNavLayout.axes.pos_x.x, mNavLayout.axes.pos_x.y);
+    await expect
+      .poll(async () => await mPage.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.view_transition_active))
+      .toBe(false);
+    await expect(mPage.getByTestId("vp-camera-pill")).toContainText("Right (+X)");
+    await expect(mPage.getByTestId("vp-selection-pill")).toHaveText("Selected: HeroCube");
+
+    // Touch drag on Move Gizmo +Y handle in Mobile Landscape via touch PointerEvents
+    const mHandles = await mPage.evaluate(() => {
+      const c = document.getElementById("fe3d-canvas");
+      const r = c.getBoundingClientRect();
+      const gh = window.__FE3D_STUDIO__.getState().editor.gizmo_handles_screen;
+      const sx = r.width / (c.width || r.width);
+      const sy = r.height / (c.height || r.height);
+      return { x: r.left + gh.y[0] * sx, y: r.top + gh.y[1] * sy };
+    });
+    const yBeforeMobileDrag = await mPage.evaluate(
+      () => window.__FE3D_STUDIO__.getState().inspector.position[1]
+    );
+    await mPage.evaluate(async (pt) => {
+      const c = document.getElementById("fe3d-canvas");
+      const fire = (type, x, y) =>
+        c.dispatchEvent(
+          new PointerEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            pointerId: 7,
+            pointerType: "touch",
+            isPrimary: true,
+            clientX: x,
+            clientY: y,
+          })
+        );
+      fire("pointerdown", pt.x, pt.y);
+      fire("pointermove", pt.x, pt.y - 24);
+      fire("pointermove", pt.x, pt.y - 46);
+      fire("pointerup", pt.x, pt.y - 46);
+    }, mHandles);
+    await expect
+      .poll(async () => await mPage.evaluate(() => window.__FE3D_STUDIO__.getState().inspector.position[1]))
+      .toBeGreaterThan(yBeforeMobileDrag + 0.12);
+
+    await mPage.evaluate(
+      () =>
+        new Promise((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(resolve));
+        })
+    );
+    await mPage.screenshot({
+      path: path.join(outDir, "05-stage53-mobile-landscape-gizmo-and-nav-844x390.png"),
+    });
+
+    await mobileContext.close();
   });
 });
 

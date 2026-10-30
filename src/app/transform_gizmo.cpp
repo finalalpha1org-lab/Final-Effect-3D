@@ -13,11 +13,13 @@ namespace finaleffect::app {
 namespace {
 
 constexpr float kRingRadiusRatio = 0.92f;
-constexpr float kShaftStartRatio = 0.14f;
+constexpr float kShaftStartRatio = 0.16f;
 constexpr float kShaftEndRatio = 0.88f;
-constexpr float kTipEndRatio = 1.08f;
+constexpr float kTipEndRatio = 1.16f;
 constexpr float kPlaneMinRatio = 0.24f;
-constexpr float kPlaneMaxRatio = 0.48f;
+constexpr float kPlaneMaxRatio = 0.54f;
+constexpr float kPlanePickMinRatio = 0.21f;
+constexpr float kPlanePickMaxRatio = 0.58f;
 
 math::Vec3 safeNormalize(const math::Vec3& v, const math::Vec3& fallback) noexcept {
     const float len_sq = v.lengthSquared();
@@ -179,32 +181,52 @@ int axisIndexForHandle(GizmoHandle h) noexcept {
 
 math::Vec3 handleColor(GizmoHandle handle, GizmoHandle hovered, GizmoHandle active) noexcept {
     if (handle != GizmoHandle::None && handle == active) {
-        return {1.0f, 0.96f, 0.55f};
+        return {1.00f, 0.97f, 0.56f};
     }
     if (handle != GizmoHandle::None && handle == hovered) {
-        return {1.0f, 0.85f, 0.30f};
+        return {1.00f, 0.86f, 0.24f};
     }
+    math::Vec3 base{0.82f, 0.84f, 0.88f};
     switch (handle) {
         case GizmoHandle::TranslateX:
         case GizmoHandle::RotateX:
         case GizmoHandle::ScaleX:
         case GizmoHandle::TranslateYZ:
-            return {0.94f, 0.28f, 0.30f};
+            base = {0.98f, 0.27f, 0.31f};
+            break;
         case GizmoHandle::TranslateY:
         case GizmoHandle::RotateY:
         case GizmoHandle::ScaleY:
         case GizmoHandle::TranslateXZ:
-            return {0.28f, 0.84f, 0.42f};
+            base = {0.26f, 0.88f, 0.42f};
+            break;
         case GizmoHandle::TranslateZ:
         case GizmoHandle::RotateZ:
         case GizmoHandle::ScaleZ:
         case GizmoHandle::TranslateXY:
-            return {0.29f, 0.60f, 0.98f};
+            base = {0.28f, 0.64f, 1.00f};
+            break;
+        case GizmoHandle::TranslateView:
         case GizmoHandle::ScaleUniform:
-            return {0.90f, 0.92f, 0.96f};
+            base = {0.93f, 0.95f, 0.99f};
+            break;
         default:
-            return {0.8f, 0.8f, 0.8f};
+            break;
     }
+    if (active != GizmoHandle::None && handle != active) {
+        return base * 0.55f;
+    }
+    return base;
+}
+
+float handleThicknessBoost(GizmoHandle handle, GizmoHandle hovered, GizmoHandle active) noexcept {
+    if (handle != GizmoHandle::None && handle == active) {
+        return 1.28f;
+    }
+    if (handle != GizmoHandle::None && handle == hovered) {
+        return 1.20f;
+    }
+    return 1.0f;
 }
 
 void appendQuad(
@@ -272,7 +294,7 @@ void appendCone(
     float radius,
     float length,
     const math::Vec3& color) {
-    constexpr int kSegs = 10;
+    constexpr int kSegs = 14;
     const math::Vec3 apex = base_center + axis * length;
     for (int i = 0; i < kSegs; ++i) {
         const float a0 = (static_cast<float>(i) / static_cast<float>(kSegs)) * math::kTwoPi;
@@ -307,8 +329,8 @@ void appendTorusRing(
     float major_radius,
     float minor_radius,
     const math::Vec3& color) {
-    constexpr int kMajorSegs = 36;
-    constexpr int kMinorSegs = 6;
+    constexpr int kMajorSegs = 48;
+    constexpr int kMinorSegs = 8;
     for (int i = 0; i < kMajorSegs; ++i) {
         const float t0 = (static_cast<float>(i) / static_cast<float>(kMajorSegs)) * math::kTwoPi;
         const float t1 = (static_cast<float>(i + 1) / static_cast<float>(kMajorSegs)) * math::kTwoPi;
@@ -337,6 +359,196 @@ void appendTorusRing(
     }
 }
 
+std::optional<GizmoPickResult> pickHandleWithTolerance(
+    GizmoMode mode,
+    const GizmoFrame& frame,
+    const math::Ray& world_ray,
+    float tol_scale) noexcept {
+    if (!world_ray.isValid() || frame.scale <= 0.0f) {
+        return std::nullopt;
+    }
+
+    const float s = frame.scale;
+    const float tol = std::max(0.5f, tol_scale);
+
+    if (mode == GizmoMode::Translate) {
+        // 1. Central view-plane free-move handle at gizmo origin.
+        const auto center_res = closestRaySegment(world_ray, frame.origin, frame.origin);
+        if (center_res.distance <= 0.145f * tol * s) {
+            return GizmoPickResult{
+                .handle = GizmoHandle::TranslateView,
+                .ray_t = center_res.ray_t,
+                .hit_point = world_ray.at(center_res.ray_t),
+            };
+        }
+
+        // 2. XY, XZ, YZ planar handles (skipping nearly edge-on planes so they never hijack axis clicks).
+        struct PlaneCandidate {
+            GizmoHandle handle;
+            std::size_t u_idx;
+            std::size_t v_idx;
+            std::size_t n_idx;
+        };
+        constexpr std::array<PlaneCandidate, 3> planes{{
+            {GizmoHandle::TranslateXY, 0, 1, 2},
+            {GizmoHandle::TranslateXZ, 0, 2, 1},
+            {GizmoHandle::TranslateYZ, 1, 2, 0},
+        }};
+
+        const float pad = (tol - 1.0f) * 0.05f;
+        const float min_r = std::max(0.16f, kPlanePickMinRatio - pad);
+        const float max_r = kPlanePickMaxRatio + pad;
+
+        std::optional<GizmoPickResult> best_plane;
+        for (const auto& pc : planes) {
+            const math::Vec3& normal = frame.axes[pc.n_idx];
+            if (std::fabs(world_ray.direction.dot(normal)) < 0.14f) {
+                continue;
+            }
+            const auto t_opt = intersectRayPlane(world_ray, frame.origin, normal);
+            if (!t_opt.has_value()) {
+                continue;
+            }
+            const math::Vec3 rel = world_ray.at(t_opt.value()) - frame.origin;
+            const float u = rel.dot(frame.axes[pc.u_idx]);
+            const float v = rel.dot(frame.axes[pc.v_idx]);
+            if (u >= min_r * s && u <= max_r * s &&
+                v >= min_r * s && v <= max_r * s) {
+                if (!best_plane.has_value() || t_opt.value() < best_plane->ray_t) {
+                    best_plane = GizmoPickResult{
+                        .handle = pc.handle,
+                        .ray_t = t_opt.value(),
+                        .hit_point = world_ray.at(t_opt.value()),
+                    };
+                }
+            }
+        }
+        if (best_plane.has_value()) {
+            return best_plane;
+        }
+
+        // 3. X, Y, Z axis shafts + enlarged arrowhead hit cones.
+        constexpr std::array<GizmoHandle, 3> axis_handles{
+            GizmoHandle::TranslateX,
+            GizmoHandle::TranslateY,
+            GizmoHandle::TranslateZ,
+        };
+        float best_score = 1.0f;
+        std::optional<GizmoPickResult> best_axis;
+
+        for (std::size_t i = 0; i < 3; ++i) {
+            const float head_on = std::fabs(world_ray.direction.dot(frame.axes[i]));
+            const math::Vec3 seg_a = frame.origin + frame.axes[i] * (kShaftStartRatio * s);
+            const math::Vec3 seg_b = frame.origin + frame.axes[i] * ((kTipEndRatio + 0.03f) * s);
+            const auto res = closestRaySegment(world_ray, seg_a, seg_b);
+            const float base_r = (res.seg_u > 0.68f ? 0.165f : 0.135f) * tol * s;
+            const float eff_r = (head_on > 0.985f) ? (base_r * 0.45f) : base_r;
+            if (eff_r > 1.0e-6f && res.distance <= eff_r) {
+                const float norm_score = res.distance / eff_r;
+                if (norm_score <= best_score) {
+                    best_score = norm_score;
+                    best_axis = GizmoPickResult{
+                        .handle = axis_handles[i],
+                        .ray_t = res.ray_t,
+                        .hit_point = world_ray.at(res.ray_t),
+                    };
+                }
+            }
+        }
+        return best_axis;
+    }
+
+    if (mode == GizmoMode::Rotate) {
+        constexpr std::array<GizmoHandle, 3> ring_handles{
+            GizmoHandle::RotateX,
+            GizmoHandle::RotateY,
+            GizmoHandle::RotateZ,
+        };
+        const float ring_r = kRingRadiusRatio * s;
+        const float tube_tol = 0.145f * tol * s;
+        float best_err = tube_tol;
+        std::optional<GizmoPickResult> best_ring;
+
+        for (std::size_t i = 0; i < 3; ++i) {
+            const math::Vec3& n = frame.axes[i];
+            const math::Vec3& u = frame.axes[(i + 1) % 3];
+            const math::Vec3& v = frame.axes[(i + 2) % 3];
+            const bool oblique = std::fabs(world_ray.direction.dot(n)) < 0.82f;
+
+            // Sample 64 chord segments around the 3D circle with front-hemisphere disambiguation.
+            constexpr int kSegs = 64;
+            for (int k = 0; k < kSegs; ++k) {
+                const float a0 = (static_cast<float>(k) / static_cast<float>(kSegs)) * math::kTwoPi;
+                const float a1 = (static_cast<float>(k + 1) / static_cast<float>(kSegs)) * math::kTwoPi;
+                const math::Vec3 p0 = frame.origin + (u * std::cos(a0) + v * std::sin(a0)) * ring_r;
+                const math::Vec3 p1 = frame.origin + (u * std::cos(a1) + v * std::sin(a1)) * ring_r;
+                const auto seg = closestRaySegment(world_ray, p0, p1);
+                if (seg.distance > tube_tol) {
+                    continue;
+                }
+                float eff_err = seg.distance;
+                if (oblique && ring_r > 1.0e-5f) {
+                    const math::Vec3 mid_radial = ((p0 + p1) * 0.5f - frame.origin) * (1.0f / ring_r);
+                    const float facing = mid_radial.dot(-world_ray.direction);
+                    if (facing < -0.20f) {
+                        eff_err += 0.045f * s;
+                    }
+                }
+                if (eff_err <= best_err) {
+                    best_err = eff_err;
+                    best_ring = GizmoPickResult{
+                        .handle = ring_handles[i],
+                        .ray_t = seg.ray_t,
+                        .hit_point = world_ray.at(seg.ray_t),
+                    };
+                }
+            }
+        }
+        return best_ring;
+    }
+
+    // Scale mode: center uniform cube first, then X/Y/Z shafts + tip cubes.
+    {
+        const auto center_res = closestRaySegment(world_ray, frame.origin, frame.origin);
+        if (center_res.distance <= 0.175f * tol * s) {
+            return GizmoPickResult{
+                .handle = GizmoHandle::ScaleUniform,
+                .ray_t = center_res.ray_t,
+                .hit_point = world_ray.at(center_res.ray_t),
+            };
+        }
+
+        constexpr std::array<GizmoHandle, 3> scale_handles{
+            GizmoHandle::ScaleX,
+            GizmoHandle::ScaleY,
+            GizmoHandle::ScaleZ,
+        };
+        float best_score = 1.0f;
+        std::optional<GizmoPickResult> best_scale;
+
+        for (std::size_t i = 0; i < 3; ++i) {
+            const float head_on = std::fabs(world_ray.direction.dot(frame.axes[i]));
+            const math::Vec3 seg_a = frame.origin + frame.axes[i] * (0.18f * s);
+            const math::Vec3 seg_b = frame.origin + frame.axes[i] * (1.10f * s);
+            const auto res = closestRaySegment(world_ray, seg_a, seg_b);
+            const float base_r = (res.seg_u > 0.72f ? 0.165f : 0.135f) * tol * s;
+            const float eff_r = (head_on > 0.985f) ? (base_r * 0.45f) : base_r;
+            if (eff_r > 1.0e-6f && res.distance <= eff_r) {
+                const float norm_score = res.distance / eff_r;
+                if (norm_score <= best_score) {
+                    best_score = norm_score;
+                    best_scale = GizmoPickResult{
+                        .handle = scale_handles[i],
+                        .ray_t = res.ray_t,
+                        .hit_point = world_ray.at(res.ray_t),
+                    };
+                }
+            }
+        }
+        return best_scale;
+    }
+}
+
 } // namespace
 
 std::string_view gizmoModeName(GizmoMode mode) noexcept {
@@ -361,6 +573,7 @@ std::string_view gizmoHandleName(GizmoHandle handle) noexcept {
         case GizmoHandle::TranslateXY: return "translate_xy";
         case GizmoHandle::TranslateXZ: return "translate_xz";
         case GizmoHandle::TranslateYZ: return "translate_yz";
+        case GizmoHandle::TranslateView: return "translate_view";
         case GizmoHandle::RotateX: return "rotate_x";
         case GizmoHandle::RotateY: return "rotate_y";
         case GizmoHandle::RotateZ: return "rotate_z";
@@ -377,7 +590,10 @@ GizmoFrame TransformGizmo::computeFrame(
     const math::Mat4& camera_world_matrix,
     const scene::CameraComponent& camera,
     GizmoMode mode,
-    GizmoSpace space) noexcept {
+    GizmoSpace space,
+    std::uint32_t viewport_width,
+    std::uint32_t viewport_height,
+    float pixel_scale) noexcept {
     GizmoFrame frame;
     frame.origin = target_world_matrix.transformPoint(math::Vec3::zero());
 
@@ -393,12 +609,36 @@ GizmoFrame TransformGizmo::computeFrame(
     }
 
     const math::Vec3 cam_pos = camera_world_matrix.transformPoint(math::Vec3::zero());
+    const math::Vec3 cam_fwd = safeNormalize(
+        camera_world_matrix.transformDirection({0.0f, 0.0f, -1.0f}),
+        {0.0f, 0.0f, -1.0f});
+    const float half_tan = std::tan(std::clamp(camera.fov_y_radians, 0.1f, 2.6f) * 0.5f);
+
+    if (viewport_width > 0 && viewport_height > 0) {
+        const float dpr = std::clamp(pixel_scale, 1.0f, 4.0f);
+        const float logical_w = std::max(64.0f, static_cast<float>(viewport_width) / dpr);
+        const float logical_h = std::max(64.0f, static_cast<float>(viewport_height) / dpr);
+        const float min_logical = std::min(logical_w, logical_h);
+        const float target_px = std::min(logical_h * 0.36f, std::clamp(min_logical * 0.20f, 88.0f, 136.0f));
+
+        float world_per_px = 0.01f;
+        if (camera.projection == scene::ProjectionType::Orthographic) {
+            world_per_px = std::max(0.05f, camera.orthographic_height) / logical_h;
+        } else {
+            const float radial_dist = std::max(0.25f, (frame.origin - cam_pos).length());
+            const float view_depth = (frame.origin - cam_pos).dot(cam_fwd);
+            const float eff_depth = (view_depth > 0.20f) ? view_depth : radial_dist;
+            world_per_px = (2.0f * eff_depth * half_tan) / logical_h;
+        }
+        frame.scale = std::max(0.05f, target_px * world_per_px);
+        return frame;
+    }
+
     if (camera.projection == scene::ProjectionType::Orthographic) {
-        frame.scale = std::max(0.05f, camera.orthographic_height * 0.16f);
+        frame.scale = std::max(0.05f, camera.orthographic_height * 0.20f);
     } else {
         const float dist = std::max(0.25f, (frame.origin - cam_pos).length());
-        const float half_tan = std::tan(std::clamp(camera.fov_y_radians, 0.1f, 2.6f) * 0.5f);
-        frame.scale = std::max(0.05f, dist * half_tan * 0.30f);
+        frame.scale = std::max(0.05f, dist * half_tan * 0.36f);
     }
     return frame;
 }
@@ -407,149 +647,14 @@ std::optional<GizmoPickResult> TransformGizmo::pickHandle(
     GizmoMode mode,
     const GizmoFrame& frame,
     const math::Ray& world_ray) noexcept {
-    if (!world_ray.isValid() || frame.scale <= 0.0f) {
-        return std::nullopt;
-    }
+    return pickHandleWithTolerance(mode, frame, world_ray, 1.0f);
+}
 
-    const float s = frame.scale;
-
-    if (mode == GizmoMode::Translate) {
-        // 1. Check XY, XZ, YZ planar handles first.
-        struct PlaneCandidate {
-            GizmoHandle handle;
-            std::size_t u_idx;
-            std::size_t v_idx;
-            std::size_t n_idx;
-        };
-        constexpr std::array<PlaneCandidate, 3> planes{{
-            {GizmoHandle::TranslateXY, 0, 1, 2},
-            {GizmoHandle::TranslateXZ, 0, 2, 1},
-            {GizmoHandle::TranslateYZ, 1, 2, 0},
-        }};
-
-        std::optional<GizmoPickResult> best_plane;
-        for (const auto& pc : planes) {
-            const auto t_opt = intersectRayPlane(world_ray, frame.origin, frame.axes[pc.n_idx]);
-            if (!t_opt.has_value()) {
-                continue;
-            }
-            const math::Vec3 rel = world_ray.at(t_opt.value()) - frame.origin;
-            const float u = rel.dot(frame.axes[pc.u_idx]);
-            const float v = rel.dot(frame.axes[pc.v_idx]);
-            if (u >= kPlaneMinRatio * s && u <= kPlaneMaxRatio * s &&
-                v >= kPlaneMinRatio * s && v <= kPlaneMaxRatio * s) {
-                if (!best_plane.has_value() || t_opt.value() < best_plane->ray_t) {
-                    best_plane = GizmoPickResult{
-                        .handle = pc.handle,
-                        .ray_t = t_opt.value(),
-                        .hit_point = world_ray.at(t_opt.value()),
-                    };
-                }
-            }
-        }
-        if (best_plane.has_value()) {
-            return best_plane;
-        }
-
-        // 2. Check X, Y, Z axis shafts + cones.
-        constexpr std::array<GizmoHandle, 3> axis_handles{
-            GizmoHandle::TranslateX,
-            GizmoHandle::TranslateY,
-            GizmoHandle::TranslateZ,
-        };
-        const float pick_radius = 0.095f * s;
-        float best_dist = pick_radius;
-        std::optional<GizmoPickResult> best_axis;
-
-        for (std::size_t i = 0; i < 3; ++i) {
-            const math::Vec3 seg_a = frame.origin + frame.axes[i] * (kShaftStartRatio * s);
-            const math::Vec3 seg_b = frame.origin + frame.axes[i] * (kTipEndRatio * s);
-            const auto res = closestRaySegment(world_ray, seg_a, seg_b);
-            if (res.distance <= best_dist) {
-                best_dist = res.distance;
-                best_axis = GizmoPickResult{
-                    .handle = axis_handles[i],
-                    .ray_t = res.ray_t,
-                    .hit_point = world_ray.at(res.ray_t),
-                };
-            }
-        }
-        return best_axis;
-    }
-
-    if (mode == GizmoMode::Rotate) {
-        constexpr std::array<GizmoHandle, 3> ring_handles{
-            GizmoHandle::RotateX,
-            GizmoHandle::RotateY,
-            GizmoHandle::RotateZ,
-        };
-        const float ring_r = kRingRadiusRatio * s;
-        const float tube_tol = 0.105f * s;
-        float best_err = tube_tol;
-        std::optional<GizmoPickResult> best_ring;
-
-        for (std::size_t i = 0; i < 3; ++i) {
-            const math::Vec3& n = frame.axes[i];
-            const math::Vec3& u = frame.axes[(i + 1) % 3];
-            const math::Vec3& v = frame.axes[(i + 2) % 3];
-
-            // Sample 36 chord segments on the 3D circle so both face-on and grazing views pick accurately.
-            constexpr int kSegs = 36;
-            for (int k = 0; k < kSegs; ++k) {
-                const float a0 = (static_cast<float>(k) / static_cast<float>(kSegs)) * math::kTwoPi;
-                const float a1 = (static_cast<float>(k + 1) / static_cast<float>(kSegs)) * math::kTwoPi;
-                const math::Vec3 p0 = frame.origin + (u * std::cos(a0) + v * std::sin(a0)) * ring_r;
-                const math::Vec3 p1 = frame.origin + (u * std::cos(a1) + v * std::sin(a1)) * ring_r;
-                const auto seg = closestRaySegment(world_ray, p0, p1);
-                if (seg.distance <= best_err) {
-                    best_err = seg.distance;
-                    best_ring = GizmoPickResult{
-                        .handle = ring_handles[i],
-                        .ray_t = seg.ray_t,
-                        .hit_point = world_ray.at(seg.ray_t),
-                    };
-                }
-            }
-            (void)n;
-        }
-        return best_ring;
-    }
-
-    // Scale mode: center uniform cube first, then X/Y/Z shafts.
-    {
-        const auto center_res = closestRaySegment(world_ray, frame.origin, frame.origin);
-        if (center_res.distance <= 0.16f * s) {
-            return GizmoPickResult{
-                .handle = GizmoHandle::ScaleUniform,
-                .ray_t = center_res.ray_t,
-                .hit_point = world_ray.at(center_res.ray_t),
-            };
-        }
-
-        constexpr std::array<GizmoHandle, 3> scale_handles{
-            GizmoHandle::ScaleX,
-            GizmoHandle::ScaleY,
-            GizmoHandle::ScaleZ,
-        };
-        const float pick_radius = 0.095f * s;
-        float best_dist = pick_radius;
-        std::optional<GizmoPickResult> best_scale;
-
-        for (std::size_t i = 0; i < 3; ++i) {
-            const math::Vec3 seg_a = frame.origin + frame.axes[i] * (0.17f * s);
-            const math::Vec3 seg_b = frame.origin + frame.axes[i] * (1.04f * s);
-            const auto res = closestRaySegment(world_ray, seg_a, seg_b);
-            if (res.distance <= best_dist) {
-                best_dist = res.distance;
-                best_scale = GizmoPickResult{
-                    .handle = scale_handles[i],
-                    .ray_t = res.ray_t,
-                    .hit_point = world_ray.at(res.ray_t),
-                };
-            }
-        }
-        return best_scale;
-    }
+bool TransformGizmo::isNearAnyHandle(
+    GizmoMode mode,
+    const GizmoFrame& frame,
+    const math::Ray& world_ray) noexcept {
+    return pickHandleWithTolerance(mode, frame, world_ray, 1.32f).has_value();
 }
 
 core::Status TransformGizmo::beginDrag(
@@ -602,10 +707,18 @@ core::Status TransformGizmo::beginDrag(
             return core::Status::fail(core::ErrorCode::InvalidState, "Initial ray parallel to planar translation handle");
         }
         start_plane_hit_ = initial_world_ray.at(t_opt.value());
+    } else if (handle == GizmoHandle::TranslateView) {
+        constraint_plane_normal_ = -cam_forward_;
+        const auto t_opt = intersectRayPlane(initial_world_ray, frame.origin, constraint_plane_normal_);
+        if (!t_opt.has_value()) {
+            return core::Status::fail(core::ErrorCode::InvalidState, "Failed to intersect free view translation plane");
+        }
+        start_plane_hit_ = initial_world_ray.at(t_opt.value());
     } else if (handle == GizmoHandle::RotateX || handle == GizmoHandle::RotateY || handle == GizmoHandle::RotateZ) {
         const math::Vec3& axis = frame.axes[static_cast<std::size_t>(axis_idx)];
-        constraint_plane_normal_ = axis;
-        if (std::fabs(initial_world_ray.direction.dot(axis)) >= 0.08f) {
+        rotate_use_plane_intersection_ = (std::fabs(initial_world_ray.direction.dot(axis)) >= 0.16f);
+        if (rotate_use_plane_intersection_) {
+            constraint_plane_normal_ = axis;
             const auto t_opt = intersectRayPlane(initial_world_ray, frame.origin, axis);
             if (!t_opt.has_value()) {
                 return core::Status::fail(core::ErrorCode::InvalidState, "Failed to intersect rotation plane");
@@ -613,14 +726,20 @@ core::Status TransformGizmo::beginDrag(
             const math::Vec3 radial = initial_world_ray.at(t_opt.value()) - frame.origin;
             const math::Vec3 in_plane = radial - axis * radial.dot(axis);
             start_ring_dir_ = safeNormalize(in_plane, frame.axes[static_cast<std::size_t>((axis_idx + 1) % 3)]);
+            start_ring_tangent_ = safeNormalize(axis.cross(start_ring_dir_), frame.axes[static_cast<std::size_t>((axis_idx + 2) % 3)]);
         } else {
-            // Grazing view fallback: construct tangent plane facing camera.
+            // Grazing / edge-on view: lock to camera-facing tangent plane throughout the drag.
             constraint_plane_normal_ = -cam_forward_;
             const auto t_opt = intersectRayPlane(initial_world_ray, frame.origin, constraint_plane_normal_);
             start_plane_hit_ = t_opt.has_value() ? initial_world_ray.at(t_opt.value()) : frame.origin;
-            start_ring_dir_ = frame.axes[static_cast<std::size_t>((axis_idx + 1) % 3)];
+            const math::Vec3 radial_fallback = safeNormalize(cam_forward_.cross(axis), frame.axes[static_cast<std::size_t>((axis_idx + 1) % 3)]);
+            const math::Vec3 raw_radial = start_plane_hit_ - frame.origin;
+            const math::Vec3 in_plane = raw_radial - axis * raw_radial.dot(axis);
+            start_ring_dir_ = (in_plane.lengthSquared() > 1.0e-5f) ? in_plane.normalized() : radial_fallback;
+            const math::Vec3 world_tan = safeNormalize(axis.cross(start_ring_dir_), frame.axes[static_cast<std::size_t>((axis_idx + 2) % 3)]);
+            const math::Vec3 screen_tan = world_tan - constraint_plane_normal_ * world_tan.dot(constraint_plane_normal_);
+            start_ring_tangent_ = safeNormalize(screen_tan, safeNormalize(axis.cross(cam_forward_), cam_right_));
         }
-        start_ring_tangent_ = safeNormalize(axis.cross(start_ring_dir_), frame.axes[static_cast<std::size_t>((axis_idx + 2) % 3)]);
     } else if (handle == GizmoHandle::ScaleUniform) {
         constraint_plane_normal_ = -cam_forward_;
         const auto t_opt = intersectRayPlane(initial_world_ray, frame.origin, constraint_plane_normal_);
@@ -673,7 +792,8 @@ core::Result<GizmoDragOutput> TransformGizmo::updateDrag(const math::Ray& curren
         out.world_translation_delta = world_delta;
     } else if (active_handle_ == GizmoHandle::TranslateXY ||
                active_handle_ == GizmoHandle::TranslateXZ ||
-               active_handle_ == GizmoHandle::TranslateYZ) {
+               active_handle_ == GizmoHandle::TranslateYZ ||
+               active_handle_ == GizmoHandle::TranslateView) {
         const auto t_opt = intersectRayPlane(current_world_ray, start_frame_.origin, constraint_plane_normal_);
         if (!t_opt.has_value()) {
             return core::Result<GizmoDragOutput>::ok(last_valid_output_);
@@ -692,8 +812,8 @@ core::Result<GizmoDragOutput> TransformGizmo::updateDrag(const math::Ray& curren
         const math::Vec3& world_axis = start_frame_.axes[static_cast<std::size_t>(axis_idx)];
         float angle_rad = 0.0f;
 
-        if (std::fabs(current_world_ray.direction.dot(world_axis)) >= 0.08f &&
-            constraint_plane_normal_.approxEqual(world_axis, 1.0e-3f)) {
+        if (rotate_use_plane_intersection_ &&
+            std::fabs(current_world_ray.direction.dot(world_axis)) >= 0.06f) {
             const auto t_opt = intersectRayPlane(current_world_ray, start_frame_.origin, world_axis);
             if (!t_opt.has_value()) {
                 return core::Result<GizmoDragOutput>::ok(last_valid_output_);
@@ -781,6 +901,19 @@ scene::MeshData TransformGizmo::buildRenderMesh(
     const float s = std::max(0.01f, frame.scale);
 
     if (mode == GizmoMode::Translate) {
+        // Central camera-plane free-move hub
+        const math::Vec3 center_col = handleColor(GizmoHandle::TranslateView, hovered_handle, active_handle);
+        const float center_boost = handleThicknessBoost(GizmoHandle::TranslateView, hovered_handle, active_handle);
+        const float hub_ext = 0.105f * center_boost * s;
+        appendBoxAlongBasis(
+            mesh,
+            frame.origin,
+            frame.axes[0],
+            frame.axes[1],
+            frame.axes[2],
+            {hub_ext, hub_ext, hub_ext},
+            center_col);
+
         constexpr std::array<GizmoHandle, 3> axis_h{
             GizmoHandle::TranslateX,
             GizmoHandle::TranslateY,
@@ -791,41 +924,74 @@ scene::MeshData TransformGizmo::buildRenderMesh(
             const math::Vec3& u = frame.axes[(i + 1) % 3];
             const math::Vec3& v = frame.axes[(i + 2) % 3];
             const math::Vec3 col = handleColor(axis_h[i], hovered_handle, active_handle);
+            const float boost = handleThicknessBoost(axis_h[i], hovered_handle, active_handle);
 
             const float shaft_half = 0.5f * (kShaftEndRatio - kShaftStartRatio) * s;
             const math::Vec3 shaft_center = frame.origin + a * ((kShaftStartRatio + kShaftEndRatio) * 0.5f * s);
-            appendBoxAlongBasis(mesh, shaft_center, a, u, v, {shaft_half, 0.022f * s, 0.022f * s}, col);
+            const float shaft_r = 0.032f * boost * s;
+            appendBoxAlongBasis(mesh, shaft_center, a, u, v, {shaft_half, shaft_r, shaft_r}, col);
             appendCone(
                 mesh,
                 frame.origin + a * (kShaftEndRatio * s),
                 a, u, v,
-                0.068f * s,
+                0.092f * boost * s,
                 (kTipEndRatio - kShaftEndRatio) * s,
                 col);
         }
 
-        // XY, XZ, YZ plane quads
+        // XY, XZ, YZ plane quads + crisp outer L-border bars
         struct PlaneDraw {
             GizmoHandle h;
             std::size_t u_i;
             std::size_t v_i;
+            std::size_t n_i;
         };
         constexpr std::array<PlaneDraw, 3> planes{{
-            {GizmoHandle::TranslateXY, 0, 1},
-            {GizmoHandle::TranslateXZ, 0, 2},
-            {GizmoHandle::TranslateYZ, 1, 2},
+            {GizmoHandle::TranslateXY, 0, 1, 2},
+            {GizmoHandle::TranslateXZ, 0, 2, 1},
+            {GizmoHandle::TranslateYZ, 1, 2, 0},
         }};
         for (const auto& pd : planes) {
             const math::Vec3 col = handleColor(pd.h, hovered_handle, active_handle);
+            const float boost = handleThicknessBoost(pd.h, hovered_handle, active_handle);
+            const bool emphasized = (pd.h == hovered_handle || pd.h == active_handle);
+            const math::Vec3 fill_col = emphasized ? col : (col * 0.84f);
             const math::Vec3& u = frame.axes[pd.u_i];
             const math::Vec3& v = frame.axes[pd.v_i];
+            const math::Vec3& n = frame.axes[pd.n_i];
             const math::Vec3 p0 = frame.origin + u * (kPlaneMinRatio * s) + v * (kPlaneMinRatio * s);
             const math::Vec3 p1 = frame.origin + u * (kPlaneMaxRatio * s) + v * (kPlaneMinRatio * s);
             const math::Vec3 p2 = frame.origin + u * (kPlaneMaxRatio * s) + v * (kPlaneMaxRatio * s);
             const math::Vec3 p3 = frame.origin + u * (kPlaneMinRatio * s) + v * (kPlaneMaxRatio * s);
-            appendQuad(mesh, p0, p1, p2, p3, col, true);
+            appendQuad(mesh, p0, p1, p2, p3, fill_col, true);
+
+            const float span_half = 0.5f * (kPlaneMaxRatio - kPlaneMinRatio) * s;
+            const float mid_ratio = 0.5f * (kPlaneMinRatio + kPlaneMaxRatio) * s;
+            const float bar_r = 0.015f * boost * s;
+            appendBoxAlongBasis(
+                mesh,
+                frame.origin + u * (kPlaneMaxRatio * s) + v * mid_ratio,
+                v, u, n,
+                {span_half + bar_r, bar_r, bar_r},
+                col);
+            appendBoxAlongBasis(
+                mesh,
+                frame.origin + u * mid_ratio + v * (kPlaneMaxRatio * s),
+                u, v, n,
+                {span_half + bar_r, bar_r, bar_r},
+                col);
         }
     } else if (mode == GizmoMode::Rotate) {
+        // Subtle central pivot hub
+        appendBoxAlongBasis(
+            mesh,
+            frame.origin,
+            frame.axes[0],
+            frame.axes[1],
+            frame.axes[2],
+            {0.068f * s, 0.068f * s, 0.068f * s},
+            {0.86f, 0.89f, 0.94f});
+
         constexpr std::array<GizmoHandle, 3> ring_h{
             GizmoHandle::RotateX,
             GizmoHandle::RotateY,
@@ -833,6 +999,7 @@ scene::MeshData TransformGizmo::buildRenderMesh(
         };
         for (std::size_t i = 0; i < 3; ++i) {
             const math::Vec3 col = handleColor(ring_h[i], hovered_handle, active_handle);
+            const float boost = handleThicknessBoost(ring_h[i], hovered_handle, active_handle);
             appendTorusRing(
                 mesh,
                 frame.origin,
@@ -840,19 +1007,21 @@ scene::MeshData TransformGizmo::buildRenderMesh(
                 frame.axes[(i + 1) % 3],
                 frame.axes[(i + 2) % 3],
                 kRingRadiusRatio * s,
-                0.024f * s,
+                0.036f * boost * s,
                 col);
         }
     } else {
-        // Scale: center uniform cube + 3 axis shafts + 3 tip cubes
+        // Scale: enlarged center uniform cube + 3 thicker axis shafts + 3 larger tip cubes
         const math::Vec3 center_col = handleColor(GizmoHandle::ScaleUniform, hovered_handle, active_handle);
+        const float center_boost = handleThicknessBoost(GizmoHandle::ScaleUniform, hovered_handle, active_handle);
+        const float center_ext = 0.122f * center_boost * s;
         appendBoxAlongBasis(
             mesh,
             frame.origin,
             frame.axes[0],
             frame.axes[1],
             frame.axes[2],
-            {0.095f * s, 0.095f * s, 0.095f * s},
+            {center_ext, center_ext, center_ext},
             center_col);
 
         constexpr std::array<GizmoHandle, 3> scl_h{
@@ -865,15 +1034,18 @@ scene::MeshData TransformGizmo::buildRenderMesh(
             const math::Vec3& u = frame.axes[(i + 1) % 3];
             const math::Vec3& v = frame.axes[(i + 2) % 3];
             const math::Vec3 col = handleColor(scl_h[i], hovered_handle, active_handle);
+            const float boost = handleThicknessBoost(scl_h[i], hovered_handle, active_handle);
 
-            const float shaft_half = 0.5f * (0.90f - 0.16f) * s;
-            const math::Vec3 shaft_center = frame.origin + a * ((0.16f + 0.90f) * 0.5f * s);
-            appendBoxAlongBasis(mesh, shaft_center, a, u, v, {shaft_half, 0.022f * s, 0.022f * s}, col);
+            const float shaft_half = 0.5f * (0.91f - 0.18f) * s;
+            const math::Vec3 shaft_center = frame.origin + a * ((0.18f + 0.91f) * 0.5f * s);
+            const float shaft_r = 0.032f * boost * s;
+            const float tip_ext = 0.088f * boost * s;
+            appendBoxAlongBasis(mesh, shaft_center, a, u, v, {shaft_half, shaft_r, shaft_r}, col);
             appendBoxAlongBasis(
                 mesh,
-                frame.origin + a * (0.96f * s),
+                frame.origin + a * (1.00f * s),
                 a, u, v,
-                {0.065f * s, 0.065f * s, 0.065f * s},
+                {tip_ext, tip_ext, tip_ext},
                 col);
         }
     }

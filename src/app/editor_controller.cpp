@@ -178,6 +178,43 @@ void EditorController::setEditorHelpersVisible(bool visible) noexcept {
                                : "Hidden camera & light viewport helpers";
 }
 
+void EditorController::setViewportViewPreset(ViewportViewPreset preset, bool smooth) noexcept {
+    session_.setViewportViewPreset(preset, smooth);
+    ++state_revision_;
+    last_status_is_error_ = false;
+    last_status_message_ = "Viewport view: " + std::string(session_.viewportViewLabel());
+}
+
+void EditorController::resetViewportHomeView(bool smooth) noexcept {
+    session_.resetViewportHomeView(smooth);
+    ++state_revision_;
+    last_status_is_error_ = false;
+    last_status_message_ = "Reset viewport to Home view";
+}
+
+void EditorController::setViewportProjection(scene::ProjectionType projection) noexcept {
+    session_.setViewportProjection(projection);
+    ++state_revision_;
+    last_status_is_error_ = false;
+    last_status_message_ =
+        (projection == scene::ProjectionType::Orthographic)
+            ? "Editor viewport: Orthographic"
+            : "Editor viewport: Perspective";
+}
+
+void EditorController::toggleViewportProjection() noexcept {
+    setViewportProjection(
+        (session_.viewportProjection() == scene::ProjectionType::Orthographic)
+            ? scene::ProjectionType::Perspective
+            : scene::ProjectionType::Orthographic);
+}
+
+core::Status EditorController::orbitEditorObserverCamera(float delta_pixels_x, float delta_pixels_y) {
+    auto st = session_.orbitEditorObserverCamera(delta_pixels_x, delta_pixels_y);
+    ++state_revision_;
+    return st;
+}
+
 core::Status EditorController::setEditorMode(scene::EditMode mode) {
     auto st = session_.setEditorMode(mode);
     recordStatus(st, "Switched editor mode to " + std::string(editModeName(mode)));

@@ -190,6 +190,10 @@ public:
         return fb_size_;
     }
 
+    [[nodiscard]] float contentScale() const noexcept override {
+        return static_cast<float>(dpr_);
+    }
+
     [[nodiscard]] double devicePixelRatio() const noexcept { return dpr_; }
 
     void enqueueSyntheticEvent(finaleffect::platform::InputEvent ev) {
@@ -609,6 +613,16 @@ EMSCRIPTEN_KEEPALIVE void fe3d_camera_orbit(double dx_css, double dy_css) {
     }
     const double dpr = g_web_ctx->window.devicePixelRatio();
     (void)g_web_ctx->session->orbitViewportCamera(
+        static_cast<float>(dx_css * dpr),
+        static_cast<float>(dy_css * dpr));
+}
+
+EMSCRIPTEN_KEEPALIVE void fe3d_editor_camera_orbit(double dx_css, double dy_css) {
+    if (g_web_ctx == nullptr || g_web_ctx->editor == nullptr) {
+        return;
+    }
+    const double dpr = g_web_ctx->window.devicePixelRatio();
+    (void)g_web_ctx->editor->orbitEditorObserverCamera(
         static_cast<float>(dx_css * dpr),
         static_cast<float>(dy_css * dpr));
 }

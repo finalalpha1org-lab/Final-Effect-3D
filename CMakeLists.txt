@@ -293,7 +293,7 @@ if(FINALEFFECT_PLATFORM_IS_WEB)
             "-sALLOW_MEMORY_GROWTH=1"
             "-sINITIAL_MEMORY=33554432"
             "-sFILESYSTEM=1"
-            "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_fe3d_is_ready','_fe3d_get_boot_stage','_fe3d_get_boot_message','_fe3d_get_init_error','_fe3d_get_state_json','_fe3d_dispatch_action','_fe3d_export_inline_project','_fe3d_save_bundle_to_vfs','_fe3d_load_file_from_vfs','_fe3d_state_revision','_fe3d_material_preview_ptr','_fe3d_material_preview_width','_fe3d_material_preview_height','_fe3d_material_preview_generation','_fe3d_export_workspace_json','_fe3d_hit_test_gizmo','_fe3d_touch_tap','_fe3d_pointer_event','_fe3d_camera_orbit','_fe3d_camera_pan','_fe3d_camera_zoom']"
+            "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_fe3d_is_ready','_fe3d_get_boot_stage','_fe3d_get_boot_message','_fe3d_get_init_error','_fe3d_get_state_json','_fe3d_dispatch_action','_fe3d_export_inline_project','_fe3d_save_bundle_to_vfs','_fe3d_load_file_from_vfs','_fe3d_state_revision','_fe3d_material_preview_ptr','_fe3d_material_preview_width','_fe3d_material_preview_height','_fe3d_material_preview_generation','_fe3d_export_workspace_json','_fe3d_hit_test_gizmo','_fe3d_touch_tap','_fe3d_pointer_event','_fe3d_camera_orbit','_fe3d_editor_camera_orbit','_fe3d_camera_pan','_fe3d_camera_zoom']"
             "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','stringToNewUTF8','FS','HEAPU8']"
     )
     configure_file(

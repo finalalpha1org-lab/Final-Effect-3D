@@ -64,6 +64,11 @@ public:
     void setRigAnimationPlaying(bool playing) noexcept;
     void setCameraViewActive(bool active) noexcept;
     void setEditorHelpersVisible(bool visible) noexcept;
+    void setViewportViewPreset(ViewportViewPreset preset, bool smooth = true) noexcept;
+    void resetViewportHomeView(bool smooth = true) noexcept;
+    void setViewportProjection(scene::ProjectionType projection) noexcept;
+    void toggleViewportProjection() noexcept;
+    [[nodiscard]] core::Status orbitEditorObserverCamera(float delta_pixels_x, float delta_pixels_y);
 
     [[nodiscard]] core::Status setEditorMode(scene::EditMode mode);
     void setGizmoMode(GizmoMode mode) noexcept;

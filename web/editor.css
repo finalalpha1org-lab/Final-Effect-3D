@@ -1516,6 +1516,10 @@ body[data-app-view="studio"] .studio-shell {
   top: 34px;
 }
 
+.workspace-foundation-banner:not([hidden]) ~ .viewport-view-gizmo {
+  top: 70px;
+}
+
 .vp-pill {
   padding: 2px 7px;
   border-radius: 3px;
@@ -1572,6 +1576,102 @@ body[data-app-view="studio"] .studio-shell {
   background: var(--accent-blue-soft);
   color: #93beff;
   font-weight: 600;
+}
+
+/* Interactive 3D XYZ View Navigation Gizmo (Upper-Right Viewport Overlay) */
+.viewport-view-gizmo {
+  --vg-size: 94px;
+  position: absolute;
+  top: 42px;
+  right: 8px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.view-gizmo-sphere-wrap {
+  position: relative;
+  width: var(--vg-size);
+  height: var(--vg-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#view-nav-gizmo-canvas {
+  width: var(--vg-size);
+  height: var(--vg-size);
+  display: block;
+  cursor: grab;
+  touch-action: none;
+}
+
+.viewport-view-gizmo.is-dragging #view-nav-gizmo-canvas {
+  cursor: grabbing;
+}
+
+.viewport-view-gizmo.is-hover-target #view-nav-gizmo-canvas {
+  cursor: pointer;
+}
+
+.view-gizmo-hover-tip {
+  position: absolute;
+  right: calc(100% + 6px);
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(16, 20, 27, 0.92);
+  border: 1px solid rgba(110, 165, 255, 0.42);
+  color: #dce9ff;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.view-gizmo-subcontrols {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(18, 21, 27, 0.84);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 2px;
+}
+
+.view-gizmo-mini-btn {
+  height: 20px;
+  min-width: 40px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.view-gizmo-mini-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-bright);
+}
+
+.view-gizmo-mini-btn.is-ortho {
+  background: var(--accent-blue-soft);
+  color: #93beff;
 }
 
 /* Blender-Inspired Viewport Context Menu */
@@ -2515,6 +2615,9 @@ body[data-app-view="studio"] .studio-shell {
   body[data-layout-mode="desktop"] {
     --bottom-dock-h: 92px;
   }
+  body[data-layout-mode="desktop"] .viewport-view-gizmo {
+    --vg-size: 76px;
+  }
   .splash-Graphic-Preview {
     display: none;
   }
@@ -2563,6 +2666,20 @@ body[data-layout-mode="landscape"] .vp-nav-lbl {
 
 body[data-layout-mode="landscape"] .viewport-overlay-top {
   max-width: calc(100% - 195px);
+}
+
+body[data-layout-mode="landscape"] .viewport-view-gizmo {
+  --vg-size: 76px;
+  top: 44px;
+  right: 8px;
+}
+
+body[data-layout-mode="landscape"] .workspace-foundation-banner:not([hidden]) ~ .viewport-view-gizmo {
+  top: 70px;
+}
+
+body[data-layout-mode="landscape"] .view-gizmo-mini-btn {
+  height: 22px;
 }
 
 body[data-layout-mode="landscape"].is-landscape-drawer-closed .dock-right {
@@ -2681,6 +2798,21 @@ body[data-layout-mode="portrait"] .workspace-foundation-banner:not([hidden]) ~ .
 
 body[data-layout-mode="portrait"] .workspace-foundation-banner:not([hidden]) ~ .viewport-nav-cluster {
   top: 58px;
+}
+
+body[data-layout-mode="portrait"] .viewport-view-gizmo {
+  --vg-size: 76px;
+  top: 34px;
+  right: 62px;
+}
+
+body[data-layout-mode="portrait"] .workspace-foundation-banner:not([hidden]) ~ .viewport-view-gizmo {
+  top: 58px;
+}
+
+body[data-layout-mode="portrait"] .view-gizmo-mini-btn {
+  height: 24px;
+  min-width: 38px;
 }
 
 body[data-layout-mode="portrait"] .vp-nav-btn {

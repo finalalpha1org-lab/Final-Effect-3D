@@ -438,6 +438,18 @@
             <button type="button" class="vp-nav-btn" id="btn-vp-restore-right" data-testid="btn-vp-restore-right" hidden title="Restore Right Outliner &amp; Inspector">Inspector</button>
           </div>
 
+          <!-- Interactive 3D XYZ View Navigation Gizmo (Controls Editor Observer Camera Only) -->
+          <div class="viewport-view-gizmo" id="viewport-view-gizmo" data-testid="viewport-view-gizmo" role="group" aria-label="3D View Orientation Gizmo">
+            <div class="view-gizmo-sphere-wrap">
+              <canvas id="view-nav-gizmo-canvas" data-testid="view-nav-gizmo-canvas" width="96" height="96" aria-label="Interactive 3D XYZ View Gizmo — Click axis or diagonal to orient view, drag to orbit editor camera"></canvas>
+              <span class="view-gizmo-hover-tip" id="view-gizmo-hover-tip" data-testid="view-gizmo-hover-tip" hidden></span>
+            </div>
+            <div class="view-gizmo-subcontrols">
+              <button type="button" class="view-gizmo-mini-btn" id="btn-nav-home-view" data-testid="btn-nav-home-view" title="Reset Editor Viewport to Home View">Home</button>
+              <button type="button" class="view-gizmo-mini-btn" id="btn-nav-proj-toggle" data-testid="btn-nav-proj-toggle" title="Toggle Editor Viewport Projection (Perspective / Orthographic)">Persp</button>
+            </div>
+          </div>
+
           <div class="viewport-overlay-bottom" id="viewport-hud-bottom">
             <span><b>Click/Tap</b> Select &middot; <b>Drag Gizmo</b> Transform &middot; <b>RMB Drag / 1-Finger</b> Orbit &middot; <b>RMB Click</b> Context Menu &middot; <b>2-Finger</b> Pinch Zoom &amp; Pan &middot; <b>W/E/R</b> Gizmo &middot; <b>1-4</b> Mode</span>
           </div>

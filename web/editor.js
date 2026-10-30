@@ -194,6 +194,11 @@
     vpCameraPill: document.getElementById("vp-camera-pill"),
     vpSelectionPill: document.getElementById("vp-selection-pill"),
     vpModePill: document.getElementById("vp-mode-pill"),
+    viewportViewGizmo: document.getElementById("viewport-view-gizmo"),
+    viewNavGizmoCanvas: document.getElementById("view-nav-gizmo-canvas"),
+    viewGizmoHoverTip: document.getElementById("view-gizmo-hover-tip"),
+    btnNavHomeView: document.getElementById("btn-nav-home-view"),
+    btnNavProjToggle: document.getElementById("btn-nav-proj-toggle"),
     btnTouchMultiSelect: document.getElementById("btn-touch-multiselect"),
     viewportContextMenu: document.getElementById("viewport-context-menu"),
     ctxMenuTitle: document.getElementById("ctx-menu-title"),
@@ -930,6 +935,13 @@
           M._fe3d_camera_orbit(dxCss, dyCss);
         }
       },
+      editorCameraOrbit: function (dxCss, dyCss) {
+        if (typeof M._fe3d_editor_camera_orbit === "function") {
+          M._fe3d_editor_camera_orbit(dxCss, dyCss);
+        } else {
+          this.dispatchAction({ action: "orbit_editor_camera", dx: dxCss, dy: dyCss });
+        }
+      },
       cameraPan: function (dxCss, dyCss) {
         if (typeof M._fe3d_camera_pan === "function") {
           M._fe3d_camera_pan(dxCss, dyCss);
@@ -975,6 +987,7 @@
       getAppView: function () {
         return document.body.dataset.appView;
       },
+      getNavGizmoLayout: getNavGizmoLayout,
     };
 
     restoreWorkspaceFromStorage();
@@ -1236,7 +1249,11 @@
     setInputValueIfUnfocused(els.metaSceneName, state.project.scene_name);
 
     const activeCamObj = state.objects.find((o) => o.id === state.viewport.active_camera_id);
-    const lensSuffix = state.viewport.camera_view_active ? " [Lens]" : "";
+    const lensSuffix = state.viewport.camera_view_active
+      ? " [Lens]"
+      : state.viewport.view_label
+      ? " · " + state.viewport.view_label
+      : "";
     els.vpCameraPill.textContent =
       "Camera: " +
       (activeCamObj ? activeCamObj.name : "None") +
@@ -1255,6 +1272,11 @@
         : "";
     els.vpModePill.textContent =
       ed.mode.toUpperCase() + " · " + toolLabel + " (" + ed.gizmo_space.toUpperCase() + ")" + handleHint;
+
+    renderViewNavGizmo(state);
+    if (state.viewport.view_transition_active) {
+      scheduleViewTransitionSync();
+    }
 
     renderWorkspaceAndBottomDock(state);
     renderOutliner(state);
@@ -2063,6 +2085,549 @@
 
     canvas.addEventListener("pointerup", (ev) => finishTouch(ev, false));
     canvas.addEventListener("pointercancel", (ev) => finishTouch(ev, true));
+  }
+
+  // =========================================================================
+  // INTERACTIVE 3D XYZ VIEW NAVIGATION GIZMO (Editor Observer Camera Only)
+  // =========================================================================
+
+  const VIEW_GIZMO_AXES = [
+    { id: "pos_x", preset: "pos_x", dir: [1, 0, 0], label: "X", tip: "Right (+X)", color: "#fa454f", fillHi: "#ff8c92", positive: true },
+    { id: "neg_x", preset: "neg_x", dir: [-1, 0, 0], label: "-X", tip: "Left (-X)", color: "#fa454f", fillHi: "#ff8c92", positive: false },
+    { id: "pos_y", preset: "pos_y", dir: [0, 1, 0], label: "Y", tip: "Top (+Y)", color: "#3fe068", fillHi: "#94f7ad", positive: true },
+    { id: "neg_y", preset: "neg_y", dir: [0, -1, 0], label: "-Y", tip: "Bottom (-Y)", color: "#3fe068", fillHi: "#94f7ad", positive: false },
+    { id: "pos_z", preset: "pos_z", dir: [0, 0, 1], label: "Z", tip: "Front (+Z)", color: "#47a3ff", fillHi: "#9dcfff", positive: true },
+    { id: "neg_z", preset: "neg_z", dir: [0, 0, -1], label: "-Z", tip: "Back (-Z)", color: "#47a3ff", fillHi: "#9dcfff", positive: false },
+  ];
+
+  const INV_SQRT3 = 0.577350269;
+  const VIEW_GIZMO_DIAGONALS = [
+    { id: "diag_px_py_pz", preset: "diag_px_py_pz", dir: [INV_SQRT3, INV_SQRT3, INV_SQRT3], tip: "3/4 (+X+Y+Z)" },
+    { id: "diag_nx_py_pz", preset: "diag_nx_py_pz", dir: [-INV_SQRT3, INV_SQRT3, INV_SQRT3], tip: "3/4 (-X+Y+Z)" },
+    { id: "diag_px_py_nz", preset: "diag_px_py_nz", dir: [INV_SQRT3, INV_SQRT3, -INV_SQRT3], tip: "3/4 (+X+Y-Z)" },
+    { id: "diag_nx_py_nz", preset: "diag_nx_py_nz", dir: [-INV_SQRT3, INV_SQRT3, -INV_SQRT3], tip: "3/4 (-X+Y-Z)" },
+    { id: "diag_px_ny_pz", preset: "diag_px_ny_pz", dir: [INV_SQRT3, -INV_SQRT3, INV_SQRT3], tip: "3/4 (+X-Y+Z)" },
+    { id: "diag_nx_ny_pz", preset: "diag_nx_ny_pz", dir: [-INV_SQRT3, -INV_SQRT3, INV_SQRT3], tip: "3/4 (-X-Y+Z)" },
+    { id: "diag_px_ny_nz", preset: "diag_px_ny_nz", dir: [INV_SQRT3, -INV_SQRT3, -INV_SQRT3], tip: "3/4 (+X-Y-Z)" },
+    { id: "diag_nx_ny_nz", preset: "diag_nx_ny_nz", dir: [-INV_SQRT3, -INV_SQRT3, -INV_SQRT3], tip: "3/4 (-X-Y-Z)" },
+  ];
+
+  const viewGizmoUiState = {
+    hoveredId: null,
+    hoverTip: "",
+    pointerInside: false,
+    dragging: false,
+    rafPending: false,
+    orbitRafPending: false,
+  };
+
+  function scheduleViewTransitionSync() {
+    if (viewGizmoUiState.rafPending) return;
+    viewGizmoUiState.rafPending = true;
+    requestAnimationFrame(() => {
+      viewGizmoUiState.rafPending = false;
+      syncFromEngine(false);
+    });
+  }
+
+  function computeViewNavGizmoGeometry(state, cssSize) {
+    const vp = (state && state.viewport) || {};
+    const camRight = Array.isArray(vp.camera_right) && vp.camera_right.length === 3 ? vp.camera_right : [1, 0, 0];
+    const camUp = Array.isArray(vp.camera_up) && vp.camera_up.length === 3 ? vp.camera_up : [0, 1, 0];
+    const camFwd = Array.isArray(vp.camera_forward) && vp.camera_forward.length === 3 ? vp.camera_forward : [0, 0, -1];
+
+    const size = Math.max(64, cssSize || 94);
+    const cx = size * 0.5;
+    const cy = size * 0.5;
+    const sphereR = size * 0.445;
+    const axisR = size * 0.355;
+    const diagR = size * 0.225;
+
+    function projectDir(d, radius) {
+      const vx = d[0] * camRight[0] + d[1] * camRight[1] + d[2] * camRight[2];
+      const vy = d[0] * camUp[0] + d[1] * camUp[1] + d[2] * camUp[2];
+      const vz = -(d[0] * camFwd[0] + d[1] * camFwd[1] + d[2] * camFwd[2]);
+      return {
+        x: cx + vx * radius,
+        y: cy - vy * radius,
+        vx: vx,
+        vy: vy,
+        vz: vz,
+      };
+    }
+
+    const axes = VIEW_GIZMO_AXES.map((a) => {
+      const p = projectDir(a.dir, axisR);
+      return {
+        id: a.id,
+        kind: "axis",
+        preset: a.preset,
+        label: a.label,
+        tip: a.tip,
+        color: a.color,
+        fillHi: a.fillHi,
+        positive: a.positive,
+        x: p.x,
+        y: p.y,
+        vz: p.vz,
+      };
+    });
+
+    const diagonals = VIEW_GIZMO_DIAGONALS.map((d) => {
+      const p = projectDir(d.dir, diagR);
+      return {
+        id: d.id,
+        kind: "diagonal",
+        preset: d.preset,
+        tip: d.tip,
+        x: p.x,
+        y: p.y,
+        vz: p.vz,
+      };
+    });
+
+    return {
+      size: size,
+      cx: cx,
+      cy: cy,
+      sphereR: sphereR,
+      axisR: axisR,
+      diagR: diagR,
+      axes: axes,
+      diagonals: diagonals,
+      center: {
+        id: "center",
+        kind: "center",
+        preset: "home",
+        tip: "Home View (Drag to Orbit)",
+        x: cx,
+        y: cy,
+      },
+    };
+  }
+
+  function hitTestViewNavGizmo(localX, localY, isTouch, geom) {
+    if (!geom) return null;
+    const capHitR = isTouch ? 13.5 : 10.5;
+    const frontFirstAxes = geom.axes.slice().sort((a, b) => b.vz - a.vz);
+    let bestAxis = null;
+    let bestAxisScore = Infinity;
+    for (let i = 0; i < frontFirstAxes.length; ++i) {
+      const a = frontFirstAxes[i];
+      const dist = Math.hypot(localX - a.x, localY - a.y);
+      if (dist <= capHitR) {
+        const depthBias = a.vz < -0.25 ? 2.2 : 0;
+        const score = dist + depthBias;
+        if (score < bestAxisScore) {
+          bestAxisScore = score;
+          bestAxis = a;
+        }
+      }
+    }
+    if (bestAxis) return bestAxis;
+
+    const diagHitR = isTouch ? 10.0 : 7.2;
+    let bestDiag = null;
+    let bestDiagDist = diagHitR;
+    for (let i = 0; i < geom.diagonals.length; ++i) {
+      const d = geom.diagonals[i];
+      if (d.vz <= 0.12) continue;
+      const dist = Math.hypot(localX - d.x, localY - d.y);
+      if (dist <= bestDiagDist) {
+        bestDiagDist = dist;
+        bestDiag = d;
+      }
+    }
+    if (bestDiag) return bestDiag;
+
+    const centerDist = Math.hypot(localX - geom.cx, localY - geom.cy);
+    if (centerDist <= (isTouch ? 10.0 : 7.8)) {
+      return geom.center;
+    }
+
+    if (centerDist <= geom.sphereR + 4) {
+      return { id: "orbit_sphere", kind: "sphere", preset: null, tip: "Drag to Orbit" };
+    }
+    return null;
+  }
+
+  function getNavGizmoLayout() {
+    if (!els.viewNavGizmoCanvas) return null;
+    syncFromEngine(true);
+    const rect = els.viewNavGizmoCanvas.getBoundingClientRect();
+    const cssSize = rect.width > 16 ? rect.width : 94;
+    const geom = computeViewNavGizmoGeometry(currentState, cssSize);
+    const axesClient = {};
+    geom.axes.forEach((a) => {
+      axesClient[a.id] = {
+        x: rect.left + a.x,
+        y: rect.top + a.y,
+        localX: a.x,
+        localY: a.y,
+        vz: a.vz,
+        label: a.label,
+      };
+    });
+    const frontDiagonals = geom.diagonals
+      .filter((d) => d.vz > 0.12)
+      .sort((a, b) => b.vz - a.vz)
+      .map((d) => ({
+        id: d.id,
+        preset: d.preset,
+        x: rect.left + d.x,
+        y: rect.top + d.y,
+        localX: d.x,
+        localY: d.y,
+        vz: d.vz,
+      }));
+    return {
+      rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+      center: { x: rect.left + geom.cx, y: rect.top + geom.cy },
+      axes: axesClient,
+      diagonals: frontDiagonals,
+    };
+  }
+
+  function renderViewNavGizmo(state) {
+    const cvs = els.viewNavGizmoCanvas;
+    if (!cvs) return;
+    const ctx = cvs.getContext("2d");
+    if (!ctx) return;
+
+    const vp = (state && state.viewport) || {};
+    if (els.btnNavProjToggle) {
+      const isOrtho = vp.projection === "orthographic";
+      els.btnNavProjToggle.textContent = isOrtho ? "Ortho" : "Persp";
+      els.btnNavProjToggle.classList.toggle("is-ortho", isOrtho);
+    }
+
+    const rect = cvs.getBoundingClientRect();
+    const cssSize = Math.round(rect.width > 24 ? rect.width : 94);
+    const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+    const pxSize = Math.round(cssSize * dpr);
+    if (cvs.width !== pxSize || cvs.height !== pxSize) {
+      cvs.width = pxSize;
+      cvs.height = pxSize;
+    }
+
+    const geom = computeViewNavGizmoGeometry(state, cssSize);
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssSize, cssSize);
+
+    // 1. Central orientation sphere backdrop
+    const activeSphere = viewGizmoUiState.pointerInside || viewGizmoUiState.dragging;
+    const grad = ctx.createRadialGradient(
+      geom.cx - geom.sphereR * 0.28,
+      geom.cy - geom.sphereR * 0.28,
+      geom.sphereR * 0.1,
+      geom.cx,
+      geom.cy,
+      geom.sphereR
+    );
+    if (activeSphere) {
+      grad.addColorStop(0, "rgba(54, 68, 92, 0.84)");
+      grad.addColorStop(1, "rgba(18, 23, 32, 0.78)");
+    } else {
+      grad.addColorStop(0, "rgba(34, 42, 56, 0.62)");
+      grad.addColorStop(1, "rgba(15, 19, 26, 0.52)");
+    }
+    ctx.beginPath();
+    ctx.arc(geom.cx, geom.cy, geom.sphereR, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.lineWidth = viewGizmoUiState.dragging ? 1.6 : 1.0;
+    ctx.strokeStyle = viewGizmoUiState.dragging
+      ? "rgba(96, 168, 255, 0.88)"
+      : activeSphere
+      ? "rgba(155, 188, 238, 0.42)"
+      : "rgba(255, 255, 255, 0.15)";
+    ctx.stroke();
+
+    // 2. Front-hemisphere three-quarter diagonal orientation regions
+    for (let i = 0; i < geom.diagonals.length; ++i) {
+      const d = geom.diagonals[i];
+      if (d.vz <= 0.12) continue;
+      const isHov = viewGizmoUiState.hoveredId === d.id;
+      const r = isHov ? 4.8 : 2.5;
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = isHov ? "#ffe27a" : "rgba(198, 214, 238, 0.34)";
+      ctx.fill();
+      if (isHov) {
+        ctx.lineWidth = 1.3;
+        ctx.strokeStyle = "#ffffff";
+        ctx.stroke();
+      }
+    }
+
+    // 3. Depth-sorted back-to-front XYZ stems & positive/negative endpoints
+    const sortedAxes = geom.axes.slice().sort((a, b) => a.vz - b.vz);
+    const scaleFactor = cssSize / 94;
+    const posCapR = 8.4 * scaleFactor;
+    const negCapR = 7.0 * scaleFactor;
+
+    for (let i = 0; i < sortedAxes.length; ++i) {
+      const a = sortedAxes[i];
+      const isHov = viewGizmoUiState.hoveredId === a.id;
+      const depthAlpha = a.vz < -0.15 ? 0.55 : 0.96;
+
+      // Axis stem from center hub to cap edge
+      ctx.save();
+      ctx.globalAlpha = a.positive ? depthAlpha : depthAlpha * 0.45;
+      ctx.beginPath();
+      ctx.moveTo(geom.cx, geom.cy);
+      ctx.lineTo(a.x, a.y);
+      ctx.lineWidth = (a.positive ? 2.3 : 1.3) * scaleFactor;
+      ctx.strokeStyle = isHov ? "#ffe484" : a.color;
+      ctx.stroke();
+      ctx.restore();
+
+      const capR = (a.positive ? posCapR : negCapR) * (isHov ? 1.18 : 1.0);
+      ctx.save();
+      ctx.globalAlpha = isHov ? 1.0 : depthAlpha;
+      ctx.beginPath();
+      ctx.arc(a.x, a.y, capR, 0, Math.PI * 2);
+
+      if (a.positive) {
+        const capGrad = ctx.createRadialGradient(
+          a.x - capR * 0.3,
+          a.y - capR * 0.3,
+          capR * 0.1,
+          a.x,
+          a.y,
+          capR
+        );
+        capGrad.addColorStop(0, isHov ? "#fff5b8" : a.fillHi);
+        capGrad.addColorStop(1, a.color);
+        ctx.fillStyle = capGrad;
+        ctx.fill();
+        if (isHov) {
+          ctx.lineWidth = 1.6;
+          ctx.strokeStyle = "#ffffff";
+          ctx.stroke();
+        }
+        ctx.fillStyle = "#0b0e14";
+        ctx.font = "700 " + Math.round(9.8 * scaleFactor) + "px Inter, system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(a.label, a.x, a.y + 0.4);
+      } else {
+        ctx.fillStyle = isHov ? "rgba(42, 52, 68, 0.96)" : "rgba(17, 21, 29, 0.90)";
+        ctx.fill();
+        ctx.lineWidth = (isHov ? 2.1 : 1.8) * scaleFactor;
+        ctx.strokeStyle = isHov ? "#ffe484" : a.color;
+        ctx.stroke();
+        ctx.fillStyle = isHov ? "#fff5c0" : "#dbe6f6";
+        ctx.font = "700 " + Math.round(7.6 * scaleFactor) + "px Inter, system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(a.label, a.x, a.y + 0.3);
+      }
+      ctx.restore();
+    }
+
+    // 4. Central orientation control hub
+    const centerHov = viewGizmoUiState.hoveredId === "center";
+    ctx.beginPath();
+    ctx.arc(geom.cx, geom.cy, (centerHov ? 4.8 : 3.4) * scaleFactor, 0, Math.PI * 2);
+    ctx.fillStyle = centerHov ? "#ffe27a" : "#e5edf8";
+    ctx.fill();
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = "rgba(12, 16, 22, 0.85)";
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function bindViewNavGizmo() {
+    const pod = els.viewportViewGizmo;
+    const cvs = els.viewNavGizmoCanvas;
+    if (!pod || !cvs) return;
+
+    // Strict event isolation: prevent navigation widget interactions from ever leaking to #fe3d-canvas
+    [
+      "mousedown",
+      "mouseup",
+      "click",
+      "dblclick",
+      "contextmenu",
+      "touchstart",
+      "touchmove",
+      "touchend",
+      "wheel",
+    ].forEach((evtName) => {
+      pod.addEventListener(evtName, (ev) => {
+        ev.stopPropagation();
+        if (evtName === "contextmenu") ev.preventDefault();
+      });
+    });
+
+    function localCoords(ev) {
+      const rect = cvs.getBoundingClientRect();
+      return {
+        x: ev.clientX - rect.left,
+        y: ev.clientY - rect.top,
+        size: rect.width > 24 ? rect.width : 94,
+      };
+    }
+
+    function updateHoverState(ev) {
+      if (viewGizmoUiState.dragging) return;
+      const pt = localCoords(ev);
+      const isTouch = ev.pointerType === "touch";
+      const geom = computeViewNavGizmoGeometry(currentState, pt.size);
+      const hit = hitTestViewNavGizmo(pt.x, pt.y, isTouch, geom);
+      const nextId = hit ? hit.id : null;
+      const nextTip = hit && hit.tip ? hit.tip : "";
+      const actionable = Boolean(hit && hit.preset);
+      pod.classList.toggle("is-hover-target", actionable);
+      if (els.viewGizmoHoverTip) {
+        if (nextTip && !isTouch) {
+          els.viewGizmoHoverTip.textContent = nextTip;
+          els.viewGizmoHoverTip.hidden = false;
+        } else {
+          els.viewGizmoHoverTip.hidden = true;
+        }
+      }
+      if (nextId !== viewGizmoUiState.hoveredId || !viewGizmoUiState.pointerInside) {
+        viewGizmoUiState.hoveredId = nextId;
+        viewGizmoUiState.hoverTip = nextTip;
+        viewGizmoUiState.pointerInside = true;
+        renderViewNavGizmo(currentState);
+      }
+    }
+
+    let activePtrId = null;
+    let startX = 0;
+    let startY = 0;
+    let lastX = 0;
+    let lastY = 0;
+    let pressHit = null;
+    let movedToOrbit = false;
+
+    cvs.addEventListener("pointerenter", (ev) => {
+      ev.stopPropagation();
+      updateHoverState(ev);
+    });
+
+    cvs.addEventListener("pointermove", (ev) => {
+      ev.stopPropagation();
+      if (activePtrId === ev.pointerId) {
+        ev.preventDefault();
+        const dx = ev.clientX - lastX;
+        const dy = ev.clientY - lastY;
+        lastX = ev.clientX;
+        lastY = ev.clientY;
+        const travel = Math.hypot(ev.clientX - startX, ev.clientY - startY);
+        const dragSlop = ev.pointerType === "touch" ? 7 : 5;
+        if (!movedToOrbit && travel >= dragSlop) {
+          movedToOrbit = true;
+          viewGizmoUiState.dragging = true;
+          pod.classList.add("is-dragging");
+          if (els.viewGizmoHoverTip) els.viewGizmoHoverTip.hidden = true;
+        }
+        if (movedToOrbit && wasmApi) {
+          wasmApi.editorCameraOrbit(dx * 1.45, dy * 1.45);
+          if (!viewGizmoUiState.orbitRafPending) {
+            viewGizmoUiState.orbitRafPending = true;
+            requestAnimationFrame(() => {
+              viewGizmoUiState.orbitRafPending = false;
+              syncFromEngine(false);
+            });
+          }
+        }
+        return;
+      }
+      updateHoverState(ev);
+    });
+
+    cvs.addEventListener("pointerleave", (ev) => {
+      ev.stopPropagation();
+      if (activePtrId !== null) return;
+      viewGizmoUiState.hoveredId = null;
+      viewGizmoUiState.pointerInside = false;
+      pod.classList.remove("is-hover-target");
+      if (els.viewGizmoHoverTip) els.viewGizmoHoverTip.hidden = true;
+      renderViewNavGizmo(currentState);
+    });
+
+    cvs.addEventListener("pointerdown", (ev) => {
+      ev.stopPropagation();
+      if (ev.pointerType === "mouse" && ev.button !== 0) return;
+      ev.preventDefault();
+      activePtrId = ev.pointerId;
+      startX = ev.clientX;
+      startY = ev.clientY;
+      lastX = ev.clientX;
+      lastY = ev.clientY;
+      movedToOrbit = false;
+      const pt = localCoords(ev);
+      const geom = computeViewNavGizmoGeometry(currentState, pt.size);
+      pressHit = hitTestViewNavGizmo(pt.x, pt.y, ev.pointerType === "touch", geom);
+      try {
+        cvs.setPointerCapture(ev.pointerId);
+      } catch (_) {}
+    });
+
+    function finishPointer(ev, canceled) {
+      ev.stopPropagation();
+      if (activePtrId !== ev.pointerId) return;
+      try {
+        cvs.releasePointerCapture(ev.pointerId);
+      } catch (_) {}
+      activePtrId = null;
+      const wasOrbit = movedToOrbit;
+      const targetHit = pressHit;
+      pressHit = null;
+      movedToOrbit = false;
+      viewGizmoUiState.dragging = false;
+      pod.classList.remove("is-dragging");
+
+      if (!canceled && !wasOrbit && targetHit && targetHit.preset && wasmApi) {
+        wasmApi.dispatchAction({
+          action: "set_viewport_view",
+          view: targetHit.preset,
+          smooth: true,
+        });
+        scheduleViewTransitionSync();
+      } else {
+        syncFromEngine(false);
+      }
+
+      if (ev.pointerType === "touch") {
+        viewGizmoUiState.hoveredId = null;
+        viewGizmoUiState.pointerInside = false;
+      }
+      renderViewNavGizmo(currentState);
+    }
+
+    cvs.addEventListener("pointerup", (ev) => finishPointer(ev, false));
+    cvs.addEventListener("pointercancel", (ev) => finishPointer(ev, true));
+
+    if (els.btnNavHomeView) {
+      els.btnNavHomeView.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+      els.btnNavHomeView.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        if (!wasmApi) return;
+        wasmApi.dispatchAction({ action: "reset_viewport_view", smooth: true });
+        scheduleViewTransitionSync();
+      });
+    }
+
+    if (els.btnNavProjToggle) {
+      els.btnNavProjToggle.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+      els.btnNavProjToggle.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        if (!wasmApi) return;
+        wasmApi.dispatchAction({ action: "toggle_viewport_projection" });
+      });
+    }
+
+    window.addEventListener("resize", () => {
+      renderViewNavGizmo(currentState);
+      setTimeout(() => syncFromEngine(false), 30);
+    });
   }
 
   // =========================================================================
@@ -3096,6 +3661,7 @@
     }
 
     bindViewportTouchAndPointer();
+    bindViewNavGizmo();
     bindDockSplitters();
   }
 

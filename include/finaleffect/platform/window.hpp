@@ -44,6 +44,9 @@ public:
     virtual void requestClose() noexcept = 0;
 
     [[nodiscard]] virtual FramebufferSize framebufferSize() const noexcept = 0;
+    [[nodiscard]] virtual float contentScale() const noexcept {
+        return 1.0f;
+    }
     virtual void swapBuffers() = 0;
 
     // Optional proc-address loader for OpenGL-backed desktop windows; returns nullptr on non-GL windows.
@@ -64,6 +67,12 @@ public:
     void requestClose() noexcept override;
 
     [[nodiscard]] FramebufferSize framebufferSize() const noexcept override;
+    [[nodiscard]] float contentScale() const noexcept override {
+        return content_scale_;
+    }
+    void setContentScale(float scale) noexcept {
+        content_scale_ = (scale > 0.1f) ? scale : 1.0f;
+    }
     void swapBuffers() override;
 
     void resize(std::uint32_t width, std::uint32_t height) noexcept;
@@ -77,6 +86,7 @@ private:
     bool initialized_{false};
     bool should_close_{false};
     FramebufferSize size_{0, 0};
+    float content_scale_{1.0f};
     std::uint64_t swapped_frames_{0};
     std::vector<InputEvent> pending_events_;
 };

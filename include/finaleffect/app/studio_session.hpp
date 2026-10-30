@@ -20,8 +20,32 @@
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <string>
+#include <string_view>
 
 namespace finaleffect::app {
+
+enum class ViewportViewPreset : std::uint8_t {
+    Home = 0,
+    RightPosX,
+    LeftNegX,
+    TopPosY,
+    BottomNegY,
+    FrontPosZ,
+    BackNegZ,
+    DiagPosXPosYPosZ,
+    DiagNegXPosYPosZ,
+    DiagPosXPosYNegZ,
+    DiagNegXPosYNegZ,
+    DiagPosXNegYPosZ,
+    DiagNegXNegYPosZ,
+    DiagPosXNegYNegZ,
+    DiagNegXNegYNegZ,
+};
+
+[[nodiscard]] std::optional<ViewportViewPreset> parseViewportViewPreset(std::string_view name) noexcept;
+[[nodiscard]] std::string_view viewportViewPresetSlug(ViewportViewPreset preset) noexcept;
+[[nodiscard]] std::string_view viewportViewPresetLabel(ViewportViewPreset preset) noexcept;
 
 struct StudioSessionConfig {
     bool animate_showcase_rig{true};
@@ -141,6 +165,18 @@ public:
     [[nodiscard]] bool isCameraViewActive() const noexcept { return camera_view_active_; }
     void setCameraViewActive(bool active) noexcept;
 
+    // Editor observer camera controls for the 3D View Navigation Gizmo (never mutates scene objects/cameras).
+    [[nodiscard]] core::Status orbitEditorObserverCamera(float delta_pixels_x, float delta_pixels_y);
+    void setViewportViewPreset(ViewportViewPreset preset, bool smooth = true) noexcept;
+    void resetViewportHomeView(bool smooth = true) noexcept;
+    [[nodiscard]] scene::ProjectionType viewportProjection() const noexcept {
+        return viewport_camera_.projection;
+    }
+    void setViewportProjection(scene::ProjectionType projection) noexcept;
+    void toggleViewportProjection() noexcept;
+    [[nodiscard]] bool isViewTransitionActive() const noexcept { return view_transition_.active; }
+    [[nodiscard]] std::string_view viewportViewLabel() const noexcept;
+
     [[nodiscard]] bool areEditorHelpersVisible() const noexcept { return editor_helpers_visible_; }
     void setEditorHelpersVisible(bool visible) noexcept;
 
@@ -156,8 +192,25 @@ private:
         GizmoMeshElements,
     };
 
+    struct ViewTransitionState {
+        bool active{false};
+        float elapsed_seconds{0.0f};
+        float duration_seconds{0.22f};
+        float start_yaw{0.0f};
+        float goal_yaw{0.0f};
+        float start_pitch{0.0f};
+        float goal_pitch{0.0f};
+        math::Vec3 start_target{0.0f, 0.80f, 0.0f};
+        math::Vec3 goal_target{0.0f, 0.80f, 0.0f};
+        float start_distance{6.46f};
+        float goal_distance{6.46f};
+    };
+
     [[nodiscard]] std::optional<math::Ray> computeViewportRay(float screen_x, float screen_y) const noexcept;
     void resetEditorViewportCamera() noexcept;
+    void detachFromActiveSceneCameraForObserverControl() noexcept;
+    void syncViewportOrthoHeightFromDistance() noexcept;
+    void markUserFreeViewLabel() noexcept;
     void syncCameraControllerFromScene() noexcept;
     [[nodiscard]] core::Status applyCameraControllerToScene();
     [[nodiscard]] core::Status processInputEvent(const platform::InputEvent& event);
@@ -170,6 +223,8 @@ private:
     scene::CommandStack command_stack_;
     OrbitCameraController camera_controller_{};
     scene::CameraComponent viewport_camera_{};
+    ViewTransitionState view_transition_{};
+    std::string viewport_view_label_{"User Persp"};
     bool camera_view_active_{false};
     bool editor_helpers_visible_{true};
     TransformGizmo gizmo_{};
@@ -182,6 +237,7 @@ private:
 
     DragMode drag_mode_{DragMode::None};
     bool left_click_shift_{false};
+    bool left_press_near_gizmo_{false};
     double last_cursor_x_{0.0};
     double last_cursor_y_{0.0};
     double press_cursor_x_{0.0};
@@ -207,6 +263,7 @@ private:
     std::uint64_t interaction_revision_{1};
     std::uint32_t last_fb_width_{0};
     std::uint32_t last_fb_height_{0};
+    float last_content_scale_{1.0f};
     bool custom_project_loaded_{false};
     float rig_angle_radians_{0.0f};
 };

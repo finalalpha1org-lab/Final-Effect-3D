@@ -38,6 +38,7 @@ enum class GizmoHandle : std::uint8_t {
     TranslateXY,
     TranslateXZ,
     TranslateYZ,
+    TranslateView,
     RotateX,
     RotateY,
     RotateZ,
@@ -93,16 +94,25 @@ public:
     [[nodiscard]] GizmoHandle activeHandle() const noexcept { return active_handle_; }
     [[nodiscard]] bool isDragging() const noexcept { return dragging_; }
 
-    // Computes constant-screen-proportion gizmo frame for a target world matrix & camera.
+    // Computes screen-space-aware gizmo frame for a target world matrix, camera, and viewport resolution/DPI.
     [[nodiscard]] static GizmoFrame computeFrame(
         const math::Mat4& target_world_matrix,
         const math::Mat4& camera_world_matrix,
         const scene::CameraComponent& camera,
         GizmoMode mode,
-        GizmoSpace space) noexcept;
+        GizmoSpace space,
+        std::uint32_t viewport_width = 0,
+        std::uint32_t viewport_height = 0,
+        float pixel_scale = 1.0f) noexcept;
 
     // Raycasts individual 3D gizmo handles in world space.
     [[nodiscard]] static std::optional<GizmoPickResult> pickHandle(
+        GizmoMode mode,
+        const GizmoFrame& frame,
+        const math::Ray& world_ray) noexcept;
+
+    // Proximity halo guard used to prevent accidental background object reselection on near-handle clicks.
+    [[nodiscard]] static bool isNearAnyHandle(
         GizmoMode mode,
         const GizmoFrame& frame,
         const math::Ray& world_ray) noexcept;
@@ -138,6 +148,7 @@ private:
     GizmoHandle hovered_handle_{GizmoHandle::None};
     GizmoHandle active_handle_{GizmoHandle::None};
     bool dragging_{false};
+    bool rotate_use_plane_intersection_{true};
 
     GizmoFrame start_frame_{};
     math::Transform initial_local_transform_{};

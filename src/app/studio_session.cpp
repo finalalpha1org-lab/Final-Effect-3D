@@ -14,6 +14,123 @@
 
 namespace finaleffect::app {
 
+namespace {
+
+constexpr math::Vec3 kDefaultHomeEye{0.0f, 2.95f, 6.10f};
+constexpr math::Vec3 kDefaultHomeTarget{0.0f, 0.80f, 0.0f};
+constexpr float kIsoPitchRadians = 0.61547971f; // atan(1 / sqrt(2)) ~= 35.26439 deg
+constexpr float kPolePitchRadians = math::degToRad(89.0f);
+
+struct PresetAngles {
+    float yaw{0.0f};
+    float pitch{-0.339f};
+};
+
+PresetAngles computePresetAngles(ViewportViewPreset preset) noexcept {
+    switch (preset) {
+        case ViewportViewPreset::Home: {
+            const math::Vec3 off = kDefaultHomeEye - kDefaultHomeTarget;
+            const float horiz = std::sqrt(off.x * off.x + off.z * off.z);
+            return {
+                .yaw = std::atan2(off.x, off.z),
+                .pitch = -std::atan2(off.y, horiz),
+            };
+        }
+        case ViewportViewPreset::RightPosX:
+            return {.yaw = math::kHalfPi, .pitch = 0.0f};
+        case ViewportViewPreset::LeftNegX:
+            return {.yaw = -math::kHalfPi, .pitch = 0.0f};
+        case ViewportViewPreset::TopPosY:
+            return {.yaw = 0.0f, .pitch = -kPolePitchRadians};
+        case ViewportViewPreset::BottomNegY:
+            return {.yaw = 0.0f, .pitch = kPolePitchRadians};
+        case ViewportViewPreset::FrontPosZ:
+            return {.yaw = 0.0f, .pitch = 0.0f};
+        case ViewportViewPreset::BackNegZ:
+            return {.yaw = math::kPi, .pitch = 0.0f};
+        case ViewportViewPreset::DiagPosXPosYPosZ:
+            return {.yaw = math::degToRad(45.0f), .pitch = -kIsoPitchRadians};
+        case ViewportViewPreset::DiagNegXPosYPosZ:
+            return {.yaw = math::degToRad(-45.0f), .pitch = -kIsoPitchRadians};
+        case ViewportViewPreset::DiagPosXPosYNegZ:
+            return {.yaw = math::degToRad(135.0f), .pitch = -kIsoPitchRadians};
+        case ViewportViewPreset::DiagNegXPosYNegZ:
+            return {.yaw = math::degToRad(-135.0f), .pitch = -kIsoPitchRadians};
+        case ViewportViewPreset::DiagPosXNegYPosZ:
+            return {.yaw = math::degToRad(45.0f), .pitch = kIsoPitchRadians};
+        case ViewportViewPreset::DiagNegXNegYPosZ:
+            return {.yaw = math::degToRad(-45.0f), .pitch = kIsoPitchRadians};
+        case ViewportViewPreset::DiagPosXNegYNegZ:
+            return {.yaw = math::degToRad(135.0f), .pitch = kIsoPitchRadians};
+        case ViewportViewPreset::DiagNegXNegYNegZ:
+            return {.yaw = math::degToRad(-135.0f), .pitch = kIsoPitchRadians};
+    }
+    return {};
+}
+
+} // namespace
+
+std::optional<ViewportViewPreset> parseViewportViewPreset(std::string_view name) noexcept {
+    if (name == "home" || name == "reset") return ViewportViewPreset::Home;
+    if (name == "pos_x" || name == "+x" || name == "right") return ViewportViewPreset::RightPosX;
+    if (name == "neg_x" || name == "-x" || name == "left") return ViewportViewPreset::LeftNegX;
+    if (name == "pos_y" || name == "+y" || name == "top") return ViewportViewPreset::TopPosY;
+    if (name == "neg_y" || name == "-y" || name == "bottom") return ViewportViewPreset::BottomNegY;
+    if (name == "pos_z" || name == "+z" || name == "front") return ViewportViewPreset::FrontPosZ;
+    if (name == "neg_z" || name == "-z" || name == "back") return ViewportViewPreset::BackNegZ;
+    if (name == "diag_px_py_pz") return ViewportViewPreset::DiagPosXPosYPosZ;
+    if (name == "diag_nx_py_pz") return ViewportViewPreset::DiagNegXPosYPosZ;
+    if (name == "diag_px_py_nz") return ViewportViewPreset::DiagPosXPosYNegZ;
+    if (name == "diag_nx_py_nz") return ViewportViewPreset::DiagNegXPosYNegZ;
+    if (name == "diag_px_ny_pz") return ViewportViewPreset::DiagPosXNegYPosZ;
+    if (name == "diag_nx_ny_pz") return ViewportViewPreset::DiagNegXNegYPosZ;
+    if (name == "diag_px_ny_nz") return ViewportViewPreset::DiagPosXNegYNegZ;
+    if (name == "diag_nx_ny_nz") return ViewportViewPreset::DiagNegXNegYNegZ;
+    return std::nullopt;
+}
+
+std::string_view viewportViewPresetSlug(ViewportViewPreset preset) noexcept {
+    switch (preset) {
+        case ViewportViewPreset::Home: return "home";
+        case ViewportViewPreset::RightPosX: return "pos_x";
+        case ViewportViewPreset::LeftNegX: return "neg_x";
+        case ViewportViewPreset::TopPosY: return "pos_y";
+        case ViewportViewPreset::BottomNegY: return "neg_y";
+        case ViewportViewPreset::FrontPosZ: return "pos_z";
+        case ViewportViewPreset::BackNegZ: return "neg_z";
+        case ViewportViewPreset::DiagPosXPosYPosZ: return "diag_px_py_pz";
+        case ViewportViewPreset::DiagNegXPosYPosZ: return "diag_nx_py_pz";
+        case ViewportViewPreset::DiagPosXPosYNegZ: return "diag_px_py_nz";
+        case ViewportViewPreset::DiagNegXPosYNegZ: return "diag_nx_py_nz";
+        case ViewportViewPreset::DiagPosXNegYPosZ: return "diag_px_ny_pz";
+        case ViewportViewPreset::DiagNegXNegYPosZ: return "diag_nx_ny_pz";
+        case ViewportViewPreset::DiagPosXNegYNegZ: return "diag_px_ny_nz";
+        case ViewportViewPreset::DiagNegXNegYNegZ: return "diag_nx_ny_nz";
+    }
+    return "home";
+}
+
+std::string_view viewportViewPresetLabel(ViewportViewPreset preset) noexcept {
+    switch (preset) {
+        case ViewportViewPreset::Home: return "User Persp";
+        case ViewportViewPreset::RightPosX: return "Right (+X)";
+        case ViewportViewPreset::LeftNegX: return "Left (-X)";
+        case ViewportViewPreset::TopPosY: return "Top (+Y)";
+        case ViewportViewPreset::BottomNegY: return "Bottom (-Y)";
+        case ViewportViewPreset::FrontPosZ: return "Front (+Z)";
+        case ViewportViewPreset::BackNegZ: return "Back (-Z)";
+        case ViewportViewPreset::DiagPosXPosYPosZ: return "Iso (+X+Y+Z)";
+        case ViewportViewPreset::DiagNegXPosYPosZ: return "Iso (-X+Y+Z)";
+        case ViewportViewPreset::DiagPosXPosYNegZ: return "Iso (+X+Y-Z)";
+        case ViewportViewPreset::DiagNegXPosYNegZ: return "Iso (-X+Y-Z)";
+        case ViewportViewPreset::DiagPosXNegYPosZ: return "Iso (+X-Y+Z)";
+        case ViewportViewPreset::DiagNegXNegYPosZ: return "Iso (-X-Y+Z)";
+        case ViewportViewPreset::DiagPosXNegYNegZ: return "Iso (+X-Y-Z)";
+        case ViewportViewPreset::DiagNegXNegYNegZ: return "Iso (-X-Y-Z)";
+    }
+    return "User Persp";
+}
+
 StudioSession::StudioSession(
     platform::IWindow& window,
     std::unique_ptr<rendering::IRenderDevice> render_device,
@@ -174,6 +291,7 @@ void StudioSession::setCameraViewActive(bool active) noexcept {
     if (gizmo_.isDragging()) {
         (void)cancelActiveGizmoDrag();
     }
+    view_transition_.active = false;
     camera_view_active_ = active;
     if (camera_view_active_) {
         const scene::ObjectId cam_id = document_.scene.activeCamera();
@@ -191,6 +309,128 @@ void StudioSession::setCameraViewActive(bool active) noexcept {
     ++interaction_revision_;
 }
 
+void StudioSession::detachFromActiveSceneCameraForObserverControl() noexcept {
+    if (!camera_view_active_) {
+        return;
+    }
+    const math::Vec3 keep_target = camera_controller_.target();
+    const scene::ObjectId cam_id = document_.scene.activeCamera();
+    if (cam_id.isValid()) {
+        if (const auto* cam_obj = document_.scene.findObject(cam_id); cam_obj != nullptr) {
+            camera_controller_.syncFromCameraTransform(cam_obj->local_transform, keep_target);
+        }
+    }
+    camera_view_active_ = false;
+    syncViewportOrthoHeightFromDistance();
+}
+
+void StudioSession::syncViewportOrthoHeightFromDistance() noexcept {
+    const float half_tan = std::tan(std::clamp(viewport_camera_.fov_y_radians, 0.1f, 2.4f) * 0.5f);
+    viewport_camera_.orthographic_height =
+        std::clamp(2.0f * camera_controller_.distance() * half_tan, 0.15f, 400.0f);
+}
+
+void StudioSession::markUserFreeViewLabel() noexcept {
+    viewport_view_label_ =
+        (viewport_camera_.projection == scene::ProjectionType::Orthographic) ? "User Ortho" : "User Persp";
+}
+
+core::Status StudioSession::orbitEditorObserverCamera(float delta_pixels_x, float delta_pixels_y) {
+    if (gizmo_.isDragging()) {
+        (void)cancelActiveGizmoDrag();
+    }
+    view_transition_.active = false;
+    detachFromActiveSceneCameraForObserverControl();
+    camera_controller_.orbit(
+        -delta_pixels_x * config_.orbit_radians_per_pixel,
+        -delta_pixels_y * config_.orbit_radians_per_pixel);
+    markUserFreeViewLabel();
+    ++interaction_revision_;
+    return core::Status::ok();
+}
+
+void StudioSession::setViewportViewPreset(ViewportViewPreset preset, bool smooth) noexcept {
+    if (gizmo_.isDragging()) {
+        (void)cancelActiveGizmoDrag();
+    }
+    detachFromActiveSceneCameraForObserverControl();
+
+    const PresetAngles angles = computePresetAngles(preset);
+    const math::Vec3 goal_target =
+        (preset == ViewportViewPreset::Home) ? kDefaultHomeTarget : camera_controller_.target();
+    const float goal_dist =
+        (preset == ViewportViewPreset::Home)
+            ? (kDefaultHomeEye - kDefaultHomeTarget).length()
+            : camera_controller_.distance();
+
+    if (preset == ViewportViewPreset::Home) {
+        markUserFreeViewLabel();
+    } else {
+        viewport_view_label_ = std::string(viewportViewPresetLabel(preset));
+    }
+
+    if (!smooth) {
+        view_transition_.active = false;
+        camera_controller_.setPose(goal_target, angles.yaw, angles.pitch, goal_dist);
+        syncViewportOrthoHeightFromDistance();
+        gizmo_.setHoveredHandle(GizmoHandle::None);
+        ++interaction_revision_;
+        return;
+    }
+
+    const float cur_yaw = camera_controller_.yawRadians();
+    const float cur_pitch = camera_controller_.pitchRadians();
+    const float shortest_goal_yaw = cur_yaw + std::remainder(angles.yaw - cur_yaw, math::kTwoPi);
+
+    view_transition_.active = true;
+    view_transition_.elapsed_seconds = 0.0f;
+    view_transition_.duration_seconds = 0.22f;
+    view_transition_.start_yaw = cur_yaw;
+    view_transition_.goal_yaw = shortest_goal_yaw;
+    view_transition_.start_pitch = cur_pitch;
+    view_transition_.goal_pitch = angles.pitch;
+    view_transition_.start_target = camera_controller_.target();
+    view_transition_.goal_target = goal_target;
+    view_transition_.start_distance = camera_controller_.distance();
+    view_transition_.goal_distance = goal_dist;
+
+    gizmo_.setHoveredHandle(GizmoHandle::None);
+    ++interaction_revision_;
+}
+
+void StudioSession::resetViewportHomeView(bool smooth) noexcept {
+    viewport_camera_.projection = scene::ProjectionType::Perspective;
+    setViewportViewPreset(ViewportViewPreset::Home, smooth);
+}
+
+void StudioSession::setViewportProjection(scene::ProjectionType projection) noexcept {
+    detachFromActiveSceneCameraForObserverControl();
+    if (viewport_camera_.projection == projection) {
+        ++interaction_revision_;
+        return;
+    }
+    viewport_camera_.projection = projection;
+    syncViewportOrthoHeightFromDistance();
+    if (viewport_view_label_ == "User Persp" || viewport_view_label_ == "User Ortho") {
+        markUserFreeViewLabel();
+    }
+    ++interaction_revision_;
+}
+
+void StudioSession::toggleViewportProjection() noexcept {
+    setViewportProjection(
+        (viewport_camera_.projection == scene::ProjectionType::Orthographic)
+            ? scene::ProjectionType::Perspective
+            : scene::ProjectionType::Orthographic);
+}
+
+std::string_view StudioSession::viewportViewLabel() const noexcept {
+    if (camera_view_active_) {
+        return "Camera Lens";
+    }
+    return viewport_view_label_;
+}
+
 void StudioSession::setEditorHelpersVisible(bool visible) noexcept {
     if (editor_helpers_visible_ == visible) {
         return;
@@ -200,9 +440,12 @@ void StudioSession::setEditorHelpersVisible(bool visible) noexcept {
 }
 
 void StudioSession::resetEditorViewportCamera() noexcept {
+    view_transition_.active = false;
     math::Transform editor_eye{};
-    editor_eye.position = {0.0f, 2.95f, 6.10f};
-    camera_controller_.syncFromCameraTransform(editor_eye, {0.0f, 0.80f, 0.0f});
+    editor_eye.position = kDefaultHomeEye;
+    camera_controller_.syncFromCameraTransform(editor_eye, kDefaultHomeTarget);
+    syncViewportOrthoHeightFromDistance();
+    markUserFreeViewLabel();
 }
 
 void StudioSession::syncCameraControllerFromScene() noexcept {
@@ -223,6 +466,7 @@ void StudioSession::syncCameraControllerFromScene() noexcept {
 }
 
 core::Status StudioSession::applyCameraControllerToScene() {
+    syncViewportOrthoHeightFromDistance();
     ++interaction_revision_;
     if (!camera_view_active_) {
         return core::Status::ok();
@@ -246,6 +490,7 @@ core::Status StudioSession::onInitialize(core::Engine& engine) {
     }
     last_fb_width_ = fb.width;
     last_fb_height_ = fb.height;
+    last_content_scale_ = window_.contentScale();
 
     engine.logger().info(
         "App.Session",
@@ -345,6 +590,8 @@ std::optional<GizmoFrame> StudioSession::computeActiveGizmoFrame() const noexcep
         return std::nullopt;
     }
 
+    const auto fb = window_.framebufferSize();
+    const float pixel_scale = window_.contentScale();
     const auto cam_st = activeCameraState();
     if (editor_mode_ == scene::EditMode::Object) {
         return TransformGizmo::computeFrame(
@@ -352,7 +599,10 @@ std::optional<GizmoFrame> StudioSession::computeActiveGizmoFrame() const noexcep
             cam_st.camera_world,
             cam_st.camera,
             gizmo_.mode(),
-            gizmo_.space());
+            gizmo_.space(),
+            fb.width,
+            fb.height,
+            pixel_scale);
     }
 
     // Mesh Edit mode: anchor Translate gizmo at world centroid of selected vertices/edges/faces.
@@ -380,7 +630,10 @@ std::optional<GizmoFrame> StudioSession::computeActiveGizmoFrame() const noexcep
         cam_st.camera_world,
         cam_st.camera,
         GizmoMode::Translate,
-        gizmo_.space());
+        gizmo_.space(),
+        fb.width,
+        fb.height,
+        pixel_scale);
 }
 
 std::optional<scene::RaycastHit> StudioSession::pickAtScreenPosition(float screen_x, float screen_y) {
@@ -555,6 +808,7 @@ core::Status StudioSession::frameSelectionOrScene() {
     }
 
     if (target_bounds.isValid()) {
+        view_transition_.active = false;
         camera_controller_.frameBounds(target_bounds, fov_y);
         return applyCameraControllerToScene();
     }
@@ -562,13 +816,18 @@ core::Status StudioSession::frameSelectionOrScene() {
 }
 
 core::Status StudioSession::orbitViewportCamera(float delta_pixels_x, float delta_pixels_y) {
+    view_transition_.active = false;
     camera_controller_.orbit(
         -delta_pixels_x * config_.orbit_radians_per_pixel,
         -delta_pixels_y * config_.orbit_radians_per_pixel);
+    if (!camera_view_active_) {
+        markUserFreeViewLabel();
+    }
     return applyCameraControllerToScene();
 }
 
 core::Status StudioSession::panViewportCamera(float delta_pixels_x, float delta_pixels_y) {
+    view_transition_.active = false;
     const float fov_y = activeCameraState().camera.fov_y_radians;
     camera_controller_.pan(
         delta_pixels_x,
@@ -580,6 +839,7 @@ core::Status StudioSession::panViewportCamera(float delta_pixels_x, float delta_
 
 core::Status StudioSession::zoomViewportCamera(float wheel_steps) {
     if (std::fabs(wheel_steps) > 1.0e-5f) {
+        view_transition_.active = false;
         camera_controller_.zoom(wheel_steps);
         return applyCameraControllerToScene();
     }
@@ -606,15 +866,18 @@ core::Status StudioSession::processInputEvent(const platform::InputEvent& event)
         if (mb->action == platform::KeyAction::Press) {
             press_cursor_x_ = mb->x;
             press_cursor_y_ = mb->y;
+            left_press_near_gizmo_ = false;
 
             if (mb->button == platform::MouseButton::Right && gizmo_.isDragging()) {
                 return cancelActiveGizmoDrag();
             }
 
             if (mb->button == platform::MouseButton::Middle || mb->button == platform::MouseButton::Right) {
+                view_transition_.active = false;
                 drag_mode_ = mb->mods.shift ? DragMode::Pan : DragMode::Orbit;
             } else if (mb->button == platform::MouseButton::Left) {
                 if (mb->mods.alt) {
+                    view_transition_.active = false;
                     drag_mode_ = mb->mods.shift ? DragMode::Pan : DragMode::Orbit;
                 } else {
                     // 1. Test 3D Transform Gizmo handles FIRST so dragging never reselects objects underneath.
@@ -679,6 +942,9 @@ core::Status StudioSession::processInputEvent(const platform::InputEvent& event)
                                 }
                             }
                         }
+                        left_press_near_gizmo_ =
+                            selected_object_.isValid() &&
+                            TransformGizmo::isNearAnyHandle(eff_mode, frame.value(), ray.value());
                     }
 
                     left_click_shift_ = mb->mods.shift;
@@ -695,7 +961,30 @@ core::Status StudioSession::processInputEvent(const platform::InputEvent& event)
                 const double dy = mb->y - press_cursor_y_;
                 if ((dx * dx + dy * dy) <= 16.0) {
                     if (editor_mode_ == scene::EditMode::Object) {
-                        (void)pickAtScreenPosition(static_cast<float>(mb->x), static_cast<float>(mb->y));
+                        bool allow_pick = true;
+                        if (left_press_near_gizmo_ && selected_object_.isValid()) {
+                            const auto frame = computeActiveGizmoFrame();
+                            const auto ray = computeViewportRay(static_cast<float>(mb->x), static_cast<float>(mb->y));
+                            if (frame.has_value() && ray.has_value()) {
+                                const auto cam_st = activeCameraState();
+                                const bool allow_helpers = editor_helpers_visible_;
+                                const scene::ObjectId hidden_cam =
+                                    camera_view_active_ ? document_.scene.activeCamera() : scene::ObjectId::invalid();
+                                const auto probe = pickSceneOrViewportHelper(
+                                    document_.scene,
+                                    ray.value(),
+                                    allow_helpers,
+                                    hidden_cam,
+                                    scene::RaycastOptions{.max_distance = cam_st.camera.far_plane});
+                                const float gizmo_depth = (frame->origin - ray->origin).length();
+                                if (!probe.has_value() || probe->distance + 0.15f >= gizmo_depth) {
+                                    allow_pick = false;
+                                }
+                            }
+                        }
+                        if (allow_pick) {
+                            (void)pickAtScreenPosition(static_cast<float>(mb->x), static_cast<float>(mb->y));
+                        }
                     } else {
                         (void)pickMeshElementAtScreenPosition(
                             static_cast<float>(mb->x),
@@ -704,6 +993,7 @@ core::Status StudioSession::processInputEvent(const platform::InputEvent& event)
                     }
                 }
             }
+            left_press_near_gizmo_ = false;
             drag_mode_ = DragMode::None;
         }
         return core::Status::ok();
@@ -763,12 +1053,17 @@ core::Status StudioSession::processInputEvent(const platform::InputEvent& event)
         }
 
         if (drag_mode_ == DragMode::Orbit) {
+            view_transition_.active = false;
             camera_controller_.orbit(
                 -dx * config_.orbit_radians_per_pixel,
                 -dy * config_.orbit_radians_per_pixel);
+            if (!camera_view_active_) {
+                markUserFreeViewLabel();
+            }
             return applyCameraControllerToScene();
         }
         if (drag_mode_ == DragMode::Pan) {
+            view_transition_.active = false;
             const float fov_y = activeCameraState().camera.fov_y_radians;
             camera_controller_.pan(dx, dy, window_.framebufferSize().height, fov_y);
             return applyCameraControllerToScene();
@@ -796,6 +1091,7 @@ core::Status StudioSession::processInputEvent(const platform::InputEvent& event)
 
     if (const auto* sc = std::get_if<platform::ScrollEvent>(&event)) {
         if (std::fabs(sc->delta_y) > 1.0e-5) {
+            view_transition_.active = false;
             camera_controller_.zoom(static_cast<float>(sc->delta_y));
             return applyCameraControllerToScene();
         }
@@ -952,13 +1248,16 @@ core::Status StudioSession::onUpdate(core::Engine&, const core::FrameTimings& ti
     window_.pollEvents();
 
     const auto fb = window_.framebufferSize();
+    const float content_scale = window_.contentScale();
     auto resize_st = renderer_.resize(fb.width, fb.height);
     if (!resize_st) {
         return resize_st;
     }
-    if (fb.width != last_fb_width_ || fb.height != last_fb_height_) {
+    if (fb.width != last_fb_width_ || fb.height != last_fb_height_ ||
+        std::fabs(content_scale - last_content_scale_) > 1.0e-3f) {
         last_fb_width_ = fb.width;
         last_fb_height_ = fb.height;
+        last_content_scale_ = content_scale;
         ++interaction_revision_;
     }
 
@@ -967,6 +1266,30 @@ core::Status StudioSession::onUpdate(core::Engine&, const core::FrameTimings& ti
         if (!ev_st) {
             return ev_st;
         }
+    }
+
+    if (view_transition_.active) {
+        const float dt = std::clamp(static_cast<float>(timings.delta_seconds), 0.001f, 0.10f);
+        view_transition_.elapsed_seconds += dt;
+        const float dur = std::max(0.01f, view_transition_.duration_seconds);
+        const float raw_t = std::clamp(view_transition_.elapsed_seconds / dur, 0.0f, 1.0f);
+        const float inv = 1.0f - raw_t;
+        const float u = 1.0f - inv * inv * inv;
+
+        const float yaw = view_transition_.start_yaw +
+                          (view_transition_.goal_yaw - view_transition_.start_yaw) * u;
+        const float pitch = view_transition_.start_pitch +
+                            (view_transition_.goal_pitch - view_transition_.start_pitch) * u;
+        const math::Vec3 tgt = view_transition_.start_target +
+                               (view_transition_.goal_target - view_transition_.start_target) * u;
+        const float dist = view_transition_.start_distance +
+                           (view_transition_.goal_distance - view_transition_.start_distance) * u;
+        camera_controller_.setPose(tgt, yaw, pitch, dist);
+        syncViewportOrthoHeightFromDistance();
+        if (raw_t >= 1.0f) {
+            view_transition_.active = false;
+        }
+        ++interaction_revision_;
     }
 
     if (config_.animate_showcase_rig && !gizmo_.isDragging()) {
@@ -1026,7 +1349,10 @@ core::Status StudioSession::onUpdate(core::Engine&, const core::FrameTimings& ti
                 cam_st.camera_world,
                 cam_st.camera,
                 GizmoMode::Translate,
-                GizmoSpace::World);
+                GizmoSpace::World,
+                fb.width,
+                fb.height,
+                content_scale);
             edit_overlay_mesh_ = ma->editable_mesh->buildEditOverlayMesh(
                 editor_mode_,
                 mesh_selection_,
@@ -1114,6 +1440,7 @@ core::Status StudioSession::resetStarterProject() {
     editor_mode_ = scene::EditMode::Object;
     mesh_selection_.clear();
     gizmo_.setHoveredHandle(GizmoHandle::None);
+    viewport_camera_.projection = scene::ProjectionType::Perspective;
     camera_view_active_ = false;
     custom_project_loaded_ = false;
     rig_angle_radians_ = 0.0f;
@@ -1139,6 +1466,7 @@ core::Status StudioSession::loadProjectFromFile(
     document_ = std::move(loaded).value();
     command_stack_.clear();
     restoreFromDocumentState();
+    viewport_camera_.projection = scene::ProjectionType::Perspective;
     camera_view_active_ = false;
     custom_project_loaded_ = true;
     rig_angle_radians_ = 0.0f;

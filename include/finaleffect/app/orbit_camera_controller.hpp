@@ -19,6 +19,12 @@ class OrbitCameraController {
 public:
     void syncFromCameraTransform(const math::Transform& cam_tf, const math::Vec3& focus_target) noexcept;
 
+    void setPose(
+        const math::Vec3& target,
+        float yaw_radians,
+        float pitch_radians,
+        float distance) noexcept;
+
     void orbit(float delta_yaw_radians, float delta_pitch_radians) noexcept;
 
     // Pans target in the camera view plane so grabbed points track cursor pixel motion.
