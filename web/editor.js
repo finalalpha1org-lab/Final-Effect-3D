@@ -926,12 +926,13 @@
       const saved = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
       if (saved && saved.trim().startsWith("{")) {
         const parsed = JSON.parse(saved);
-        syncWorkspaceTabFromLayoutName(parsed.layout_name);
+        const wsObj = parsed.workspace || parsed;
+        syncWorkspaceTabFromLayoutName(wsObj.layout_name);
         wasmApi.dispatchAction({
           action: "import_workspace_json",
           json_text: saved,
         });
-        applyDockRatiosCss(parsed);
+        applyDockRatiosCss(wsObj);
       }
     } catch (_) {}
   }
@@ -2075,9 +2076,10 @@
       }
       try {
         const parsed = JSON.parse(saved);
-        syncWorkspaceTabFromLayoutName(parsed.layout_name);
+        const wsObj = parsed.workspace || parsed;
+        syncWorkspaceTabFromLayoutName(wsObj.layout_name);
         wasmApi.dispatchAction({ action: "import_workspace_json", json_text: saved });
-        applyDockRatiosCss(parsed);
+        applyDockRatiosCss(wsObj);
         persistWorkspaceToStorage();
         els.statusDot.classList.remove("is-error");
         els.statusMessage.textContent = "Restored saved custom workspace layout";
