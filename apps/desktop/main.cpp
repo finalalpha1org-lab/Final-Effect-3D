@@ -1,297 +1,248 @@
-// Final Effect 3D - desktop host application.
-// SPDX-License-Identifier: GPL-3.0-only
-//
-// Windowed mode (default) opens a GLFW window and renders with the OpenGL 3.3
-// backend. Headless mode (--headless) creates no native window and renders with
-// the CPU reference renderer, which is what CI uses.
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Final Effect 3D Contributors
+
+#include "finaleffect/app/studio_session.hpp"
+#include "finaleffect/core/engine.hpp"
+#include "finaleffect/core/version.hpp"
+#include "finaleffect/platform/window.hpp"
+#include "finaleffect/rendering/opengl33_render_device.hpp"
+#include "finaleffect/rendering/software_render_device.hpp"
+
+#if defined(FINALEFFECT_HAS_GLFW_WINDOW)
+#include "finaleffect/platform/glfw_window.hpp"
+#endif
+
+#include <charconv>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
-#include <utility>
-
-#include "finaleffect/core/Version.hpp"
-#include "finaleffect/engine/Application.hpp"
-#include "finaleffect/engine/DemoScene.hpp"
-#include "finaleffect/engine/Engine.hpp"
-#include "finaleffect/platform/Window.hpp"
-#include "finaleffect/platform/glfw/GlfwWindow.hpp"
-#include "finaleffect/rendering/SoftwareRenderer.hpp"
-#include "finaleffect/rendering/gl/OpenGLRenderer.hpp"
+#include <string_view>
 
 namespace {
 
-struct DesktopOptions {
-    bool headless = false;
-    std::uint64_t frames = 0;
-    std::string screenshotPath;
-    std::string scenePath;
-    std::uint32_t width = 1280;
-    std::uint32_t height = 720;
-    bool verbose = false;
+struct CliOptions {
+    bool show_help{false};
+    bool headless{false};
+    std::uint32_t width{1280};
+    std::uint32_t height{720};
+    std::optional<std::uint64_t> max_frames;
+    std::filesystem::path input_project;
+    std::filesystem::path export_project;
+    std::filesystem::path export_bundle;
+    std::filesystem::path render_ppm;
 };
 
-void printUsage() {
-    std::cout << "Final Effect 3D desktop host " << fe::core::fullVersionString() << "\n\n"
-              << "usage: fe3d_desktop [options]\n\n"
-              << "options:\n"
-              << "  --headless              no window, CPU reference renderer (CI friendly)\n"
-              << "  --frames <n>            stop after n frames\n"
-              << "  --screenshot <file.ppm> capture the last frame\n"
-              << "  --scene <file.fe3d>     load a project file instead of the sample scene\n"
-              << "  --width <pixels>        window/framebuffer width (default 1280)\n"
-              << "  --height <pixels>       window/framebuffer height (default 720)\n"
-              << "  --verbose               debug logging\n"
-              << "  --help                  print this text\n\n"
-              << "controls: ESC quit, arrow keys orbit and zoom, R reframe the scene\n";
+bool parseUint64Arg(std::string_view text, std::uint64_t& out) {
+    const auto* begin = text.data();
+    const auto* end = text.data() + text.size();
+    const auto [ptr, ec] = std::from_chars(begin, end, out);
+    return ec == std::errc{} && ptr == end;
 }
 
-bool parseArguments(int argc, char** argv, DesktopOptions& options) {
+void printUsage() {
+    std::cout
+        << "Final Effect 3D Desktop Host (v" << finaleffect::core::engineVersionString() << ")\n"
+        << "Usage: finaleffect_desktop [options]\n\n"
+        << "Options:\n"
+        << "  --help                   Show this help message\n"
+        << "  --headless               Run without a desktop window using the CPU reference renderer\n"
+        << "  --frames <N>             Run a bounded number of frames then exit cleanly\n"
+        << "  --width <px>             Initial framebuffer width (default: 1280)\n"
+        << "  --height <px>            Initial framebuffer height (default: 720)\n"
+        << "  --project <file.fe3d>    Load an existing Final Effect 3D project file\n"
+        << "  --export-project <path>  Save the active scene to an inline .fe3d project file before exit\n"
+        << "  --export-bundle <path>   Save .fe3d metadata + deduplicated .fe3dbin binary mesh archive\n"
+        << "  --render-ppm <path.ppm>  In --headless mode, save the final rendered frame as PPM\n";
+}
+
+bool parseCli(int argc, char** argv, CliOptions& opts) {
     for (int i = 1; i < argc; ++i) {
-        const std::string argument = argv[i];
-        if (argument == "--help" || argument == "-h") {
-            return false;
-        }
-        if (argument == "--headless") {
-            options.headless = true;
-            continue;
-        }
-        if (argument == "--verbose") {
-            options.verbose = true;
-            continue;
-        }
-        if (argument == "--frames" || argument == "--screenshot" || argument == "--scene" ||
-            argument == "--width" || argument == "--height") {
+        const std::string_view arg(argv[i]);
+        auto nextValue = [&](std::string_view flag_name) -> std::optional<std::string_view> {
             if (i + 1 >= argc) {
-                std::cerr << "missing value for " << argument << "\n";
+                std::cerr << "Error: Missing argument for " << flag_name << '\n';
+                return std::nullopt;
+            }
+            return std::string_view(argv[++i]);
+        };
+
+        if (arg == "--help" || arg == "-h") {
+            opts.show_help = true;
+        } else if (arg == "--headless") {
+            opts.headless = true;
+        } else if (arg == "--frames") {
+            auto val = nextValue(arg);
+            std::uint64_t n = 0;
+            if (!val || !parseUint64Arg(*val, n)) {
+                std::cerr << "Error: Invalid integer for --frames\n";
                 return false;
             }
-            const std::string value = argv[++i];
-            if (argument == "--frames") {
-                options.frames = static_cast<std::uint64_t>(std::strtoull(value.c_str(), nullptr, 10));
-            } else if (argument == "--screenshot") {
-                options.screenshotPath = value;
-            } else if (argument == "--scene") {
-                options.scenePath = value;
-            } else {
-                const int parsed = std::atoi(value.c_str());
-                if (parsed <= 0 || parsed > 16384) {
-                    std::cerr << "invalid value for " << argument << ": " << value << "\n";
-                    return false;
-                }
-                if (argument == "--width") {
-                    options.width = static_cast<std::uint32_t>(parsed);
-                } else {
-                    options.height = static_cast<std::uint32_t>(parsed);
-                }
+            opts.max_frames = n;
+        } else if (arg == "--width") {
+            auto val = nextValue(arg);
+            std::uint64_t w = 0;
+            if (!val || !parseUint64Arg(*val, w) || w == 0 || w > 4096) {
+                std::cerr << "Error: --width must be in 1..4096\n";
+                return false;
             }
-            continue;
+            opts.width = static_cast<std::uint32_t>(w);
+        } else if (arg == "--height") {
+            auto val = nextValue(arg);
+            std::uint64_t h = 0;
+            if (!val || !parseUint64Arg(*val, h) || h == 0 || h > 4096) {
+                std::cerr << "Error: --height must be in 1..4096\n";
+                return false;
+            }
+            opts.height = static_cast<std::uint32_t>(h);
+        } else if (arg == "--project") {
+            auto val = nextValue(arg);
+            if (!val) return false;
+            opts.input_project = std::filesystem::path(*val);
+        } else if (arg == "--export-project") {
+            auto val = nextValue(arg);
+            if (!val) return false;
+            opts.export_project = std::filesystem::path(*val);
+        } else if (arg == "--export-bundle") {
+            auto val = nextValue(arg);
+            if (!val) return false;
+            opts.export_bundle = std::filesystem::path(*val);
+        } else if (arg == "--render-ppm") {
+            auto val = nextValue(arg);
+            if (!val) return false;
+            opts.render_ppm = std::filesystem::path(*val);
+        } else {
+            std::cerr << "Error: Unknown option '" << arg << "'. Use --help for usage.\n";
+            return false;
         }
-        std::cerr << "unknown option " << argument << "\n";
-        return false;
     }
     return true;
 }
 
-/// Camera interaction: orbit around the scene centre, zoom, reframe, quit.
-class DesktopApplication final : public fe::engine::Application {
-public:
-    DesktopApplication(fe::engine::Engine& engine, fe::platform::Window& window, fe::platform::Clock& clock)
-        : fe::engine::Application(engine, window, clock), engine_(engine) {}
-
-protected:
-    fe::core::Status onStartup() override {
-        deriveOrbitFromCamera();
-        return fe::core::successStatus();
-    }
-
-    fe::core::Status onFrameUpdate(const fe::engine::FrameContext& context) override {
-        using fe::platform::Key;
-        if (context.window.isKeyDown(Key::Escape)) {
-            context.window.requestClose();
-            return fe::core::successStatus();
-        }
-        if (context.window.isKeyDown(Key::R)) {
-            camera() = engine_.defaultCamera();
-            deriveOrbitFromCamera();
-        }
-
-        const auto step = static_cast<fe::math::Scalar>(context.deltaSeconds);
-        if (context.window.isKeyDown(Key::Left)) {
-            yaw_ -= 1.6F * step;
-        }
-        if (context.window.isKeyDown(Key::Right)) {
-            yaw_ += 1.6F * step;
-        }
-        if (context.window.isKeyDown(Key::Up)) {
-            distance_ *= 1.0F - fe::math::clamp(1.6F * step, 0.0F, 0.5F);
-        }
-        if (context.window.isKeyDown(Key::Down)) {
-            distance_ *= 1.0F + fe::math::clamp(1.6F * step, 0.0F, 0.5F);
-        }
-        distance_ = fe::math::clamp(distance_, 0.2F, 10000.0F);
-
-        const fe::math::Vec3 direction(
-            static_cast<fe::math::Scalar>(std::cos(pitch_) * std::sin(yaw_)),
-            static_cast<fe::math::Scalar>(std::sin(pitch_)),
-            static_cast<fe::math::Scalar>(std::cos(pitch_) * std::cos(yaw_)));
-        camera().target = target_;
-        camera().position = target_ + direction * distance_;
-        return fe::core::successStatus();
-    }
-
-private:
-    void deriveOrbitFromCamera() {
-        const fe::math::Vec3 offset = camera().position - camera().target;
-        const fe::math::Scalar length = offset.length();
-        distance_ = length > 1.0e-4F ? length : 1.0F;
-        const fe::math::Vec3 direction = offset / distance_;
-        pitch_ = std::asin(fe::math::clamp(direction.y, -1.0F, 1.0F));
-        yaw_ = std::atan2(direction.x, direction.z);
-        target_ = camera().target;
-    }
-
-    fe::engine::Engine& engine_;
-    fe::math::Vec3 target_{0.0F, 0.0F, 0.0F};
-    fe::math::Scalar yaw_ = 0.0F;
-    fe::math::Scalar pitch_ = 0.0F;
-    fe::math::Scalar distance_ = 1.0F;
-};
-
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
-    DesktopOptions options;
-    if (!parseArguments(argc, argv, options)) {
+    CliOptions opts;
+    if (!parseCli(argc, argv, opts)) {
+        return EXIT_FAILURE;
+    }
+    if (opts.show_help) {
         printUsage();
-        return argc <= 1 ? 0 : 2;
+        return EXIT_SUCCESS;
     }
 
-    fe::engine::Engine engine;
-    fe::engine::EngineConfig config;
-    config.logLevel = options.verbose ? fe::core::LogLevel::Debug : fe::core::LogLevel::Info;
-    config.attachConsoleLogSink = true;
+    finaleffect::core::EngineConfig engine_cfg;
+    engine_cfg.application_name = "Final Effect 3D Desktop";
+    finaleffect::core::Engine engine(engine_cfg);
 
-    fe::core::Status status = engine.initialize(config);
-    if (!status.ok()) {
-        std::cerr << "engine initialization failed: " << status.error().toString() << "\n";
-        return 1;
-    }
+    finaleffect::platform::WindowDesc win_desc{
+        .title = "Final Effect 3D — Stage 2 Interactive Viewport",
+        .width = opts.width,
+        .height = opts.height,
+        .resizable = true,
+        .vsync = true,
+    };
 
-    status = options.scenePath.empty() ? fe::engine::buildDemoScene(engine.scene())
-                                       : engine.loadProject(options.scenePath);
-    if (!status.ok()) {
-        std::cerr << "cannot prepare the scene: " << status.error().toString() << "\n";
-        (void)engine.shutdown();
-        return 1;
-    }
+    std::unique_ptr<finaleffect::platform::IWindow> window;
+    std::unique_ptr<finaleffect::rendering::IRenderDevice> render_device;
+    finaleffect::rendering::SoftwareRenderDevice* software_device_ptr = nullptr;
 
-    std::unique_ptr<fe::platform::GlfwWindow> glfwWindow;
-    std::unique_ptr<fe::platform::NullWindow> nullWindow;
-    std::unique_ptr<fe::engine::Application> application;
-
-    if (options.headless) {
-        nullWindow = std::make_unique<fe::platform::NullWindow>(
-            options.frames == 0 ? 1U : static_cast<std::uint32_t>(options.frames));
-        fe::platform::WindowDesc desc;
-        desc.title = std::string(fe::core::kProductName) + " (headless)";
-        desc.width = options.width;
-        desc.height = options.height;
-        desc.createGraphicsContext = false;
-        status = nullWindow->create(desc);
-        if (!status.ok()) {
-            std::cerr << "cannot create the headless window: " << status.error().toString() << "\n";
-            (void)engine.shutdown();
-            return 1;
+    if (opts.headless) {
+        if (!opts.max_frames.has_value()) {
+            opts.max_frames = 3;
         }
-
-        auto renderer = std::make_unique<fe::rendering::SoftwareRenderer>();
-        fe::rendering::RendererInitInfo info;
-        info.applicationName = std::string(fe::core::kProductName);
-        info.width = options.width;
-        info.height = options.height;
-        info.verticalSync = false;
-        status = renderer->initialize(info);
-        if (!status.ok()) {
-            std::cerr << "cannot initialize the CPU renderer: " << status.error().toString() << "\n";
-            (void)engine.shutdown();
-            return 1;
+        window = std::make_unique<finaleffect::platform::HeadlessWindow>();
+        auto init_win = window->initialize(win_desc);
+        if (!init_win) {
+            std::cerr << "Window init failed: " << init_win.error().format() << '\n';
+            return EXIT_FAILURE;
         }
-        status = engine.setRenderer(std::move(renderer));
-        if (!status.ok()) {
-            std::cerr << "cannot attach the renderer: " << status.error().toString() << "\n";
-            (void)engine.shutdown();
-            return 1;
-        }
-
-        application = std::make_unique<DesktopApplication>(engine, *nullWindow, engine.clock());
+        auto sw = std::make_unique<finaleffect::rendering::SoftwareRenderDevice>();
+        software_device_ptr = sw.get();
+        render_device = std::move(sw);
     } else {
-        glfwWindow = std::make_unique<fe::platform::GlfwWindow>();
-        fe::platform::WindowDesc desc;
-        desc.title = std::string(fe::core::kProductName);
-        desc.width = options.width;
-        desc.height = options.height;
-        desc.verticalSync = true;
-        desc.createGraphicsContext = true;
-        desc.graphicsApiMajor = 3;
-        desc.graphicsApiMinor = 3;
-        desc.graphicsApiCoreProfile = true;
-        status = glfwWindow->create(desc);
-        if (!status.ok()) {
-            std::cerr << "cannot open a window: " << status.error().toString() << "\n";
-            std::cerr << "suggested action: " << fe::core::suggestedAction(status.error().code()) << "\n";
-            (void)engine.shutdown();
-            return 1;
+#if defined(FINALEFFECT_HAS_GLFW_WINDOW)
+        if (!opts.render_ppm.empty()) {
+            std::cerr << "Error: --render-ppm requires --headless mode.\n";
+            return EXIT_FAILURE;
         }
-
-        auto renderer = std::make_unique<fe::rendering::gl::OpenGLRenderer>();
-        status = renderer->attachWindow(*glfwWindow);
-        if (!status.ok()) {
-            std::cerr << "cannot attach the OpenGL renderer: " << status.error().toString() << "\n";
-            (void)engine.shutdown();
-            return 1;
+        window = std::make_unique<finaleffect::platform::GlfwWindow>();
+        auto init_win = window->initialize(win_desc);
+        if (!init_win) {
+            std::cerr << "Failed to open desktop OpenGL 3.3 window: " << init_win.error().format() << '\n';
+            return EXIT_FAILURE;
         }
-        fe::rendering::RendererInitInfo info;
-        info.applicationName = std::string(fe::core::kProductName);
-        info.width = glfwWindow->width();
-        info.height = glfwWindow->height();
-        info.verticalSync = true;
-        status = renderer->initialize(info);
-        if (!status.ok()) {
-            std::cerr << "cannot initialize the OpenGL renderer: " << status.error().toString() << "\n";
-            glfwWindow->destroy();
-            (void)engine.shutdown();
-            return 1;
-        }
-        status = engine.setRenderer(std::move(renderer));
-        if (!status.ok()) {
-            std::cerr << "cannot attach the renderer: " << status.error().toString() << "\n";
-            glfwWindow->destroy();
-            (void)engine.shutdown();
-            return 1;
-        }
-
-        application = std::make_unique<DesktopApplication>(engine, *glfwWindow, engine.clock());
+        render_device = std::make_unique<finaleffect::rendering::OpenGL33RenderDevice>(
+            window->glProcLoader());
+#else
+        std::cerr
+            << "[RenderInitFailed] Interactive desktop windowing is unavailable in this build because "
+            << "GLFW (>= 3.3) and system OpenGL development libraries were not present at CMake configure time.\n"
+            << "Run with '--headless' (for example: finaleffect_desktop --headless --frames 5) "
+            << "or rebuild with system GLFW + OpenGL installed.\n";
+        return EXIT_FAILURE;
+#endif
     }
 
-    application->setScreenshotPath(options.screenshotPath);
-    status = application->run(options.frames);
+    finaleffect::app::StudioSession session(*window, std::move(render_device));
 
-    std::cout << "rendered " << application->frameCount() << " frame(s)";
-    if (engine.renderer() != nullptr) {
-        std::cout << " with " << engine.renderer()->capabilities().backendName;
+    if (!opts.input_project.empty()) {
+        auto load_st = session.loadProjectFromFile(opts.input_project, engine.fileSystem());
+        if (!load_st) {
+            std::cerr << "Failed to load project: " << load_st.error().format() << '\n';
+            window->shutdown();
+            return EXIT_FAILURE;
+        }
     }
-    std::cout << '\n';
 
-    if (glfwWindow != nullptr) {
-        glfwWindow->destroy();
+    auto init_st = engine.initialize(&session);
+    if (!init_st) {
+        std::cerr << "Engine initialization failed: " << init_st.error().format() << '\n';
+        window->shutdown();
+        return EXIT_FAILURE;
     }
-    const fe::core::Status shutdownStatus = engine.shutdown();
-    if (!status.ok()) {
-        std::cerr << "error: " << status.error().toString() << "\n";
-        std::cerr << "suggested action: " << fe::core::suggestedAction(status.error().code()) << "\n";
-        return 1;
+
+    int exit_code = EXIT_SUCCESS;
+    while (!window->shouldClose()) {
+        if (opts.max_frames.has_value() && engine.frameCount() >= opts.max_frames.value()) {
+            break;
+        }
+        auto step_st = engine.stepFrame();
+        if (!step_st) {
+            std::cerr << "Runtime frame error: " << step_st.error().format() << '\n';
+            exit_code = EXIT_FAILURE;
+            break;
+        }
     }
-    return shutdownStatus.ok() ? 0 : 1;
+
+    if (exit_code == EXIT_SUCCESS && !opts.export_project.empty()) {
+        auto save_st = session.saveProjectToFile(opts.export_project, engine.fileSystem());
+        if (!save_st) {
+            std::cerr << "Failed to export project: " << save_st.error().format() << '\n';
+            exit_code = EXIT_FAILURE;
+        }
+    }
+
+    if (exit_code == EXIT_SUCCESS && !opts.export_bundle.empty()) {
+        auto bundle_st = session.saveProjectBundleToFile(opts.export_bundle, engine.fileSystem());
+        if (!bundle_st) {
+            std::cerr << "Failed to export project bundle: " << bundle_st.error().format() << '\n';
+            exit_code = EXIT_FAILURE;
+        }
+    }
+
+    if (exit_code == EXIT_SUCCESS && !opts.render_ppm.empty() && software_device_ptr != nullptr) {
+        auto ppm_st = engine.fileSystem().writeTextFile(opts.render_ppm, software_device_ptr->encodePpm());
+        if (!ppm_st) {
+            std::cerr << "Failed to write PPM image: " << ppm_st.error().format() << '\n';
+            exit_code = EXIT_FAILURE;
+        }
+    }
+
+    engine.shutdown();
+    window->shutdown();
+    return exit_code;
 }

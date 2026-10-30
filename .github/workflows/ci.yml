@@ -1,84 +1,157 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Final Effect 3D - Honest Cross-Platform Continuous Integration
+
 name: CI
 
 on:
   push:
-    branches: ["**"]
+    branches: [ main, "arena/**" ]
   pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
 
 jobs:
-  core:
-    name: ${{ matrix.os }} / portable core
+  core-matrix:
+    name: Core & Tests (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - name: Linux GCC (Debug)
+            os: ubuntu-24.04
+            cc: gcc
+            cxx: g++
+            build_type: Debug
+          - name: Linux GCC (Release)
+            os: ubuntu-24.04
+            cc: gcc
+            cxx: g++
+            build_type: Release
+          - name: Linux Clang (Release)
+            os: ubuntu-24.04
+            cc: clang
+            cxx: clang++
+            build_type: Release
+          - name: macOS AppleClang (Release)
+            os: macos-14
+            cc: clang
+            cxx: clang++
+            build_type: Release
+          - name: Windows MSVC (Debug)
+            os: windows-2022
+            build_type: Debug
+          - name: Windows MSVC (Release)
+            os: windows-2022
+            build_type: Release
+
     steps:
-      - name: Check out the repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Ninja needs an MSVC environment on Windows.
-      - name: Prepare MSVC
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Configure (Release, warnings as errors)
-        run: cmake --preset core-ci
-
-      - name: Build
-        run: cmake --build --preset core-ci
-
-      - name: Test
-        run: ctest --preset core-ci --output-on-failure
-
-      # The tool renders without a GPU, so this exercises the rasteriser on every host.
-      - name: Render a frame with the CPU renderer
-        if: runner.os != 'Windows'
+      - name: Configure CMake (Core + WebGL2 Adapter Tests)
+        shell: bash
         run: |
-          ./build/core-ci/bin/fe3d_tool demo-save ci-demo.fe3d
-          ./build/core-ci/bin/fe3d_tool inspect ci-demo.fe3d
-          ./build/core-ci/bin/fe3d_tool render ci-demo.fe3d --out ci-frame.ppm --width 320 --height 180
+          CC_ARGS=()
+          if [ -n "${{ matrix.cc }}" ]; then
+            CC_ARGS+=("-DCMAKE_C_COMPILER=${{ matrix.cc }}" "-DCMAKE_CXX_COMPILER=${{ matrix.cxx }}")
+          fi
+          cmake -S . -B build/ci-core \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DFINALEFFECT_BUILD_RENDERER_DESKTOP=OFF \
+            -DFINALEFFECT_BUILD_RENDERER_WEBGL2=ON \
+            -DFINALEFFECT_BUILD_TESTS=ON \
+            -DFINALEFFECT_WARNINGS_AS_ERRORS=ON \
+            "${CC_ARGS[@]}"
 
-      - name: Render a frame with the CPU renderer (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          build\core-ci\bin\fe3d_tool.exe demo-save ci-demo.fe3d
-          build\core-ci\bin\fe3d_tool.exe inspect ci-demo.fe3d
-          build\core-ci\bin\fe3d_tool.exe render ci-demo.fe3d --out ci-frame.ppm --width 320 --height 180
+      - name: Compile Core & Tests
+        run: cmake --build build/ci-core --config ${{ matrix.build_type }} --parallel
 
-      - name: Upload the rendered frame
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-frame-${{ matrix.os }}
-          path: ci-frame.ppm
-          if-no-files-found: warn
+      - name: Execute Unit & Integration Tests
+        run: ctest --test-dir build/ci-core --build-config ${{ matrix.build_type }} --output-on-failure --verbose
 
-  desktop-linux:
-    name: ubuntu-latest / desktop (OpenGL, optional)
-    runs-on: ubuntu-latest
-    continue-on-error: true
+  linux-desktop-opengl:
+    name: Linux Desktop OpenGL 3.3 + GLFW
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Install GLFW and the X11 headers GLFW needs
+      - name: Install GLFW, Mesa OpenGL, and Xvfb
         run: |
           sudo apt-get update
-          sudo apt-get install -y libglfw3-dev libgl1-mesa-dev xorg-dev xvfb
+          sudo apt-get install -y --no-install-recommends \
+            libglfw3-dev \
+            libgl1-mesa-dev \
+            libgl1-mesa-dri \
+            xvfb
 
-      - name: Configure the desktop build (OpenGL renderer + windowed application)
-        run: cmake --preset desktop
-
-      - name: Build
-        run: cmake --build --preset desktop
-
-      - name: Headless windowed run on a virtual display
+      - name: Configure Desktop OpenGL 3.3 Build
         run: |
-          xvfb-run --auto-servernum ./build/desktop/bin/fe3d_desktop --headless --frames 2 \
-            --width 320 --height 180 --screenshot desktop-frame.ppm
+          cmake -S . -B build/ci-desktop \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DFINALEFFECT_BUILD_RENDERER_DESKTOP=ON \
+            -DFINALEFFECT_BUILD_RENDERER_WEBGL2=ON \
+            -DFINALEFFECT_REQUIRE_GLFW=ON \
+            -DFINALEFFECT_BUILD_TESTS=ON \
+            -DFINALEFFECT_WARNINGS_AS_ERRORS=ON
 
-      - name: Upload the desktop frame
-        uses: actions/upload-artifact@v4
+      - name: Compile Desktop Application & Tests
+        run: cmake --build build/ci-desktop --config Release --parallel
+
+      - name: Execute All CTest Suites
+        run: ctest --test-dir build/ci-desktop --build-config Release --output-on-failure --verbose
+
+      - name: Smoke-Test Windowed OpenGL 3.3 Renderer & Binary Bundle Export under Xvfb
+        run: |
+          xvfb-run -a -s "-screen 0 1280x720x24" \
+            ./build/ci-desktop/finaleffect_desktop --frames 5 \
+            --export-project build/ci-desktop/ci_roundtrip.fe3d \
+            --export-bundle build/ci-desktop/ci_bundle.fe3d
+          ./build/ci-desktop/finaleffect_desktop --headless --frames 2 --project build/ci-desktop/ci_roundtrip.fe3d
+          ./build/ci-desktop/finaleffect_desktop --headless --frames 2 --project build/ci-desktop/ci_bundle.fe3d
+
+  web-wasm-emscripten:
+    name: WebAssembly + WebGL2 Studio & Chromium E2E
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Emscripten SDK
+        uses: mymindstorm/setup-emsdk@v14
         with:
-          name: desktop-frame-linux
-          path: desktop-frame.ppm
-          if-no-files-found: warn
+          version: 3.1.68
+
+      - name: Configure WebAssembly Build
+        run: |
+          emcmake cmake -S . -B build/ci-wasm \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DFINALEFFECT_BUILD_RENDERER_DESKTOP=OFF \
+            -DFINALEFFECT_BUILD_RENDERER_WEBGL2=ON \
+            -DFINALEFFECT_BUILD_TESTS=OFF \
+            -DFINALEFFECT_WARNINGS_AS_ERRORS=ON
+
+      - name: Compile WebAssembly Bundle
+        run: |
+          cmake --build build/ci-wasm --parallel
+          test -f build/ci-wasm/finaleffect_web.js
+          test -f build/ci-wasm/finaleffect_web.wasm
+          test -f build/ci-wasm/index.html
+          test -f build/ci-wasm/editor.css
+          test -f build/ci-wasm/editor.js
+
+      - name: Install Playwright & Headless Chromium
+        working-directory: web/e2e
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Verify Connected Studio UI in Real Chromium (WebAssembly + WebGL 2.0)
+        working-directory: web/e2e
+        env:
+          CI: "true"
+          FE3D_WEB_DIST_DIR: ../../build/ci-wasm
+        run: npx playwright test --reporter=list
