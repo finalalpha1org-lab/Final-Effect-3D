@@ -272,6 +272,56 @@ FE_TEST(Editor, Stage4MeshEditingMaterialsLivePreviewAndWorkspaceRoundTrip) {
     FE_EXPECT_TRUE(rig.session->document().scene.findMaterialByName("NeonGold") != nullptr);
 }
 
+FE_TEST(Editor, Stage5ProjectTemplatesWorkspaceTabsAndSharedSceneIsolation) {
+    EditorTestRig rig;
+    FE_REQUIRE_TRUE(rig.init(640, 360));
+
+    // 1. Create MinimalCube project template via JSON action and verify real scene objects.
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(
+        R"({"action":"create_new_project","template":"minimal_cube","project_name":"ArchDesign","author":"StudioUser"})")
+        .hasValue());
+    FE_EXPECT_EQ(rig.session->document().metadata.project_name, std::string("ArchDesign"));
+    FE_EXPECT_TRUE(rig.session->document().scene.findObjectByName("Cube") != nullptr);
+    FE_EXPECT_TRUE(rig.session->document().scene.findObjectByName("MainCamera") != nullptr);
+    FE_EXPECT_TRUE(rig.session->document().scene.findMaterialByName("Studio Clay") != nullptr);
+
+    // 2. Switching across all 12 workspace tabs and resizing docks must preserve the exact same scene & materials!
+    const auto obj_count_before = rig.session->document().scene.objectCount();
+    const auto mat_count_before = rig.session->document().scene.materialCount();
+
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(
+        R"({"action":"apply_workspace_preset","preset":"modeling"})").hasValue());
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(
+        R"({"action":"add_preset","preset":"sphere"})").hasValue());
+    FE_EXPECT_EQ(rig.session->document().scene.objectCount(), obj_count_before + 1);
+
+    // Switch to Shading, create material, then switch to Layout & Animation — same scene, objects & materials persist!
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(
+        R"({"action":"apply_workspace_preset","preset":"shading"})").hasValue());
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(
+        R"({"action":"create_material","name":"SharedVelvet","base_color":[0.7,0.15,0.3]})").hasValue());
+    FE_EXPECT_EQ(rig.session->document().scene.materialCount(), mat_count_before + 1);
+
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(
+        R"({"action":"apply_workspace_preset","preset":"layout"})").hasValue());
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(
+        R"({"action":"set_dock_ratios","left":0.21,"right":0.26,"bottom":0.19})").hasValue());
+    FE_EXPECT_EQ(rig.session->document().scene.objectCount(), obj_count_before + 1);
+    FE_EXPECT_TRUE(rig.session->document().scene.findMaterialByName("SharedVelvet") != nullptr);
+    FE_EXPECT_NEAR(rig.session->workspace().state().left_dock_width_ratio, 0.21f, 1.0e-4f);
+    FE_EXPECT_NEAR(rig.session->workspace().state().right_dock_width_ratio, 0.26f, 1.0e-4f);
+
+    // 3. Verify EmptyStage and ShaderBall templates construct valid scenes.
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(
+        R"({"action":"create_new_project","template":"empty_stage","project_name":"CleanStage"})").hasValue());
+    FE_EXPECT_EQ(rig.session->document().scene.objectCount(), std::size_t{2}); // MainCamera + SunLight
+
+    FE_REQUIRE_TRUE(rig.editor->executeActionJson(
+        R"({"action":"create_new_project","template":"shader_ball","project_name":"LookDevBall"})").hasValue());
+    FE_EXPECT_TRUE(rig.session->document().scene.findObjectByName("ShaderSphere") != nullptr);
+    FE_EXPECT_EQ(rig.session->document().scene.materialCount(), std::size_t{3});
+}
+
 } // namespace
 
 int main(int argc, char** argv) {

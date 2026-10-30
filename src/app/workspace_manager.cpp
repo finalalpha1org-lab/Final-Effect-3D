@@ -125,6 +125,91 @@ void WorkspaceManager::applyPreset(WorkspacePreset preset) {
                 p.visible = true;
             }
             break;
+
+        case WorkspacePreset::Layout:
+            next.layout_name = "Layout";
+            next.focused_panel = WorkspacePanelId::Viewport3D;
+            next.left_dock_width_ratio = 0.17f;
+            next.right_dock_width_ratio = 0.23f;
+            next.bottom_dock_height_ratio = 0.18f;
+            next.panels[static_cast<std::size_t>(WorkspacePanelId::Timeline)].visible = true;
+            next.panels[static_cast<std::size_t>(WorkspacePanelId::AssetBrowser)].visible = false;
+            next.panels[static_cast<std::size_t>(WorkspacePanelId::Console)].visible = false;
+            break;
+
+        case WorkspacePreset::Sculpting:
+            next.layout_name = "Sculpting";
+            next.focused_panel = WorkspacePanelId::Viewport3D;
+            next.left_dock_width_ratio = 0.15f;
+            next.right_dock_width_ratio = 0.20f;
+            next.panels[static_cast<std::size_t>(WorkspacePanelId::MaterialEditor)].visible = false;
+            next.panels[static_cast<std::size_t>(WorkspacePanelId::AssetBrowser)].visible = false;
+            next.panels[static_cast<std::size_t>(WorkspacePanelId::Timeline)].visible = false;
+            next.panels[static_cast<std::size_t>(WorkspacePanelId::Console)].visible = false;
+            break;
+
+        case WorkspacePreset::Rendering:
+            next.layout_name = "Rendering";
+            next.focused_panel = WorkspacePanelId::Properties;
+            next.left_dock_width_ratio = 0.16f;
+            next.right_dock_width_ratio = 0.26f;
+            next.bottom_dock_height_ratio = 0.20f;
+            next.panels[static_cast<std::size_t>(WorkspacePanelId::Timeline)].visible = false;
+            next.panels[static_cast<std::size_t>(WorkspacePanelId::AssetBrowser)].visible = false;
+            next.panels[static_cast<std::size_t>(WorkspacePanelId::Console)].visible = true;
+            break;
+
+        case WorkspacePreset::Compositing:
+            next.layout_name = "Compositing";
+            next.focused_panel = WorkspacePanelId::Viewport3D;
+            next.left_dock_width_ratio = 0.15f;
+            next.right_dock_width_ratio = 0.23f;
+            next.bottom_dock_height_ratio = 0.28f;
+            next.panels[static_cast<std::size_t>(WorkspacePanelId::Console)].visible = true;
+            break;
+
+        case WorkspacePreset::VFX:
+            next.layout_name = "VFX";
+            next.focused_panel = WorkspacePanelId::Viewport3D;
+            next.left_dock_width_ratio = 0.16f;
+            next.right_dock_width_ratio = 0.24f;
+            next.bottom_dock_height_ratio = 0.24f;
+            next.panels[static_cast<std::size_t>(WorkspacePanelId::Timeline)].visible = true;
+            break;
+
+        case WorkspacePreset::GeometryNodes:
+            next.layout_name = "Geometry Nodes";
+            next.focused_panel = WorkspacePanelId::Viewport3D;
+            next.left_dock_width_ratio = 0.16f;
+            next.right_dock_width_ratio = 0.23f;
+            next.bottom_dock_height_ratio = 0.30f;
+            next.panels[static_cast<std::size_t>(WorkspacePanelId::AssetBrowser)].visible = true;
+            break;
+
+        case WorkspacePreset::UvEditing:
+            next.layout_name = "UV Editing";
+            next.focused_panel = WorkspacePanelId::Viewport3D;
+            next.left_dock_width_ratio = 0.16f;
+            next.right_dock_width_ratio = 0.22f;
+            next.panels[static_cast<std::size_t>(WorkspacePanelId::Timeline)].visible = false;
+            next.panels[static_cast<std::size_t>(WorkspacePanelId::Console)].visible = false;
+            break;
+
+        case WorkspacePreset::Animation2D:
+            next.layout_name = "2D Animation";
+            next.focused_panel = WorkspacePanelId::Viewport3D;
+            next.bottom_dock_height_ratio = 0.24f;
+            next.panels[static_cast<std::size_t>(WorkspacePanelId::Timeline)].visible = true;
+            next.panels[static_cast<std::size_t>(WorkspacePanelId::AssetBrowser)].visible = false;
+            break;
+
+        case WorkspacePreset::VideoEditing:
+            next.layout_name = "Video Editing";
+            next.focused_panel = WorkspacePanelId::Timeline;
+            next.bottom_dock_height_ratio = 0.34f;
+            next.panels[static_cast<std::size_t>(WorkspacePanelId::Timeline)].visible = true;
+            next.panels[static_cast<std::size_t>(WorkspacePanelId::AssetBrowser)].visible = true;
+            break;
     }
     state_ = std::move(next);
     sanitizeFocusAndRatios();
@@ -135,16 +220,52 @@ core::Status WorkspaceManager::applyPresetByName(std::string_view preset_name) {
         applyPreset(WorkspacePreset::DefaultStudio);
         return core::Status::ok();
     }
+    if (preset_name == "layout" || preset_name == "Layout") {
+        applyPreset(WorkspacePreset::Layout);
+        return core::Status::ok();
+    }
     if (preset_name == "modeling" || preset_name == "Modeling") {
         applyPreset(WorkspacePreset::Modeling);
+        return core::Status::ok();
+    }
+    if (preset_name == "sculpting" || preset_name == "Sculpting") {
+        applyPreset(WorkspacePreset::Sculpting);
         return core::Status::ok();
     }
     if (preset_name == "shading" || preset_name == "Shading") {
         applyPreset(WorkspacePreset::Shading);
         return core::Status::ok();
     }
-    if (preset_name == "animation" || preset_name == "Animation") {
+    if (preset_name == "animation" || preset_name == "animation_prep" || preset_name == "Animation") {
         applyPreset(WorkspacePreset::AnimationPrep);
+        return core::Status::ok();
+    }
+    if (preset_name == "rendering" || preset_name == "Rendering") {
+        applyPreset(WorkspacePreset::Rendering);
+        return core::Status::ok();
+    }
+    if (preset_name == "compositing" || preset_name == "Compositing") {
+        applyPreset(WorkspacePreset::Compositing);
+        return core::Status::ok();
+    }
+    if (preset_name == "vfx" || preset_name == "VFX") {
+        applyPreset(WorkspacePreset::VFX);
+        return core::Status::ok();
+    }
+    if (preset_name == "geometry_nodes" || preset_name == "Geometry Nodes") {
+        applyPreset(WorkspacePreset::GeometryNodes);
+        return core::Status::ok();
+    }
+    if (preset_name == "uv_editing" || preset_name == "UV Editing") {
+        applyPreset(WorkspacePreset::UvEditing);
+        return core::Status::ok();
+    }
+    if (preset_name == "animation_2d" || preset_name == "2d_animation" || preset_name == "2D Animation") {
+        applyPreset(WorkspacePreset::Animation2D);
+        return core::Status::ok();
+    }
+    if (preset_name == "video_editing" || preset_name == "Video Editing") {
+        applyPreset(WorkspacePreset::VideoEditing);
         return core::Status::ok();
     }
     return core::Status::fail(

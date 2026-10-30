@@ -34,6 +34,13 @@ enum class ScenePreset : std::uint8_t {
     Sphere = 6,
 };
 
+enum class ProjectTemplate : std::uint8_t {
+    StarterShowcase = 0,
+    MinimalCube = 1,
+    EmptyStage = 2,
+    ShaderBall = 3,
+};
+
 struct EditorConsoleEntry {
     std::uint64_t sequence{0};
     bool is_error{false};
@@ -103,6 +110,11 @@ public:
 
     // Workspace management & layout persistence.
     void setPanelVisible(project::WorkspacePanelId panel, bool visible) noexcept;
+    void setWorkspaceDockRatios(float left_width, float right_width, float bottom_height) noexcept;
+    void setWorkspacePanelDock(
+        project::WorkspacePanelId panel,
+        project::DockRegion region,
+        std::uint32_t tab_order = 0) noexcept;
     void applyWorkspacePreset(WorkspacePreset preset) noexcept;
     [[nodiscard]] core::Status applyWorkspacePresetByName(std::string_view preset_name);
     void setTextInputFocused(bool focused) noexcept;
@@ -150,6 +162,10 @@ public:
     [[nodiscard]] core::Status undo();
     [[nodiscard]] core::Status redo();
     [[nodiscard]] core::Status newStarterProject();
+    [[nodiscard]] core::Status createNewProject(
+        ProjectTemplate tmpl,
+        std::string project_name = {},
+        std::string author = {});
 
     [[nodiscard]] core::Result<std::string> exportInlineProjectJson() const;
     [[nodiscard]] core::Status importInlineProjectJson(std::string_view json_text);

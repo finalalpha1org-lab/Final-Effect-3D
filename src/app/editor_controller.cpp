@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Final Effect 3D Contributors
 
 #include "finaleffect/app/editor_controller.hpp"
+#include "finaleffect/core/version.hpp"
 #include "finaleffect/math/constants.hpp"
 #include "finaleffect/scene/editable_mesh.hpp"
 #include "finaleffect/scene/primitives.hpp"
@@ -716,6 +717,27 @@ void EditorController::setPanelVisible(project::WorkspacePanelId panel, bool vis
             std::string(project::workspacePanelTitle(panel)));
 }
 
+void EditorController::setWorkspaceDockRatios(
+    float left_width,
+    float right_width,
+    float bottom_height) noexcept {
+    session_.workspace().setDockRatios(left_width, right_width, bottom_height);
+    session_.syncDocumentState();
+    ++state_revision_;
+}
+
+void EditorController::setWorkspacePanelDock(
+    project::WorkspacePanelId panel,
+    project::DockRegion region,
+    std::uint32_t tab_order) noexcept {
+    session_.workspace().setPanelDock(panel, region, tab_order);
+    session_.syncDocumentState();
+    recordStatus(
+        core::Status::ok(),
+        "Moved " + std::string(project::workspacePanelTitle(panel)) + " to " +
+            std::string(project::dockRegionSlug(region)) + " dock");
+}
+
 void EditorController::applyWorkspacePreset(WorkspacePreset preset) noexcept {
     session_.workspace().applyPreset(preset);
     session_.syncDocumentState();
@@ -1155,6 +1177,170 @@ core::Status EditorController::newStarterProject() {
     refreshMaterialPreview();
     recordStatus(st, "Reset to starter 3D showcase project");
     return st;
+}
+
+core::Status EditorController::createNewProject(
+    ProjectTemplate tmpl,
+    std::string project_name,
+    std::string author) {
+    if (session_.isGizmoDragging()) {
+        (void)session_.cancelActiveGizmoDrag();
+    }
+
+    const std::string resolved_name =
+        project_name.empty() ? "Untitled 3D Project" : std::move(project_name);
+    const std::string resolved_author =
+        author.empty() ? "Final Effect 3D" : std::move(author);
+
+    if (tmpl == ProjectTemplate::StarterShowcase) {
+        auto st = session_.resetStarterProject();
+        if (!st) {
+            recordStatus(st, {});
+            return st;
+        }
+        if (!project_name.empty() || resolved_name != "Untitled 3D Project") {
+            session_.document().metadata.project_name = resolved_name;
+        }
+        session_.document().metadata.author = resolved_author;
+        spawn_counter_ = 0;
+        selected_material_id_ = scene::MaterialId::invalid();
+        refreshMaterialPreview();
+        recordStatus(core::Status::ok(), "Created project '" + session_.document().metadata.project_name + "'");
+        return core::Status::ok();
+    }
+
+    if (session_.renderer().isInitialized()) {
+        session_.renderer().releaseSceneResources();
+    }
+
+    const auto preserved_ws = session_.workspace().state();
+    project::ProjectDocument fresh{};
+    fresh.metadata.project_name = resolved_name;
+    fresh.metadata.author = resolved_author;
+    fresh.metadata.engine_version = std::string(core::engineVersionString());
+    fresh.workspace = preserved_ws;
+
+    auto& sc = fresh.scene;
+    sc.setName("Scene");
+
+    // Standard studio camera + directional key light for every template.
+    auto cam_res = sc.createObject("MainCamera");
+    if (!cam_res) { recordStatus(core::Status(cam_res.error()), {}); return cam_res.error(); }
+    math::Transform cam_tf{};
+    const math::Vec3 eye{0.0f, 2.6f, 5.4f};
+    const math::Vec3 target{0.0f, 0.55f, 0.0f};
+    const float pitch = -std::atan2(eye.y - target.y, eye.z - target.z);
+    cam_tf.position = eye;
+    cam_tf.rotation = math::Quat::fromAxisAngle(math::Vec3::unitX(), pitch);
+    (void)sc.setObjectTransform(cam_res.value(), cam_tf);
+    scene::CameraComponent cam_comp{};
+    cam_comp.projection = scene::ProjectionType::Perspective;
+    cam_comp.fov_y_radians = math::degToRad(48.0f);
+    (void)sc.assignCamera(cam_res.value(), cam_comp);
+    (void)sc.setActiveCamera(cam_res.value());
+
+    auto light_res = sc.createObject("SunLight");
+    if (!light_res) { recordStatus(core::Status(light_res.error()), {}); return light_res.error(); }
+    math::Transform light_tf{};
+    light_tf.rotation = math::Quat::fromEulerXYZ(
+        {math::degToRad(-50.0f), math::degToRad(35.0f), 0.0f});
+    (void)sc.setObjectTransform(light_res.value(), light_tf);
+    (void)sc.assignDirectionalLight(
+        light_res.value(),
+        scene::DirectionalLightComponent{.color = {1.0f, 0.98f, 0.94f}, .intensity = 1.65f});
+
+    scene::ObjectId default_selected{};
+    scene::MaterialId default_mat{};
+
+    if (tmpl == ProjectTemplate::MinimalCube) {
+        auto ground_mesh = sc.registerMesh(
+            "StudioGroundMesh", scene::Primitives::createCheckerPlane(4.5f, 6));
+        auto ground_obj = sc.createObject("GroundPlane");
+        if (ground_mesh && ground_obj) {
+            (void)sc.assignMesh(ground_obj.value(), ground_mesh.value());
+        }
+
+        auto neutral_mat = sc.createMaterial(scene::PbrMaterial{
+            .name = "Studio Clay",
+            .base_color = {0.76f, 0.78f, 0.82f},
+            .metallic = 0.08f,
+            .roughness = 0.42f,
+            .ambient_occlusion = 1.0f,
+        });
+        auto cube_mesh = sc.registerEditableMesh(
+            "CubeMesh", scene::EditableMesh::createCube(1.3f, {0.80f, 0.82f, 0.85f}));
+        auto cube_obj = sc.createObject("Cube");
+        if (cube_mesh && cube_obj) {
+            math::Transform ctf{};
+            ctf.position = {0.0f, 0.65f, 0.0f};
+            (void)sc.setObjectTransform(cube_obj.value(), ctf);
+            (void)sc.assignMesh(cube_obj.value(), cube_mesh.value());
+            if (neutral_mat) {
+                (void)sc.assignMaterial(cube_obj.value(), neutral_mat.value());
+                default_mat = neutral_mat.value();
+            }
+            default_selected = cube_obj.value();
+        }
+    } else if (tmpl == ProjectTemplate::ShaderBall) {
+        auto ground_mesh = sc.registerMesh(
+            "StudioGroundMesh", scene::Primitives::createCheckerPlane(4.5f, 6));
+        auto ground_obj = sc.createObject("GroundPlane");
+        if (ground_mesh && ground_obj) {
+            (void)sc.assignMesh(ground_obj.value(), ground_mesh.value());
+        }
+
+        auto gold_mat = sc.createMaterial(scene::PbrMaterial{
+            .name = "Brushed Gold",
+            .base_color = {0.96f, 0.76f, 0.28f},
+            .metallic = 0.94f,
+            .roughness = 0.18f,
+            .ambient_occlusion = 1.0f,
+        });
+        (void)sc.createMaterial(scene::PbrMaterial{
+            .name = "Chrome Mirror",
+            .base_color = {0.91f, 0.93f, 0.95f},
+            .metallic = 1.0f,
+            .roughness = 0.06f,
+            .ambient_occlusion = 1.0f,
+        });
+        (void)sc.createMaterial(scene::PbrMaterial{
+            .name = "Ceramic Matte",
+            .base_color = {0.22f, 0.58f, 0.86f},
+            .metallic = 0.05f,
+            .roughness = 0.48f,
+            .ambient_occlusion = 1.0f,
+        });
+
+        auto sphere_mesh = sc.registerEditableMesh(
+            "ShaderSphereMesh",
+            scene::EditableMesh::createUvSphere(0.85f, 18, 32, {0.95f, 0.95f, 0.95f}));
+        auto sphere_obj = sc.createObject("ShaderSphere");
+        if (sphere_mesh && sphere_obj) {
+            math::Transform stf{};
+            stf.position = {0.0f, 0.85f, 0.0f};
+            (void)sc.setObjectTransform(sphere_obj.value(), stf);
+            (void)sc.assignMesh(sphere_obj.value(), sphere_mesh.value());
+            if (gold_mat) {
+                (void)sc.assignMaterial(sphere_obj.value(), gold_mat.value());
+                default_mat = gold_mat.value();
+            }
+            default_selected = sphere_obj.value();
+        }
+    }
+
+    fresh.editor_state.selected_object_id = default_selected;
+    fresh.editor_state.active_material_id = default_mat;
+
+    session_.document() = std::move(fresh);
+    session_.commandStack().clear();
+    session_.restoreFromDocumentState();
+    session_.setRigAnimationEnabled(false);
+    session_.cameraController().syncFromCameraTransform(cam_tf, target);
+    spawn_counter_ = 0;
+    selected_material_id_ = default_mat;
+    refreshMaterialPreview();
+    recordStatus(core::Status::ok(), "Created project '" + session_.document().metadata.project_name + "'");
+    return core::Status::ok();
 }
 
 core::Result<std::string> EditorController::exportInlineProjectJson() const {

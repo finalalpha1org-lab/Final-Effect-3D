@@ -1,17 +1,76 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Final Effect 3D — Connected Browser Studio Controller (Stage 4 v0.4.0)
-// Bridges DOM controls directly to the C++20 WebAssembly EditorController & StudioSession.
+// Final Effect 3D — Unified Creative Application & 3D Studio Controller (Stage 5 v0.5.0)
+// Bridges Splash -> Home / 6-Studio Launcher -> Blender-Inspired 3D Studio directly to
+// the C++20 WebAssembly Engine, EditorController, StudioSession, and Serializer.
 
 (function () {
   "use strict";
 
-  const WORKSPACE_STORAGE_KEY = "fe3d.workspace.v1";
+  const REG = window.FE3D_REGISTRY;
+  const WORKSPACE_STORAGE_KEY = "fe3d.workspace.v2";
+
   const canvas = document.getElementById("fe3d-canvas");
   const banner = document.getElementById("viewport-banner");
   const previewCanvas = document.getElementById("material-preview-canvas");
   const previewCtx = previewCanvas ? previewCanvas.getContext("2d") : null;
 
-  // Configure Emscripten Module object BEFORE finaleffect_web.js executes.
+  function hydrateStaticIcons(root) {
+    if (!REG || !REG.ICONS) return;
+    const scope = root || document;
+    const splashLogo = document.getElementById("splash-logo-slot");
+    if (splashLogo && !splashLogo.innerHTML) {
+      splashLogo.innerHTML = REG.ICONS.logo;
+    }
+    scope.querySelectorAll("[data-icon]").forEach((el) => {
+      const key = el.getAttribute("data-icon");
+      if (REG.ICONS[key]) {
+        el.innerHTML = REG.ICONS[key];
+      }
+    });
+  }
+  hydrateStaticIcons(document);
+
+  // Real Splash Screen Telemetry State (driven strictly by actual WASM/WebGL2 milestones).
+  const splashEls = {
+    screen: document.getElementById("app-splash"),
+    statusText: document.getElementById("splash-status-text"),
+    pct: document.getElementById("splash-pct"),
+    progressbar: document.getElementById("splash-progressbar"),
+    barFill: document.getElementById("splash-bar-fill"),
+    milestones: document.getElementById("splash-milestones"),
+    spinner: document.getElementById("splash-spinner"),
+    errorBox: document.getElementById("splash-error-box"),
+    errorDetail: document.getElementById("splash-error-detail"),
+  };
+
+  function setSplashProgress(stageIndex, pctValue, statusMsg) {
+    const clamped = Math.max(0, Math.min(100, Math.round(pctValue)));
+    if (splashEls.statusText && statusMsg) splashEls.statusText.textContent = statusMsg;
+    if (splashEls.pct) splashEls.pct.textContent = clamped + "%";
+    if (splashEls.progressbar) splashEls.progressbar.setAttribute("aria-valuenow", String(clamped));
+    if (splashEls.barFill) splashEls.barFill.style.width = clamped + "%";
+    if (splashEls.milestones) {
+      splashEls.milestones.querySelectorAll("li[data-stage]").forEach((li) => {
+        const s = Number(li.getAttribute("data-stage"));
+        li.classList.toggle("is-done", s < stageIndex || clamped >= 100);
+        li.classList.toggle("is-active", s === stageIndex && clamped < 100);
+      });
+    }
+  }
+
+  function showSplashFatalError(detailMsg) {
+    if (splashEls.spinner) splashEls.spinner.hidden = true;
+    if (splashEls.errorBox) splashEls.errorBox.hidden = false;
+    if (splashEls.errorDetail) {
+      splashEls.errorDetail.textContent =
+        detailMsg || "WebAssembly or WebGL 2.0 context failed to initialize.";
+    }
+    if (splashEls.statusText) {
+      splashEls.statusText.textContent = "Initialization halted.";
+    }
+  }
+
+  // Configure Emscripten Module BEFORE finaleffect_web.js executes.
   window.Module = {
     canvas: canvas,
     print: function (text) {
@@ -20,23 +79,78 @@
     printErr: function (text) {
       console.warn("[FE3D]", text);
     },
+    setStatus: function (text) {
+      if (!text) return;
+      const m = text.match(/\((\d+(?:\.\d+)?)\/(\d+)\)/);
+      if (m) {
+        const loaded = parseFloat(m[1]);
+        const total = Math.max(1, parseFloat(m[2]));
+        const dlPct = 8 + (loaded / total) * 24;
+        setSplashProgress(1, dlPct, text);
+      } else {
+        setSplashProgress(1, 20, text);
+      }
+    },
+    onAbort: function (reason) {
+      showSplashFatalError("WebAssembly runtime aborted: " + String(reason || "Unknown abort"));
+    },
   };
 
+  window.addEventListener("error", (ev) => {
+    if (
+      document.body.dataset.appView === "splash" &&
+      ev &&
+      ev.filename &&
+      ev.filename.indexOf("finaleffect_web") !== -1
+    ) {
+      showSplashFatalError("Failed to load finaleffect_web.js / .wasm asset.");
+    }
+  });
+
   const els = {
+    appSplash: document.getElementById("app-splash"),
+    appHome: document.getElementById("app-home"),
+    appStudio: document.getElementById("app-studio-3d"),
+
+    homeEngineBadge: document.getElementById("home-engine-badge"),
+    btnHomeResumeStudio: document.getElementById("btn-home-resume-studio"),
+    btnOpenSettings: document.getElementById("btn-open-settings"),
+    studioSelectorList: document.getElementById("studio-selector-list"),
+
+    studioLauncherPanel: document.getElementById("studio-launcher-panel"),
+    launcherStudioBadge: document.getElementById("launcher-studio-badge"),
+    launcherStudioTitle: document.getElementById("launcher-studio-title"),
+    launcherStudioDesc: document.getElementById("launcher-studio-desc"),
+    launcherErrorBanner: document.getElementById("launcher-error-banner"),
+    launcherProjectName: document.getElementById("launcher-project-name"),
+    launcherProjectAuthor: document.getElementById("launcher-project-author"),
+    launcherTemplateGrid: document.getElementById("launcher-template-grid"),
+    btnLauncherCreate: document.getElementById("btn-launcher-create"),
+    btnLauncherOpen: document.getElementById("btn-launcher-open"),
+    recentCountTag: document.getElementById("recent-count-tag"),
+    recentProjectsList: document.getElementById("recent-projects-list"),
+
+    studioFuturePanel: document.getElementById("studio-future-panel"),
+    futureStudioBadge: document.getElementById("future-studio-badge"),
+    futureStudioTitle: document.getElementById("future-studio-title"),
+    futureStudioTagline: document.getElementById("future-studio-tagline"),
+    futureStudioDesc: document.getElementById("future-studio-desc"),
+    futureStudioCaps: document.getElementById("future-studio-caps"),
+    btnFutureBack3d: document.getElementById("btn-future-back-3d"),
+    btnFutureJumpShading: document.getElementById("btn-future-jump-shading"),
+
+    btnGoHome: document.getElementById("btn-go-home"),
+    workspaceTabs: document.getElementById("workspace-tabs"),
+    workspacePresetSelect: document.getElementById("workspace-preset-select"),
+    activeProjectPill: document.getElementById("active-project-pill"),
     engineBadge: document.getElementById("engine-version-badge"),
-    studioWorkspace: document.getElementById("studio-workspace"),
-    dockLeft: document.getElementById("dock-left"),
-    dockRight: document.getElementById("dock-right"),
-    dockBottom: document.getElementById("dock-bottom"),
-    panelOutliner: document.getElementById("panel-outliner"),
-    panelProperties: document.getElementById("panel-properties"),
-    panelMaterialEditor: document.getElementById("panel-material-editor"),
 
     btnNew: document.getElementById("btn-new-project"),
     btnOpen: document.getElementById("btn-open-project"),
     fileOpenInput: document.getElementById("file-open-input"),
     btnExportFe3d: document.getElementById("btn-export-fe3d"),
     btnExportBundle: document.getElementById("btn-export-bundle"),
+    btnStudioSettings: document.getElementById("btn-studio-settings"),
     btnUndo: document.getElementById("btn-undo"),
     btnRedo: document.getElementById("btn-redo"),
     btnDuplicate: document.getElementById("btn-duplicate"),
@@ -49,31 +163,64 @@
     btnModeVertex: document.getElementById("btn-mode-vertex"),
     btnModeEdge: document.getElementById("btn-mode-edge"),
     btnModeFace: document.getElementById("btn-mode-face"),
+    ctxMeshSubbar: document.getElementById("ctx-mesh-subbar"),
+    btnLandscapeInspectorToggle: document.getElementById("btn-landscape-inspector-toggle"),
 
+    toolShelf: document.getElementById("tool-shelf"),
+    btnToolSelect: document.getElementById("btn-tool-select"),
     btnGizmoTranslate: document.getElementById("btn-gizmo-translate"),
     btnGizmoRotate: document.getElementById("btn-gizmo-rotate"),
     btnGizmoScale: document.getElementById("btn-gizmo-scale"),
     btnGizmoSpace: document.getElementById("btn-gizmo-space"),
-    workspacePresetSelect: document.getElementById("workspace-preset-select"),
+    btnCollapseShelf: document.getElementById("btn-collapse-shelf"),
+    btnVpRestoreShelf: document.getElementById("btn-vp-restore-shelf"),
 
-    outlinerList: document.getElementById("outliner-list"),
-    metaProjectName: document.getElementById("meta-project-name"),
-    metaAuthor: document.getElementById("meta-author"),
-    metaSceneName: document.getElementById("meta-scene-name"),
-
+    studioWorkspace: document.getElementById("studio-workspace"),
+    centerColumn: document.getElementById("center-column"),
+    viewportStage: document.getElementById("viewport-stage"),
+    wfBanner: document.getElementById("workspace-foundation-banner"),
+    wfBannerTitle: document.getElementById("wf-banner-title"),
+    wfBannerDetail: document.getElementById("wf-banner-detail"),
+    viewportHudTop: document.getElementById("viewport-hud-top"),
+    viewportHudBottom: document.getElementById("viewport-hud-bottom"),
     vpCameraPill: document.getElementById("vp-camera-pill"),
     vpSelectionPill: document.getElementById("vp-selection-pill"),
     vpModePill: document.getElementById("vp-mode-pill"),
+    btnTouchMultiSelect: document.getElementById("btn-touch-multiselect"),
 
-    tabAssetBrowser: document.getElementById("tab-asset-browser"),
+    splitterBottom: document.getElementById("splitter-bottom"),
+    splitterRight: document.getElementById("splitter-right"),
+
+    dockBottom: document.getElementById("dock-bottom"),
+    bottomEditorSelect: document.getElementById("bottom-editor-select"),
     tabTimeline: document.getElementById("tab-timeline"),
+    tabAssetBrowser: document.getElementById("tab-asset-browser"),
     tabConsole: document.getElementById("tab-console"),
-    paneAssetBrowser: document.getElementById("pane-asset-browser"),
+    btnCollapseBottom: document.getElementById("btn-collapse-bottom"),
     paneTimeline: document.getElementById("pane-timeline"),
+    paneAssetBrowser: document.getElementById("pane-asset-browser"),
     paneConsole: document.getElementById("pane-console"),
-    assetBrowserList: document.getElementById("asset-browser-list"),
+    paneFoundationEditor: document.getElementById("pane-foundation-editor"),
+    fePaneTitle: document.getElementById("fe-pane-title"),
+    fePaneDesc: document.getElementById("fe-pane-desc"),
+    fePaneBinding: document.getElementById("fe-pane-binding"),
     btnTimelinePlay: document.getElementById("btn-timeline-play"),
+    lblTimelinePlay: document.getElementById("lbl-timeline-play"),
+    timelineFrameNum: document.getElementById("timeline-frame-num"),
+    timelineScrubber: document.getElementById("timeline-scrubber"),
+    assetBrowserList: document.getElementById("asset-browser-list"),
     consoleLogList: document.getElementById("console-log-list"),
+
+    dockRight: document.getElementById("dock-right"),
+    panelOutliner: document.getElementById("panel-outliner"),
+    outlinerFilter: document.getElementById("outliner-filter"),
+    outlinerList: document.getElementById("outliner-list"),
+
+    propertiesShell: document.getElementById("properties-shell"),
+    inspectorTabs: document.getElementById("inspector-tabs"),
+    propsActiveHeading: document.getElementById("props-active-heading"),
+    panelProperties: document.getElementById("panel-properties"),
+    panelMaterialEditor: document.getElementById("panel-material-editor"),
 
     inspectorIdBadge: document.getElementById("inspector-id-badge"),
     inspectorEmpty: document.getElementById("inspector-empty"),
@@ -111,14 +258,14 @@
     meshBounds: document.getElementById("mesh-bounds"),
 
     cardCamera: document.getElementById("card-camera"),
+    cardLight: document.getElementById("card-light"),
+    cardDataEmpty: document.getElementById("card-data-empty"),
     btnSetActiveCamera: document.getElementById("btn-set-active-camera"),
     camProjection: document.getElementById("cam-projection"),
     camFov: document.getElementById("cam-fov"),
     camOrtho: document.getElementById("cam-ortho"),
     camNear: document.getElementById("cam-near"),
     camFar: document.getElementById("cam-far"),
-
-    cardLight: document.getElementById("card-light"),
     lightColor: document.getElementById("light-color"),
     lightIntensity: document.getElementById("light-intensity"),
 
@@ -146,9 +293,20 @@
     statMemory: document.getElementById("stat-memory"),
     statHistory: document.getElementById("stat-history"),
 
+    mobilePortraitNav: document.getElementById("mobile-portrait-nav"),
     statusDot: document.getElementById("status-dot"),
     statusMessage: document.getElementById("status-message"),
+    statusLayoutMode: document.getElementById("status-layout-mode"),
     statusRenderer: document.getElementById("status-renderer"),
+
+    settingsModal: document.getElementById("settings-modal"),
+    btnCloseSettings: document.getElementById("btn-close-settings"),
+    prefLayoutMode: document.getElementById("pref-layout-mode"),
+    prefUiDensity: document.getElementById("pref-ui-density"),
+    prefDefaultAuthor: document.getElementById("pref-default-author"),
+    prefShowHud: document.getElementById("pref-show-hud"),
+    btnPrefSaveLayout: document.getElementById("btn-pref-save-layout"),
+    btnPrefRestoreLayout: document.getElementById("btn-pref-restore-layout"),
   };
 
   let wasmApi = null;
@@ -158,24 +316,454 @@
   let lastOutlinerSignature = "";
   let lastAssetsSignature = "";
   let lastConsoleSignature = "";
-  let activeBottomTab = "asset_browser";
+
+  let appPrefs = REG.loadPreferences();
+  let selectedStudioId = "3d_studio";
+  let selectedTemplateId = "starter";
+  let hasEnteredStudioOnce = false;
+  let activeProjectRecordId = null;
+
+  let activeWorkspaceId = "layout";
+  let activeInspTab = "all";
+  let activeBottomEditor = "timeline";
+  let activeMobileDrawer = "viewport";
+  let outlinerFilterQuery = "";
+
+  let touchNavMode = "orbit";
+  let touchMultiSelect = false;
+
+  // =========================================================================
+  // RESPONSIVE LAYOUT & PREFERENCES ENGINE
+  // =========================================================================
+
+  function computeEffectiveLayoutMode() {
+    if (appPrefs.layoutMode && appPrefs.layoutMode !== "auto") {
+      return appPrefs.layoutMode;
+    }
+    const w = window.innerWidth || document.documentElement.clientWidth || 1280;
+    const h = window.innerHeight || document.documentElement.clientHeight || 720;
+    if (w >= 960) {
+      return "desktop";
+    }
+    return w > h ? "landscape" : "portrait";
+  }
+
+  function applyPreferencesAndResponsiveMode() {
+    const mode = computeEffectiveLayoutMode();
+    document.body.dataset.layoutMode = mode;
+    document.body.dataset.uiDensity = appPrefs.uiDensity || "comfortable";
+    if (!document.body.dataset.mpDrawer) {
+      document.body.dataset.mpDrawer = activeMobileDrawer;
+    }
+
+    if (els.statusLayoutMode) {
+      els.statusLayoutMode.textContent =
+        mode === "desktop"
+          ? "Desktop"
+          : mode === "landscape"
+          ? "Landscape Pro"
+          : "Portrait Mobile";
+    }
+
+    const hudHidden = appPrefs.showViewportHud === false;
+    if (els.viewportHudTop) els.viewportHudTop.hidden = hudHidden;
+    if (els.viewportHudBottom) els.viewportHudBottom.hidden = hudHidden;
+
+    if (els.prefLayoutMode) els.prefLayoutMode.value = appPrefs.layoutMode || "auto";
+    if (els.prefUiDensity) els.prefUiDensity.value = appPrefs.uiDensity || "comfortable";
+    if (els.prefDefaultAuthor) els.prefDefaultAuthor.value = appPrefs.defaultAuthor || "Final Effect 3D";
+    if (els.prefShowHud) els.prefShowHud.checked = appPrefs.showViewportHud !== false;
+
+    if (currentState) {
+      renderWorkspaceAndBottomDock(currentState);
+    }
+  }
+
+  window.addEventListener("resize", applyPreferencesAndResponsiveMode);
+  window.addEventListener("orientationchange", () => {
+    setTimeout(applyPreferencesAndResponsiveMode, 50);
+  });
+  applyPreferencesAndResponsiveMode();
+
+  // =========================================================================
+  // THREE-LEVEL VIEW NAVIGATION (Splash -> Home / Launcher -> 3D Studio)
+  // =========================================================================
+
+  function setAppView(view) {
+    document.body.dataset.appView = view;
+    if (els.appSplash) els.appSplash.hidden = view !== "splash";
+    if (els.appHome) els.appHome.hidden = view !== "home";
+    if (view === "studio") {
+      hasEnteredStudioOnce = true;
+      if (els.btnHomeResumeStudio) els.btnHomeResumeStudio.hidden = false;
+      syncFromEngine(true);
+    } else if (view === "home") {
+      renderRecentProjectsList();
+      if (els.btnHomeResumeStudio) {
+        els.btnHomeResumeStudio.hidden = !hasEnteredStudioOnce;
+      }
+    }
+  }
+
+  function captureViewportThumbnail() {
+    try {
+      if (!canvas || canvas.width < 8 || canvas.height < 8) return null;
+      const thumbCanvas = document.createElement("canvas");
+      thumbCanvas.width = 160;
+      thumbCanvas.height = 100;
+      const ctx2d = thumbCanvas.getContext("2d");
+      if (!ctx2d) return null;
+      ctx2d.drawImage(canvas, 0, 0, thumbCanvas.width, thumbCanvas.height);
+      return thumbCanvas.toDataURL("image/jpeg", 0.72);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function snapshotActiveProjectToRecent(sourceLabel) {
+    if (!wasmApi || !currentState) return;
+    const inlineJson = wasmApi.exportInlineProject();
+    if (!inlineJson) return;
+    const thumb = captureViewportThumbnail();
+    const rec = await REG.recordRecentProject(
+      {
+        id: activeProjectRecordId,
+        name: currentState.project.project_name || "Untitled Project",
+        author: currentState.project.author || appPrefs.defaultAuthor || "Final Effect 3D",
+        studioId: "3d_studio",
+        sceneName: currentState.project.scene_name || "Scene",
+        objectCount: currentState.stats ? currentState.stats.object_count : 0,
+        materialCount: currentState.stats ? currentState.stats.material_count : 0,
+        sourceLabel: sourceLabel || "3D Studio Session",
+        thumbnailDataUrl: thumb,
+      },
+      inlineJson
+    );
+    activeProjectRecordId = rec.id;
+  }
+
+  // =========================================================================
+  // LEVEL 2: STUDIO SELECTOR & PROJECT LAUNCHER
+  // =========================================================================
+
+  function renderStudioSelector() {
+    if (!els.studioSelectorList) return;
+    els.studioSelectorList.innerHTML = "";
+    REG.STUDIOS.forEach((st) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className =
+        "studio-nav-card" +
+        (st.id === selectedStudioId ? " is-selected" : "") +
+        (!st.operational ? " is-planned-studio" : "");
+      btn.dataset.testid = "studio-card-" + st.id;
+      btn.innerHTML =
+        '<span class="studio-nav-ic">' +
+        (REG.ICONS[st.icon] || REG.ICONS.cube) +
+        "</span>" +
+        '<span class="studio-nav-meta">' +
+        '<span class="studio-nav-title">' +
+        escapeHtml(st.name) +
+        "</span>" +
+        '<span class="studio-nav-state">' +
+        (st.operational ? "Operational" : "Planned") +
+        "</span>" +
+        "</span>";
+      btn.addEventListener("click", () => {
+        selectedStudioId = st.id;
+        renderStudioSelector();
+        renderSelectedStudioHomePanel();
+      });
+      els.studioSelectorList.appendChild(btn);
+    });
+  }
+
+  function renderSelectedStudioHomePanel() {
+    const st = REG.STUDIOS.find((item) => item.id === selectedStudioId) || REG.STUDIOS[0];
+    if (els.launcherErrorBanner) els.launcherErrorBanner.hidden = true;
+
+    if (st.operational) {
+      els.studioLauncherPanel.hidden = false;
+      els.studioFuturePanel.hidden = true;
+      els.launcherStudioBadge.textContent = st.badge;
+      els.launcherStudioTitle.textContent = st.name;
+      els.launcherStudioDesc.textContent = st.description;
+
+      els.launcherTemplateGrid.innerHTML = "";
+      (st.templates || []).forEach((tmpl) => {
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "template-card" + (tmpl.id === selectedTemplateId ? " is-selected" : "");
+        card.dataset.testid = "template-card-" + tmpl.id;
+        card.innerHTML =
+          '<div class="template-card-head"><span class="btn-ic">' +
+          (REG.ICONS[tmpl.icon] || REG.ICONS.cube) +
+          "</span><span>" +
+          escapeHtml(tmpl.name) +
+          "</span></div>" +
+          '<div class="template-card-sub">' +
+          escapeHtml(tmpl.subtitle) +
+          "</div>";
+        card.addEventListener("click", () => {
+          selectedTemplateId = tmpl.id;
+          renderSelectedStudioHomePanel();
+        });
+        els.launcherTemplateGrid.appendChild(card);
+      });
+      renderRecentProjectsList();
+    } else {
+      els.studioLauncherPanel.hidden = true;
+      els.studioFuturePanel.hidden = false;
+      els.futureStudioBadge.textContent = st.badge;
+      els.futureStudioTitle.textContent = st.name;
+      els.futureStudioTagline.textContent = st.tagline;
+      els.futureStudioDesc.textContent = st.description;
+      els.futureStudioCaps.innerHTML = "";
+      (st.plannedCapabilities || []).forEach((cap) => {
+        const li = document.createElement("li");
+        li.textContent = cap;
+        els.futureStudioCaps.appendChild(li);
+      });
+      if (els.btnFutureJumpShading) {
+        els.btnFutureJumpShading.hidden = !st.jumpTo3dWorkspace;
+      }
+    }
+  }
+
+  function formatRelativeTimestamp(ts) {
+    if (!ts) return "";
+    const diffSec = Math.max(0, Math.round((Date.now() - ts) / 1000));
+    if (diffSec < 60) return "Just now";
+    if (diffSec < 3600) return Math.floor(diffSec / 60) + "m ago";
+    if (diffSec < 86400) return Math.floor(diffSec / 3600) + "h ago";
+    return new Date(ts).toLocaleDateString();
+  }
+
+  function renderRecentProjectsList() {
+    if (!els.recentProjectsList) return;
+    const recents = REG.listRecentProjects();
+    if (els.recentCountTag) {
+      els.recentCountTag.textContent = recents.length + " saved";
+    }
+    els.recentProjectsList.innerHTML = "";
+    if (recents.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "recent-empty";
+      empty.dataset.testid = "recent-empty-state";
+      empty.textContent =
+        "No recent projects recorded yet. Create a new project or open an existing .fe3d file to populate real history.";
+      els.recentProjectsList.appendChild(empty);
+      return;
+    }
+
+    recents.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "recent-item";
+      row.dataset.testid = "recent-project-item";
+
+      const thumbHtml = item.thumbnailDataUrl
+        ? '<img src="' + item.thumbnailDataUrl + '" alt="" />'
+        : '<span class="btn-ic">' + REG.ICONS.cube + "</span>";
+
+      row.innerHTML =
+        '<div class="recent-thumb">' +
+        thumbHtml +
+        "</div>" +
+        '<div class="recent-info">' +
+        '<div class="recent-name">' +
+        escapeHtml(item.name) +
+        "</div>" +
+        '<div class="recent-sub">' +
+        escapeHtml(
+          "3D Studio · " +
+            item.objectCount +
+            " obj · " +
+            item.materialCount +
+            " mat · " +
+            formatRelativeTimestamp(item.updatedAt)
+        ) +
+        "</div>" +
+        "</div>" +
+        '<div class="recent-actions">' +
+        '<button type="button" class="pro-btn" data-reopen-id="' +
+        escapeHtml(item.id) +
+        '" data-testid="btn-reopen-recent">Open</button>' +
+        '<button type="button" class="ghost-btn" data-remove-id="' +
+        escapeHtml(item.id) +
+        '" data-testid="btn-remove-recent" title="Remove from Recent Projects list (does not delete local files)">Remove</button>' +
+        "</div>";
+
+      row.querySelector("[data-reopen-id]").addEventListener("click", async () => {
+        await reopenRecentProjectById(item);
+      });
+      row.querySelector("[data-remove-id]").addEventListener("click", async () => {
+        if (activeProjectRecordId === item.id) activeProjectRecordId = null;
+        await REG.removeRecentProject(item.id);
+        renderRecentProjectsList();
+      });
+
+      els.recentProjectsList.appendChild(row);
+    });
+  }
+
+  async function reopenRecentProjectById(item) {
+    if (!wasmApi) return;
+    if (els.launcherErrorBanner) els.launcherErrorBanner.hidden = true;
+    const payload = await REG.loadProjectPayload(item.id);
+    if (!payload) {
+      if (els.launcherErrorBanner) {
+        els.launcherErrorBanner.hidden = false;
+        els.launcherErrorBanner.textContent =
+          "Cached project data for '" +
+          item.name +
+          "' is no longer available in browser storage. Open the .fe3d file from disk or remove this recent entry.";
+      }
+      return;
+    }
+    try {
+      wasmApi.fs.mkdir("/fe3d_import");
+    } catch (_) {}
+    const vfsPath = "/fe3d_import/recent_reopen.fe3d";
+    wasmApi.fs.writeFile(vfsPath, payload);
+    const ok = wasmApi.loadFileFromVfs(vfsPath);
+    if (!ok) {
+      const errMsg =
+        currentState && currentState.status ? currentState.status.message : "Corrupted project data";
+      if (els.launcherErrorBanner) {
+        els.launcherErrorBanner.hidden = false;
+        els.launcherErrorBanner.textContent = "Failed to reopen project: " + errMsg;
+      }
+      return;
+    }
+    activeProjectRecordId = item.id;
+    setAppView("studio");
+  }
+
+  // =========================================================================
+  // LEVEL 3: 12 WORKSPACE TABS & INSPECTOR CATEGORY RAIL
+  // =========================================================================
+
+  function renderWorkspaceTabBar() {
+    if (!els.workspaceTabs) return;
+    els.workspaceTabs.innerHTML = "";
+    REG.WORKSPACES.forEach((ws) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      const isOp = !ws.foundationNotice;
+      btn.className =
+        "ws-tab" +
+        (ws.id === activeWorkspaceId ? " is-active" : "") +
+        (isOp ? " is-operational" : "");
+      btn.setAttribute("role", "tab");
+      btn.setAttribute("aria-selected", ws.id === activeWorkspaceId ? "true" : "false");
+      btn.dataset.workspaceTab = ws.id;
+      btn.dataset.testid = "ws-tab-" + ws.id;
+      btn.innerHTML = '<span class="ws-tab-dot"></span><span>' + escapeHtml(ws.label) + "</span>";
+      btn.addEventListener("click", () => activateWorkspaceById(ws.id, true));
+      els.workspaceTabs.appendChild(btn);
+    });
+  }
+
+  function activateWorkspaceById(wsId, persistFlag) {
+    const norm = wsId === "default" ? "layout" : wsId === "animation_prep" ? "animation" : wsId;
+    const ws = REG.WORKSPACES.find((item) => item.id === norm) || REG.WORKSPACES[0];
+    activeWorkspaceId = ws.id;
+    if (els.workspacePresetSelect) {
+      els.workspacePresetSelect.value = ws.id;
+    }
+    activeBottomEditor = ws.bottomEditor || "timeline";
+    if (els.bottomEditorSelect) {
+      els.bottomEditorSelect.value = activeBottomEditor;
+    }
+    if (ws.id === "layout") {
+      setInspectorCategory("all");
+    } else if (ws.inspectorTab) {
+      setInspectorCategory(ws.inspectorTab);
+    }
+
+    if (els.wfBanner) {
+      if (ws.foundationNotice) {
+        els.wfBanner.hidden = false;
+        els.wfBannerTitle.textContent = ws.foundationNotice.title;
+        els.wfBannerDetail.textContent = ws.foundationNotice.detail;
+      } else {
+        els.wfBanner.hidden = true;
+      }
+    }
+
+    if (els.toolShelf) {
+      els.toolShelf.hidden = ws.showToolShelf === false;
+      if (els.btnVpRestoreShelf) {
+        els.btnVpRestoreShelf.hidden = !els.toolShelf.hidden;
+      }
+    }
+
+    renderWorkspaceTabBar();
+    if (wasmApi) {
+      wasmApi.dispatchAction({ action: "apply_workspace_preset", preset: ws.preset });
+    }
+    if (persistFlag) {
+      persistWorkspaceToStorage();
+    }
+  }
+
+  const INSP_HEADINGS = {
+    object: "Object & Transform",
+    modifiers: "Modeling & Modifiers",
+    material: "Material Properties",
+    data: "Camera & Light Data",
+    render: "Project & Telemetry",
+    all: "Inspector (All Sections)",
+  };
+
+  function setInspectorCategory(cat) {
+    activeInspTab = cat || "all";
+    if (els.propsActiveHeading) {
+      els.propsActiveHeading.textContent = INSP_HEADINGS[activeInspTab] || "Properties";
+    }
+    document.querySelectorAll("[data-insp-tab]").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.inspTab === activeInspTab);
+    });
+    document.querySelectorAll("[data-insp-section]").forEach((sec) => {
+      const key = sec.dataset.inspSection;
+      sec.hidden = activeInspTab !== "all" && key !== activeInspTab;
+    });
+    if (els.panelProperties) {
+      els.panelProperties.hidden =
+        activeInspTab === "material" || activeInspTab === "render";
+    }
+  }
+
+  // =========================================================================
+  // WASM ENGINE BINDING & SPLASH BOOT LOOP
+  // =========================================================================
 
   function tryBindWasmApi() {
     const M = window.Module;
     if (!M || typeof M._fe3d_is_ready !== "function" || typeof M.ccall !== "function") {
       return false;
     }
+
+    if (typeof M._fe3d_get_boot_stage === "function") {
+      const stage = M._fe3d_get_boot_stage();
+      const msg =
+        typeof M._fe3d_get_boot_message === "function"
+          ? M.ccall("fe3d_get_boot_message", "string", [], [])
+          : "";
+      if (stage === 1) setSplashProgress(2, 45, msg);
+      else if (stage === 2) setSplashProgress(3, 72, msg);
+      else if (stage === 3) setSplashProgress(4, 90, msg);
+    }
+
     const ready = M._fe3d_is_ready();
     if (ready === 0) {
       return false;
     }
     if (ready < 0) {
       const errMsg = M.ccall("fe3d_get_init_error", "string", [], []);
-      banner.hidden = false;
-      banner.classList.add("is-error");
-      banner.textContent = "WebGL 2.0 initialization failed: " + (errMsg || "Unsupported graphics context");
-      els.statusDot.classList.add("is-error");
-      els.statusMessage.textContent = banner.textContent;
+      showSplashFatalError(errMsg || "Unsupported WebGL 2.0 graphics context");
+      if (els.statusDot) els.statusDot.classList.add("is-error");
+      if (els.statusMessage) els.statusMessage.textContent = errMsg;
       return true;
     }
 
@@ -205,6 +793,45 @@
         syncFromEngine(true);
         return ok;
       },
+      hitTestGizmo: function (cssX, cssY) {
+        return typeof M._fe3d_hit_test_gizmo === "function"
+          ? M._fe3d_hit_test_gizmo(cssX, cssY) === 1
+          : false;
+      },
+      touchTap: function (cssX, cssY, additive) {
+        return typeof M._fe3d_touch_tap === "function"
+          ? M._fe3d_touch_tap(cssX, cssY, additive ? 1 : 0) === 1
+          : false;
+      },
+      pointerEvent: function (kind, button, cssX, cssY, shift, ctrl, alt, meta) {
+        if (typeof M._fe3d_pointer_event === "function") {
+          M._fe3d_pointer_event(
+            kind,
+            button,
+            cssX,
+            cssY,
+            shift ? 1 : 0,
+            ctrl ? 1 : 0,
+            alt ? 1 : 0,
+            meta ? 1 : 0
+          );
+        }
+      },
+      cameraOrbit: function (dxCss, dyCss) {
+        if (typeof M._fe3d_camera_orbit === "function") {
+          M._fe3d_camera_orbit(dxCss, dyCss);
+        }
+      },
+      cameraPan: function (dxCss, dyCss) {
+        if (typeof M._fe3d_camera_pan === "function") {
+          M._fe3d_camera_pan(dxCss, dyCss);
+        }
+      },
+      cameraZoom: function (steps) {
+        if (typeof M._fe3d_camera_zoom === "function") {
+          M._fe3d_camera_zoom(steps);
+        }
+      },
       blitMaterialPreview: function () {
         if (!previewCtx || typeof M._fe3d_material_preview_ptr !== "function") return;
         const gen = M._fe3d_material_preview_generation();
@@ -218,48 +845,101 @@
           previewCanvas.height = h;
         }
         const byteLen = w * h * 4;
-        const slice = new Uint8ClampedArray(M.HEAPU8.buffer, ptr, byteLen);
-        const imgData = new ImageData(new Uint8ClampedArray(slice), w, h);
+        const pixels = new Uint8ClampedArray(byteLen);
+        pixels.set(M.HEAPU8.subarray(ptr, ptr + byteLen));
+        const imgData = new ImageData(pixels, w, h);
         previewCtx.putImageData(imgData, 0, 0);
         lastPreviewGen = gen;
       },
       fs: M.FS,
     };
 
-    // Restore persisted workspace layout from localStorage if available.
-    try {
-      const savedLayout = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
-      if (savedLayout && savedLayout.length > 10) {
-        M.ccall(
-          "fe3d_dispatch_action",
-          "number",
-          ["string"],
-          [JSON.stringify({ action: "import_workspace_json", json_text: savedLayout })]
-        );
-      }
-    } catch (_) {}
+    setSplashProgress(4, 100, "Final Effect 3D v0.5.0 Ready");
+    if (banner) banner.hidden = true;
 
-    banner.hidden = true;
     window.__FE3D_STUDIO__ = {
       getState: function () {
         syncFromEngine(true);
         return currentState;
       },
       dispatch: wasmApi.dispatchAction,
+      setView: setAppView,
+      getAppView: function () {
+        return document.body.dataset.appView;
+      },
     };
+
+    restoreWorkspaceFromStorage();
     syncFromEngine(true);
+
+    const params = new URLSearchParams(window.location.search || "");
+    if (params.get("view") === "studio") {
+      setAppView("studio");
+    } else {
+      setAppView("home");
+    }
     return true;
   }
 
   function persistWorkspaceToStorage() {
     if (!wasmApi) return;
     try {
-      const json = wasmApi.exportWorkspaceJson();
-      if (json) {
-        window.localStorage.setItem(WORKSPACE_STORAGE_KEY, json);
+      const wsJson = wasmApi.exportWorkspaceJson();
+      if (wsJson) {
+        window.localStorage.setItem(WORKSPACE_STORAGE_KEY, wsJson);
       }
     } catch (_) {}
   }
+
+  function syncWorkspaceTabFromLayoutName(layoutName) {
+    if (!layoutName || !REG || !REG.WORKSPACES) return;
+    const norm = String(layoutName).trim().toLowerCase();
+    const match = REG.WORKSPACES.find(
+      (w) => w.label.toLowerCase() === norm || w.id.toLowerCase() === norm
+    );
+    if (match) {
+      activeWorkspaceId = match.id;
+      activeBottomEditor = match.bottomEditor || "timeline";
+      if (els.workspacePresetSelect) els.workspacePresetSelect.value = match.id;
+      if (match.id === "layout") setInspectorCategory("all");
+      else if (match.inspectorTab) setInspectorCategory(match.inspectorTab);
+      renderWorkspaceTabBar();
+    }
+  }
+
+  function restoreWorkspaceFromStorage() {
+    if (!wasmApi) return;
+    try {
+      const saved = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
+      if (saved && saved.trim().startsWith("{")) {
+        const parsed = JSON.parse(saved);
+        syncWorkspaceTabFromLayoutName(parsed.layout_name);
+        wasmApi.dispatchAction({
+          action: "import_workspace_json",
+          json_text: saved,
+        });
+        applyDockRatiosCss(parsed);
+      }
+    } catch (_) {}
+  }
+
+  function applyDockRatiosCss(wsObj) {
+    if (!wsObj) return;
+    const totalW = window.innerWidth || 1280;
+    const totalH = window.innerHeight || 720;
+    if (typeof wsObj.right_dock_width_ratio === "number" && totalW >= 960) {
+      const pxW = Math.round(Math.max(240, Math.min(520, wsObj.right_dock_width_ratio * totalW)));
+      document.documentElement.style.setProperty("--right-dock-w", pxW + "px");
+    }
+    if (typeof wsObj.bottom_dock_height_ratio === "number" && totalH >= 520) {
+      const pxH = Math.round(Math.max(84, Math.min(340, wsObj.bottom_dock_height_ratio * totalH)));
+      document.documentElement.style.setProperty("--bottom-dock-h", pxH + "px");
+    }
+  }
+
+  // =========================================================================
+  // FORMATTING & COLOR HELPERS
+  // =========================================================================
 
   function formatFloat(val, digits) {
     const n = Number(val);
@@ -267,200 +947,522 @@
     return Number(n.toFixed(digits)).toString();
   }
 
-  function setInputIfUnfocused(inputEl, newValue) {
-    if (inputEl && document.activeElement !== inputEl) {
-      const strVal = String(newValue);
-      if (inputEl.value !== strVal) {
-        inputEl.value = strVal;
+  function formatBytes(bytes) {
+    const b = Number(bytes) || 0;
+    if (b < 1024) return b + " B";
+    if (b < 1024 * 1024) return (b / 1024).toFixed(1) + " KB";
+    return (b / (1024 * 1024)).toFixed(2) + " MB";
+  }
+
+  function isFocused(el) {
+    return document.activeElement === el;
+  }
+
+  function setInputValueIfUnfocused(el, nextValue) {
+    if (el && !isFocused(el)) {
+      const strVal = String(nextValue);
+      if (el.value !== strVal) {
+        el.value = strVal;
       }
     }
   }
 
   function rgbFloatToHex(rgb) {
     if (!Array.isArray(rgb) || rgb.length < 3) return "#ffffff";
-    const toByte = (c) => {
-      const clamped = Math.max(0, Math.min(1, Number(c) || 0));
-      return Math.round(clamped * 255).toString(16).padStart(2, "0");
+    const toHex = (c) => {
+      const byte = Math.max(0, Math.min(255, Math.round(Number(c) * 255)));
+      return byte.toString(16).padStart(2, "0");
     };
-    return "#" + toByte(rgb[0]) + toByte(rgb[1]) + toByte(rgb[2]);
+    return "#" + toHex(rgb[0]) + toHex(rgb[1]) + toHex(rgb[2]);
   }
 
   function hexToRgbFloat(hex) {
     const clean = (hex || "#ffffff").replace("#", "");
-    if (clean.length !== 6) return [1.0, 1.0, 1.0];
+    if (clean.length !== 6) return [1, 1, 1];
     return [
-      parseInt(clean.slice(0, 2), 16) / 255.0,
-      parseInt(clean.slice(2, 4), 16) / 255.0,
-      parseInt(clean.slice(4, 6), 16) / 255.0,
+      parseInt(clean.slice(0, 2), 16) / 255,
+      parseInt(clean.slice(2, 4), 16) / 255,
+      parseInt(clean.slice(4, 6), 16) / 255,
     ];
   }
 
-  function formatBytes(bytes) {
-    const b = Number(bytes) || 0;
-    if (b < 1024) return b + " B";
-    return (b / 1024).toFixed(1) + " KB";
+  function sanitizeFilenameStem(raw) {
+    const cleaned = (raw || "project")
+      .trim()
+      .replace(/[^a-zA-Z0-9._-]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    return cleaned || "project";
   }
 
-  function objectBadgeText(obj) {
-    if (obj.has_camera) return "CAM";
-    if (obj.has_light) return "LGT";
-    if (obj.has_mesh) return "MSH";
-    return "PIV";
+  function triggerDownload(filename, content, mimeType) {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
+
+  function escapeHtml(str) {
+    return String(str || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  // =========================================================================
+  // ENGINE -> UI SYNCHRONIZATION
+  // =========================================================================
+
+  function syncFromEngine(force) {
+    if (!wasmApi) return;
+    const rev = wasmApi.getRevision();
+    if (!force && rev >= 0 && rev === lastRevision) {
+      wasmApi.blitMaterialPreview();
+      return;
+    }
+    lastRevision = rev;
+
+    let state = null;
+    try {
+      state = JSON.parse(wasmApi.getStateJson());
+    } catch (err) {
+      console.error("[FE3D] State JSON parse error:", err);
+      return;
+    }
+    currentState = state;
+
+    const engVer = state.project ? state.project.engine_version : "0.5.0";
+    const backendName = state.viewport ? state.viewport.backend_name : "WebGL 2.0";
+    const deviceName = state.viewport ? state.viewport.device_name : "";
+
+    if (els.engineBadge) {
+      els.engineBadge.textContent = "v" + engVer + " · " + backendName.split(" ")[0];
+    }
+    if (els.homeEngineBadge) {
+      els.homeEngineBadge.textContent = "v" + engVer + " · " + backendName + " Ready";
+    }
+    if (els.statusRenderer) {
+      els.statusRenderer.textContent = deviceName
+        ? backendName + " · " + deviceName
+        : backendName;
+    }
+    if (els.activeProjectPill) {
+      els.activeProjectPill.textContent = state.project.project_name || "Untitled";
+    }
+
+    els.btnUndo.disabled = !state.history.can_undo;
+    els.btnRedo.disabled = !state.history.can_redo;
+    els.btnUndo.title = state.history.can_undo
+      ? "Undo " + state.history.next_undo + " (Ctrl+Z)"
+      : "Nothing to undo";
+    els.btnRedo.title = state.history.can_redo
+      ? "Redo " + state.history.next_redo + " (Ctrl+Y)"
+      : "Nothing to redo";
+
+    const insp = state.inspector;
+    const hasSel = insp !== null && typeof insp === "object";
+    els.btnDuplicate.disabled = !hasSel;
+    els.btnDelete.disabled = !hasSel || (insp && insp.id === state.viewport.active_camera_id);
+
+    const ed = state.editor || {
+      mode: "object",
+      gizmo_mode: "translate",
+      gizmo_space: "world",
+      gizmo_active_handle: "none",
+      gizmo_hovered_handle: "none",
+      editable_mesh: null,
+    };
+    const canMeshEdit = Boolean(ed.editable_mesh && ed.editable_mesh.editable);
+    els.btnModeVertex.disabled = !canMeshEdit;
+    els.btnModeEdge.disabled = !canMeshEdit;
+    els.btnModeFace.disabled = !canMeshEdit;
+
+    [els.btnModeObject, els.btnModeVertex, els.btnModeEdge, els.btnModeFace].forEach((b) => {
+      if (b) b.classList.toggle("is-active", b.dataset.editMode === ed.mode);
+    });
+
+    if (els.ctxMeshSubbar) {
+      els.ctxMeshSubbar.hidden = ed.mode === "object";
+    }
+
+    if (ed.mode !== "object" && activeInspTab !== "all" && activeInspTab !== "modifiers") {
+      setInspectorCategory("modifiers");
+    }
+
+    [els.btnGizmoTranslate, els.btnGizmoRotate, els.btnGizmoScale].forEach((b) => {
+      if (b) b.classList.toggle("is-active", b.dataset.gizmoMode === ed.gizmo_mode);
+    });
+    if (els.btnGizmoSpace) {
+      els.btnGizmoSpace.textContent = ed.gizmo_space === "local" ? "Local" : "World";
+    }
+
+    const playing = Boolean(state.viewport.rig_playing);
+    if (els.btnToggleRig) {
+      els.btnToggleRig.textContent = playing ? "Pause Rig" : "Play Rig";
+      els.btnToggleRig.classList.toggle("is-active", playing);
+    }
+    if (els.lblTimelinePlay) {
+      els.lblTimelinePlay.textContent = playing ? "Pause Rig" : "Play Rig";
+    }
+
+    setInputValueIfUnfocused(els.metaProjectName, state.project.project_name);
+    setInputValueIfUnfocused(els.metaAuthor, state.project.author);
+    setInputValueIfUnfocused(els.metaSceneName, state.project.scene_name);
+
+    const activeCamObj = state.objects.find((o) => o.id === state.viewport.active_camera_id);
+    els.vpCameraPill.textContent =
+      "Camera: " +
+      (activeCamObj ? activeCamObj.name : "None") +
+      " · Dist " +
+      formatFloat(state.viewport.camera_distance, 1) +
+      "m";
+    els.vpSelectionPill.textContent = hasSel ? "Selected: " + insp.name : "No Selection";
+
+    const toolLabel = ed.gizmo_mode === "translate" ? "MOVE" : ed.gizmo_mode.toUpperCase();
+    const handleHint =
+      ed.gizmo_active_handle && ed.gizmo_active_handle !== "none"
+        ? " · DRAG " + ed.gizmo_active_handle.toUpperCase()
+        : ed.gizmo_hovered_handle && ed.gizmo_hovered_handle !== "none"
+        ? " · HOVER " + ed.gizmo_hovered_handle.toUpperCase()
+        : "";
+    els.vpModePill.textContent =
+      ed.mode.toUpperCase() + " · " + toolLabel + " (" + ed.gizmo_space.toUpperCase() + ")" + handleHint;
+
+    renderWorkspaceAndBottomDock(state);
+    renderOutliner(state);
+    renderInspector(state, ed);
+    renderMaterialEditor(state);
+
+    els.statObjectsMeshes.textContent =
+      state.stats.object_count + " / " + state.stats.mesh_count;
+    els.statMaterialsUpdates.textContent =
+      (state.stats.material_count || 0) + " / " + (state.stats.gpu_buffer_updates || 0);
+    els.statTriangles.textContent = String(state.stats.total_triangles);
+    els.statMemory.textContent =
+      formatBytes(state.stats.cpu_mesh_bytes) + " / " + formatBytes(state.stats.gpu_mesh_bytes);
+    els.statHistory.textContent =
+      state.history.undo_count + " steps (" + formatBytes(state.history.memory_bytes) + ")";
+
+    if (state.status && state.status.message) {
+      els.statusDot.classList.toggle("is-error", state.status.level === "error");
+      els.statusMessage.textContent = state.status.message;
+    }
+
+    wasmApi.blitMaterialPreview();
+  }
+
+  const FOUNDATION_EDITOR_COPY = {
+    shader_foundation: {
+      title: "Shader Node Graph (Architectural Foundation)",
+      desc: "Node-based procedural shader DAG compilation is scheduled for a future engine stage. Direct Metallic-Roughness PBR parameters & live 3D sphere preview are active in the Material Inspector.",
+    },
+    uv_foundation: {
+      title: "2D UV Editor (Architectural Foundation)",
+      desc: "EditableMesh preserves per-corner UV attributes in memory and .fe3d serialization. Interactive 2D UV island unwrapping & packing tools are planned for a future stage.",
+    },
+    geonodes_foundation: {
+      title: "Geometry Nodes Graph (Architectural Foundation)",
+      desc: "Procedural geometry modifier graphs are scheduled for a future engine stage. Direct undoable polygon extrusion, hole selection & boundary fill are active today.",
+    },
+    compositor_foundation: {
+      title: "Render Layer Compositor (Architectural Foundation)",
+      desc: "Post-processing node chains (glare, tone-mapping curves, AOV passes) are planned for a future stage.",
+    },
+    vse_foundation: {
+      title: "Video Sequencer (Architectural Foundation)",
+      desc: "Multi-track timeline clip editing is planned for a future stage. Showcase rig transport is connected to the live 3D scene.",
+    },
+  };
+
+  function renderWorkspaceAndBottomDock(state) {
+    const ws = state.workspace;
+    const isFoundationEditor = Boolean(FOUNDATION_EDITOR_COPY[activeBottomEditor]);
+    const isPortrait = document.body.dataset.layoutMode === "portrait";
+
+    if (ws) {
+      const panelVis = {};
+      (ws.panels || []).forEach((p) => {
+        panelVis[p.key] = Boolean(p.visible);
+      });
+      document.querySelectorAll("[data-panel-toggle]").forEach((btn) => {
+        const k = btn.dataset.panelToggle;
+        btn.classList.toggle("is-on", Boolean(panelVis[k]));
+      });
+
+      if (!isPortrait) {
+        if (els.panelOutliner) {
+          els.panelOutliner.hidden = panelVis.scene_outliner === false;
+        }
+        if (els.propertiesShell) {
+          const anyProps =
+            panelVis.properties !== false || panelVis.material_editor !== false;
+          els.propertiesShell.hidden = !anyProps;
+        }
+        if (activeInspTab === "all") {
+          if (els.panelProperties) {
+            els.panelProperties.hidden = panelVis.properties === false;
+          }
+          if (els.panelMaterialEditor) {
+            els.panelMaterialEditor.hidden = panelVis.material_editor === false;
+          }
+        }
+        if (els.dockRight && document.body.dataset.layoutMode === "desktop") {
+          els.dockRight.hidden =
+            panelVis.scene_outliner === false &&
+            panelVis.properties === false &&
+            panelVis.material_editor === false;
+          if (els.splitterRight) els.splitterRight.hidden = els.dockRight.hidden;
+        }
+        if (els.dockBottom) {
+          const bottomKeys = ["asset_browser", "timeline", "console"];
+          const visibleBottom = bottomKeys.filter((k) => Boolean(panelVis[k]));
+          const shouldHideBottom = visibleBottom.length === 0 && !isFoundationEditor;
+          els.dockBottom.hidden = shouldHideBottom;
+          if (els.splitterBottom) els.splitterBottom.hidden = shouldHideBottom;
+          if (
+            !isFoundationEditor &&
+            visibleBottom.length > 0 &&
+            !visibleBottom.includes(activeBottomEditor)
+          ) {
+            activeBottomEditor = visibleBottom[0];
+          }
+        }
+      } else {
+        // In Mobile Portrait mode, panel visibility inside drawers is controlled cleanly by data-mp-drawer
+        if (els.panelOutliner) els.panelOutliner.hidden = false;
+        if (els.propertiesShell) els.propertiesShell.hidden = false;
+        if (els.dockBottom) els.dockBottom.hidden = false;
+        if (els.dockRight) els.dockRight.hidden = false;
+      }
+    }
+
+    [els.tabTimeline, els.tabAssetBrowser, els.tabConsole].forEach((tab) => {
+      if (tab) tab.classList.toggle("is-active", tab.dataset.bottomTab === activeBottomEditor);
+    });
+    if (els.bottomEditorSelect && els.bottomEditorSelect.value !== activeBottomEditor) {
+      els.bottomEditorSelect.value = activeBottomEditor;
+    }
+
+    els.paneTimeline.hidden = activeBottomEditor !== "timeline";
+    els.paneAssetBrowser.hidden = activeBottomEditor !== "asset_browser";
+    els.paneConsole.hidden = activeBottomEditor !== "console";
+    els.paneFoundationEditor.hidden = !isFoundationEditor;
+
+    if (isFoundationEditor) {
+      const info = FOUNDATION_EDITOR_COPY[activeBottomEditor];
+      els.fePaneTitle.textContent = info.title;
+      els.fePaneDesc.textContent = info.desc;
+      const selName = state.inspector ? state.inspector.name : "None";
+      const activeMat = (state.materials || []).find((m) => m.id === state.active_material_id);
+      els.fePaneBinding.textContent =
+        "Connected Shared Scene: '" +
+        state.project.scene_name +
+        "' · Active Object: " +
+        selName +
+        " · Active Material: " +
+        (activeMat ? activeMat.name : "None");
+    }
+
+    const assetsSig = JSON.stringify([state.materials, state.active_material_id]);
+    if (assetsSig !== lastAssetsSignature && els.assetBrowserList) {
+      lastAssetsSignature = assetsSig;
+      els.assetBrowserList.innerHTML = "";
+
+      [
+        { preset: "cube", label: "Primitive: Cube" },
+        { preset: "sphere", label: "Primitive: UV Sphere" },
+        { preset: "pyramid", label: "Primitive: Pyramid" },
+      ].forEach((pr) => {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "asset-chip";
+        chip.innerHTML =
+          '<span class="btn-ic">' + REG.ICONS.cube + "</span><span>" + pr.label + "</span>";
+        chip.addEventListener("click", () => {
+          if (wasmApi) wasmApi.dispatchAction({ action: "add_preset", preset: pr.preset });
+        });
+        els.assetBrowserList.appendChild(chip);
+      });
+
+      (state.materials || []).forEach((mat) => {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "asset-chip";
+        chip.dataset.testid = "asset-mat-" + mat.name;
+        const sw = document.createElement("span");
+        sw.className = "asset-swatch";
+        sw.style.backgroundColor = rgbFloatToHex(mat.base_color);
+        const lbl = document.createElement("span");
+        lbl.textContent = mat.name;
+        chip.appendChild(sw);
+        chip.appendChild(lbl);
+        chip.addEventListener("click", () => {
+          if (wasmApi) wasmApi.dispatchAction({ action: "select_material", id: mat.id });
+        });
+        els.assetBrowserList.appendChild(chip);
+      });
+    }
+
+    const consoleSig = JSON.stringify(state.console || []);
+    if (consoleSig !== lastConsoleSignature && els.consoleLogList) {
+      lastConsoleSignature = consoleSig;
+      els.consoleLogList.innerHTML = "";
+      (state.console || [])
+        .slice(-24)
+        .reverse()
+        .forEach((entry) => {
+          const line = document.createElement("div");
+          line.className = "console-line" + (entry.level === "error" ? " is-error" : "");
+          line.textContent = "#" + entry.seq + " " + entry.message;
+          els.consoleLogList.appendChild(line);
+        });
+    }
   }
 
   function renderOutliner(state) {
-    const selectedId = state.viewport.selected_object_id;
-    const sig = JSON.stringify([selectedId, state.objects]);
-    if (sig === lastOutlinerSignature) {
-      return;
-    }
+    const selectedId = state.viewport ? state.viewport.selected_object_id : 0;
+    const q = outlinerFilterQuery.trim().toLowerCase();
+    const sig = JSON.stringify([selectedId, state.objects, q]);
+    if (sig === lastOutlinerSignature) return;
     lastOutlinerSignature = sig;
 
-    const frag = document.createDocumentFragment();
-    for (const obj of state.objects) {
+    els.outlinerList.innerHTML = "";
+    state.objects.forEach((obj) => {
+      if (q && obj.name.toLowerCase().indexOf(q) === -1) return;
+      const isSel = obj.id === selectedId;
+
       const row = document.createElement("div");
       row.className =
         "outliner-row" +
-        (obj.id === selectedId ? " is-selected" : "") +
+        (isSel ? " is-selected" : "") +
         (!obj.visible ? " is-hidden-obj" : "");
-      row.dataset.objectId = String(obj.id);
-      row.dataset.testid = "outliner-item-" + obj.name;
-      row.style.paddingLeft = 6 + obj.depth * 14 + "px";
       row.setAttribute("role", "treeitem");
-      row.setAttribute("aria-selected", obj.id === selectedId ? "true" : "false");
+      row.setAttribute("aria-selected", isSel ? "true" : "false");
+      row.dataset.testid = "outliner-item-" + obj.name;
+      row.style.paddingLeft = 6 + obj.depth * 13 + "px";
 
-      const main = document.createElement("div");
-      main.className = "outliner-main";
-
-      const icon = document.createElement("span");
-      icon.className = "obj-icon";
-      icon.textContent = objectBadgeText(obj);
-      main.appendChild(icon);
+      const iconWrap = document.createElement("span");
+      iconWrap.className = "btn-ic";
+      if (obj.has_camera) iconWrap.innerHTML = REG.ICONS.camera;
+      else if (obj.has_light) iconWrap.innerHTML = REG.ICONS.light;
+      else if (obj.has_mesh) iconWrap.innerHTML = REG.ICONS.cube;
+      else iconWrap.innerHTML = REG.ICONS.pivot;
 
       const nameSpan = document.createElement("span");
-      nameSpan.className = "obj-name";
+      nameSpan.className = "outliner-name";
       nameSpan.textContent = obj.name;
-      main.appendChild(nameSpan);
 
-      if (obj.is_active_camera) {
-        const activeTag = document.createElement("span");
-        activeTag.className = "obj-cam-tag";
-        activeTag.textContent = "ACTIVE";
-        main.appendChild(activeTag);
-      }
+      const tagSpan = document.createElement("span");
+      tagSpan.className = "outliner-tag";
+      tagSpan.textContent = obj.has_camera
+        ? "CAM"
+        : obj.has_light
+        ? "SUN"
+        : obj.has_mesh
+        ? "MESH"
+        : "PIVOT";
 
-      const visBtn = document.createElement("button");
-      visBtn.type = "button";
-      visBtn.className = "vis-btn";
-      visBtn.dataset.testid = "toggle-vis-" + obj.name;
-      visBtn.title = obj.visible ? "Hide object" : "Show object";
-      visBtn.textContent = obj.visible ? "Eye" : "Off";
-      visBtn.addEventListener("click", function (ev) {
+      const eyeBtn = document.createElement("button");
+      eyeBtn.type = "button";
+      eyeBtn.className = "outliner-eye-btn";
+      eyeBtn.dataset.testid = "toggle-vis-" + obj.name;
+      eyeBtn.title = obj.visible ? "Hide in Viewport" : "Show in Viewport";
+      eyeBtn.innerHTML =
+        '<span class="btn-ic">' + (obj.visible ? REG.ICONS.eye : REG.ICONS.eyeOff) + "</span>";
+      eyeBtn.addEventListener("click", (ev) => {
         ev.stopPropagation();
-        wasmApi.dispatchAction({
-          action: "set_visibility",
-          id: obj.id,
-          visible: !obj.visible,
-        });
+        if (wasmApi) {
+          wasmApi.dispatchAction({
+            action: "set_visibility",
+            id: obj.id,
+            visible: !obj.visible,
+          });
+        }
       });
 
-      row.addEventListener("click", function () {
-        wasmApi.dispatchAction({
-          action: "select_object",
-          id: obj.id,
-        });
+      row.appendChild(iconWrap);
+      row.appendChild(nameSpan);
+      row.appendChild(tagSpan);
+      row.appendChild(eyeBtn);
+
+      row.addEventListener("click", () => {
+        if (wasmApi) wasmApi.dispatchAction({ action: "select_object", id: obj.id });
       });
-
-      row.appendChild(main);
-      row.appendChild(visBtn);
-      frag.appendChild(row);
-    }
-
-    els.outlinerList.replaceChildren(frag);
+      els.outlinerList.appendChild(row);
+    });
   }
 
-  function renderParentSelect(state, inspector) {
-    if (document.activeElement === els.inspParent) return;
-    els.inspParent.innerHTML = "";
-    const rootOpt = document.createElement("option");
-    rootOpt.value = "0";
-    rootOpt.textContent = "<Scene Root>";
-    els.inspParent.appendChild(rootOpt);
-
-    for (const obj of state.objects) {
-      if (obj.id === inspector.id) continue;
-      const opt = document.createElement("option");
-      opt.value = String(obj.id);
-      opt.textContent = obj.name + " (#" + obj.id + ")";
-      els.inspParent.appendChild(opt);
-    }
-    els.inspParent.value = String(inspector.parent_id || 0);
-  }
-
-  function renderObjectMaterialSelect(state, inspector) {
-    if (document.activeElement === els.inspMaterial) return;
-    els.inspMaterial.innerHTML = "";
-    const noneOpt = document.createElement("option");
-    noneOpt.value = "0";
-    noneOpt.textContent = "<Default Vertex Color>";
-    els.inspMaterial.appendChild(noneOpt);
-
-    for (const mat of state.materials || []) {
-      const opt = document.createElement("option");
-      opt.value = String(mat.id);
-      opt.textContent = mat.name + " (#" + mat.id + ")";
-      els.inspMaterial.appendChild(opt);
-    }
-    els.inspMaterial.value = String(inspector.material_id || 0);
-  }
-
-  function renderInspector(state) {
+  function renderInspector(state, ed) {
     const insp = state.inspector;
-    const hasSelection = insp !== null && typeof insp === "object";
-
-    els.btnDuplicate.disabled = !hasSelection;
-    els.btnDelete.disabled = !hasSelection || (insp && insp.id === state.viewport.active_camera_id);
-
-    if (!hasSelection) {
+    if (!insp) {
       els.inspectorIdBadge.textContent = "None";
       els.inspectorEmpty.hidden = false;
       els.inspectorBody.hidden = true;
-      els.vpSelectionPill.textContent = "No Selection";
       return;
     }
 
     els.inspectorEmpty.hidden = true;
     els.inspectorBody.hidden = false;
-    els.inspectorIdBadge.textContent = "ID #" + insp.id;
-    els.vpSelectionPill.textContent = "Selected: " + insp.name;
+    els.inspectorIdBadge.textContent = "#" + insp.id;
 
-    setInputIfUnfocused(els.inspName, insp.name);
-    if (document.activeElement !== els.inspVisible) {
+    setInputValueIfUnfocused(els.inspName, insp.name);
+    if (!isFocused(els.inspVisible)) {
       els.inspVisible.checked = Boolean(insp.visible);
     }
-    renderParentSelect(state, insp);
+
+    if (!isFocused(els.inspParent)) {
+      els.inspParent.innerHTML = "";
+      const rootOpt = document.createElement("option");
+      rootOpt.value = "0";
+      rootOpt.textContent = "(Scene Root)";
+      els.inspParent.appendChild(rootOpt);
+      state.objects.forEach((candidate) => {
+        if (candidate.id === insp.id) return;
+        const opt = document.createElement("option");
+        opt.value = String(candidate.id);
+        opt.textContent = candidate.name + " (#" + candidate.id + ")";
+        els.inspParent.appendChild(opt);
+      });
+      els.inspParent.value = String(insp.parent_id || 0);
+    }
 
     if (insp.mesh) {
       els.inspMaterialRow.hidden = false;
-      renderObjectMaterialSelect(state, insp);
+      if (!isFocused(els.inspMaterial)) {
+        els.inspMaterial.innerHTML = "";
+        const noneOpt = document.createElement("option");
+        noneOpt.value = "0";
+        noneOpt.textContent = "(Default Vertex Color)";
+        els.inspMaterial.appendChild(noneOpt);
+        (state.materials || []).forEach((mat) => {
+          const opt = document.createElement("option");
+          opt.value = String(mat.id);
+          opt.textContent = mat.name + " (#" + mat.id + ")";
+          els.inspMaterial.appendChild(opt);
+        });
+        els.inspMaterial.value = String(insp.material_id || 0);
+      }
     } else {
       els.inspMaterialRow.hidden = true;
     }
 
-    setInputIfUnfocused(els.posX, formatFloat(insp.position[0], 3));
-    setInputIfUnfocused(els.posY, formatFloat(insp.position[1], 3));
-    setInputIfUnfocused(els.posZ, formatFloat(insp.position[2], 3));
+    setInputValueIfUnfocused(els.posX, formatFloat(insp.position[0], 3));
+    setInputValueIfUnfocused(els.posY, formatFloat(insp.position[1], 3));
+    setInputValueIfUnfocused(els.posZ, formatFloat(insp.position[2], 3));
 
-    setInputIfUnfocused(els.rotX, formatFloat(insp.rotation_deg[0], 2));
-    setInputIfUnfocused(els.rotY, formatFloat(insp.rotation_deg[1], 2));
-    setInputIfUnfocused(els.rotZ, formatFloat(insp.rotation_deg[2], 2));
+    setInputValueIfUnfocused(els.rotX, formatFloat(insp.rotation_deg[0], 2));
+    setInputValueIfUnfocused(els.rotY, formatFloat(insp.rotation_deg[1], 2));
+    setInputValueIfUnfocused(els.rotZ, formatFloat(insp.rotation_deg[2], 2));
 
-    setInputIfUnfocused(els.sclX, formatFloat(insp.scale[0], 3));
-    setInputIfUnfocused(els.sclY, formatFloat(insp.scale[1], 3));
-    setInputIfUnfocused(els.sclZ, formatFloat(insp.scale[2], 3));
+    setInputValueIfUnfocused(els.sclX, formatFloat(insp.scale[0], 3));
+    setInputValueIfUnfocused(els.sclY, formatFloat(insp.scale[1], 3));
+    setInputValueIfUnfocused(els.sclZ, formatFloat(insp.scale[2], 3));
 
-    // Mesh Edit modeling card when in Vertex / Edge / Face mode
-    const ed = state.editor;
     if (ed && ed.mode !== "object" && ed.editable_mesh && ed.editable_mesh.editable) {
       els.cardMeshEdit.hidden = false;
       const selCount =
@@ -469,7 +1471,8 @@
           : ed.mode === "edge"
           ? ed.mesh_selection.edges.length
           : ed.mesh_selection.faces.length;
-      els.meshEditSelectionTag.textContent = selCount + " " + ed.mode + (selCount === 1 ? "" : "s");
+      els.meshEditSelectionTag.textContent =
+        selCount + " " + ed.mode + (selCount === 1 ? "" : "s");
       els.meshEditTopology.textContent =
         ed.editable_mesh.face_count +
         " faces · " +
@@ -480,7 +1483,8 @@
       els.btnMeshExtrude.disabled = ed.mode !== "face" || selCount === 0;
       els.btnMeshBoundary.disabled = ed.editable_mesh.open_boundary_edges < 3;
       els.btnMeshFill.disabled = ed.mode !== "vertex" || selCount < 3;
-      els.btnMeshAssignMat.disabled = ed.mode !== "face" || selCount === 0 || !state.active_material_id;
+      els.btnMeshAssignMat.disabled =
+        ed.mode !== "face" || selCount === 0 || !state.active_material_id;
       els.btnMeshDelete.disabled = selCount === 0;
     } else {
       els.cardMeshEdit.hidden = true;
@@ -490,7 +1494,12 @@
       els.cardMesh.hidden = false;
       els.meshAssetName.textContent = insp.mesh.name + " (#" + insp.mesh.id + ")";
       els.meshGeoCounts.textContent =
-        insp.mesh.vertex_count + " verts · " + insp.mesh.triangle_count + " tris (" + insp.mesh.face_count + " faces)";
+        insp.mesh.vertex_count +
+        " verts · " +
+        insp.mesh.triangle_count +
+        " tris (" +
+        insp.mesh.face_count +
+        " faces)";
       els.meshBounds.textContent =
         formatFloat(insp.mesh.bounds_size[0], 2) +
         " × " +
@@ -503,287 +1512,90 @@
 
     if (insp.camera) {
       els.cardCamera.hidden = false;
-      els.btnSetActiveCamera.disabled = Boolean(insp.camera.is_active);
       els.btnSetActiveCamera.textContent = insp.camera.is_active ? "Active" : "Set Active";
-      setInputIfUnfocused(els.camProjection, insp.camera.projection);
-      setInputIfUnfocused(els.camFov, formatFloat(insp.camera.fov_deg, 1));
-      setInputIfUnfocused(els.camOrtho, formatFloat(insp.camera.ortho_height, 2));
-      setInputIfUnfocused(els.camNear, formatFloat(insp.camera.near_plane, 3));
-      setInputIfUnfocused(els.camFar, formatFloat(insp.camera.far_plane, 1));
+      els.btnSetActiveCamera.disabled = Boolean(insp.camera.is_active);
+      if (!isFocused(els.camProjection)) els.camProjection.value = insp.camera.projection;
+      setInputValueIfUnfocused(els.camFov, formatFloat(insp.camera.fov_deg, 1));
+      setInputValueIfUnfocused(els.camOrtho, formatFloat(insp.camera.ortho_height, 2));
+      setInputValueIfUnfocused(els.camNear, formatFloat(insp.camera.near_plane, 3));
+      setInputValueIfUnfocused(els.camFar, formatFloat(insp.camera.far_plane, 1));
     } else {
       els.cardCamera.hidden = true;
     }
 
     if (insp.light) {
       els.cardLight.hidden = false;
-      setInputIfUnfocused(els.lightColor, rgbFloatToHex(insp.light.color));
-      setInputIfUnfocused(els.lightIntensity, formatFloat(insp.light.intensity, 2));
+      if (!isFocused(els.lightColor)) els.lightColor.value = rgbFloatToHex(insp.light.color);
+      setInputValueIfUnfocused(els.lightIntensity, formatFloat(insp.light.intensity, 2));
     } else {
       els.cardLight.hidden = true;
+    }
+
+    if (els.cardDataEmpty) {
+      els.cardDataEmpty.hidden = Boolean(insp.camera || insp.light);
     }
   }
 
   function renderMaterialEditor(state) {
     const mats = state.materials || [];
     const activeId = state.active_material_id || 0;
+    const activeMat = mats.find((m) => m.id === activeId) || mats[0] || null;
 
-    if (document.activeElement !== els.matSelect) {
+    if (!isFocused(els.matSelect)) {
       els.matSelect.innerHTML = "";
-      for (const m of mats) {
+      mats.forEach((m) => {
         const opt = document.createElement("option");
         opt.value = String(m.id);
         opt.textContent = m.name + " (#" + m.id + ")";
         els.matSelect.appendChild(opt);
-      }
-      if (activeId > 0) {
-        els.matSelect.value = String(activeId);
-      }
+      });
+      if (activeMat) els.matSelect.value = String(activeMat.id);
     }
 
-    const activeMat = mats.find((m) => m.id === activeId) || null;
-    els.btnMatDup.disabled = !activeMat;
-    els.btnMatDel.disabled = !activeMat;
-    els.btnMatAssignObj.disabled = !activeMat || !state.inspector || !state.inspector.mesh;
+    const hasMat = Boolean(activeMat);
+    els.btnMatDup.disabled = !hasMat;
+    els.btnMatDel.disabled = !hasMat;
+    els.btnMatAssignObj.disabled = !hasMat || !state.inspector || !state.inspector.mesh;
 
-    if (activeMat) {
-      setInputIfUnfocused(els.matName, activeMat.name);
-      setInputIfUnfocused(els.matBaseColor, rgbFloatToHex(activeMat.base_color));
-      setInputIfUnfocused(els.matMetallic, activeMat.metallic.toFixed(2));
-      els.valMatMetallic.textContent = activeMat.metallic.toFixed(2);
-      setInputIfUnfocused(els.matRoughness, activeMat.roughness.toFixed(2));
-      els.valMatRoughness.textContent = activeMat.roughness.toFixed(2);
-      setInputIfUnfocused(els.matAo, activeMat.ambient_occlusion.toFixed(2));
-      els.valMatAo.textContent = activeMat.ambient_occlusion.toFixed(2);
-      setInputIfUnfocused(els.matEmissiveColor, rgbFloatToHex(activeMat.emissive_color));
-      setInputIfUnfocused(els.matEmissiveStrength, formatFloat(activeMat.emissive_strength, 2));
-      setInputIfUnfocused(els.matOpacity, activeMat.opacity.toFixed(2));
-      els.valMatOpacity.textContent = activeMat.opacity.toFixed(2);
+    if (!activeMat) return;
+    setInputValueIfUnfocused(els.matName, activeMat.name);
+    if (!isFocused(els.matBaseColor)) {
+      els.matBaseColor.value = rgbFloatToHex(activeMat.base_color);
     }
+    setInputValueIfUnfocused(els.matMetallic, activeMat.metallic.toFixed(2));
+    els.valMatMetallic.textContent = Number(activeMat.metallic).toFixed(2);
 
-    wasmApi.blitMaterialPreview();
+    setInputValueIfUnfocused(els.matRoughness, activeMat.roughness.toFixed(2));
+    els.valMatRoughness.textContent = Number(activeMat.roughness).toFixed(2);
+
+    setInputValueIfUnfocused(els.matAo, activeMat.ambient_occlusion.toFixed(2));
+    els.valMatAo.textContent = Number(activeMat.ambient_occlusion).toFixed(2);
+
+    if (!isFocused(els.matEmissiveColor)) {
+      els.matEmissiveColor.value = rgbFloatToHex(activeMat.emissive_color);
+    }
+    setInputValueIfUnfocused(
+      els.matEmissiveStrength,
+      formatFloat(activeMat.emissive_strength, 2)
+    );
+    setInputValueIfUnfocused(els.matOpacity, activeMat.opacity.toFixed(2));
+    els.valMatOpacity.textContent = Number(activeMat.opacity).toFixed(2);
   }
 
-  function renderModeAndGizmoToolbar(state) {
-    const ed = state.editor;
-    if (!ed) return;
-    const canEditMesh = Boolean(ed.editable_mesh && ed.editable_mesh.editable);
-    els.btnModeVertex.disabled = !canEditMesh;
-    els.btnModeEdge.disabled = !canEditMesh;
-    els.btnModeFace.disabled = !canEditMesh;
-
-    els.btnModeObject.classList.toggle("is-active", ed.mode === "object");
-    els.btnModeVertex.classList.toggle("is-active", ed.mode === "vertex");
-    els.btnModeEdge.classList.toggle("is-active", ed.mode === "edge");
-    els.btnModeFace.classList.toggle("is-active", ed.mode === "face");
-
-    els.btnGizmoTranslate.classList.toggle("is-active", ed.gizmo_mode === "translate");
-    els.btnGizmoRotate.classList.toggle("is-active", ed.gizmo_mode === "rotate");
-    els.btnGizmoScale.classList.toggle("is-active", ed.gizmo_mode === "scale");
-    els.btnGizmoSpace.textContent = ed.gizmo_space === "local" ? "Local" : "World";
-
-    const toolLabel = ed.gizmo_mode === "translate" ? "MOVE" : ed.gizmo_mode.toUpperCase();
-    const handleHint =
-      ed.gizmo_active_handle !== "none"
-        ? " · DRAG " + ed.gizmo_active_handle.toUpperCase()
-        : ed.gizmo_hovered_handle !== "none"
-        ? " · HOVER " + ed.gizmo_hovered_handle.toUpperCase()
-        : "";
-    els.vpModePill.textContent =
-      ed.mode.toUpperCase() + " · " + toolLabel + " (" + ed.gizmo_space.toUpperCase() + ")" + handleHint;
-  }
-
-  function renderWorkspaceAndBottomDock(state) {
-    const ws = state.workspace;
-    if (!ws || !Array.isArray(ws.panels)) return;
-
-    const vis = {};
-    for (const p of ws.panels) {
-      vis[p.key] = Boolean(p.visible);
-    }
-
-    document.querySelectorAll("[data-panel-toggle]").forEach((btn) => {
-      const k = btn.dataset.panelToggle;
-      btn.classList.toggle("is-on", Boolean(vis[k]));
-    });
-
-    if (document.activeElement !== els.workspacePresetSelect) {
-      const ln = (ws.layout_name || "").toLowerCase();
-      if (ln.includes("modeling")) els.workspacePresetSelect.value = "modeling";
-      else if (ln.includes("shading")) els.workspacePresetSelect.value = "shading";
-      else if (ln.includes("animation")) els.workspacePresetSelect.value = "animation_prep";
-      else els.workspacePresetSelect.value = "default";
-    }
-
-    const showLeft = Boolean(vis.scene_outliner);
-    const showProps = Boolean(vis.properties);
-    const showMat = Boolean(vis.material_editor);
-    const showRight = showProps || showMat;
-
-    els.dockLeft.hidden = !showLeft;
-    els.panelProperties.hidden = !showProps;
-    els.panelMaterialEditor.hidden = !showMat;
-    els.dockRight.hidden = !showRight;
-
-    els.studioWorkspace.classList.toggle("hide-left", !showLeft);
-    els.studioWorkspace.classList.toggle("hide-right", !showRight);
-
-    const bottomKeys = ["asset_browser", "timeline", "console"];
-    const visibleBottom = bottomKeys.filter((k) => Boolean(vis[k]));
-    els.dockBottom.hidden = visibleBottom.length === 0;
-
-    els.tabAssetBrowser.hidden = !vis.asset_browser;
-    els.tabTimeline.hidden = !vis.timeline;
-    els.tabConsole.hidden = !vis.console;
-
-    if (visibleBottom.length > 0 && !visibleBottom.includes(activeBottomTab)) {
-      activeBottomTab = visibleBottom[0];
-    }
-    els.tabAssetBrowser.classList.toggle("is-active", activeBottomTab === "asset_browser");
-    els.tabTimeline.classList.toggle("is-active", activeBottomTab === "timeline");
-    els.tabConsole.classList.toggle("is-active", activeBottomTab === "console");
-
-    els.paneAssetBrowser.hidden = activeBottomTab !== "asset_browser";
-    els.paneTimeline.hidden = activeBottomTab !== "timeline";
-    els.paneConsole.hidden = activeBottomTab !== "console";
-
-    // Asset Browser cards (PBR Materials + Quick Primitives)
-    const assetsSig = JSON.stringify([state.materials, state.active_material_id]);
-    if (assetsSig !== lastAssetsSignature) {
-      lastAssetsSignature = assetsSig;
-      const frag = document.createDocumentFragment();
-      for (const m of state.materials || []) {
-        const card = document.createElement("button");
-        card.type = "button";
-        card.className = "asset-card";
-        card.dataset.testid = "asset-mat-" + m.name;
-        const sw = document.createElement("span");
-        sw.className = "asset-swatch";
-        sw.style.background = rgbFloatToHex(m.base_color);
-        card.appendChild(sw);
-        const lbl = document.createElement("span");
-        lbl.textContent = m.name;
-        card.appendChild(lbl);
-        card.addEventListener("click", () => {
-          wasmApi.dispatchAction({ action: "select_material", id: m.id });
-        });
-        frag.appendChild(card);
-      }
-      els.assetBrowserList.replaceChildren(frag);
-    }
-
-    // Console log lines
-    const consoleSig = JSON.stringify(state.console || []);
-    if (consoleSig !== lastConsoleSignature) {
-      lastConsoleSignature = consoleSig;
-      const frag = document.createDocumentFragment();
-      const lines = (state.console || []).slice(-18);
-      for (const item of lines) {
-        const div = document.createElement("div");
-        div.className = "console-line" + (item.level === "error" ? " is-error" : "");
-        div.textContent = "#" + item.seq + " " + item.message;
-        frag.appendChild(div);
-      }
-      els.consoleLogList.replaceChildren(frag);
-    }
-  }
-
-  function syncFromEngine(force) {
-    if (!wasmApi) return;
-    const rev = wasmApi.getRevision();
-    if (!force && rev >= 0 && rev === lastRevision) {
-      return;
-    }
-    lastRevision = rev;
-
-    const raw = wasmApi.getStateJson();
-    let state = null;
-    try {
-      state = JSON.parse(raw);
-    } catch (err) {
-      console.error("Failed to parse engine state JSON:", err);
-      return;
-    }
-    currentState = state;
-
-    els.engineBadge.textContent =
-      "v" + state.project.engine_version + " · " + state.viewport.backend_name.split(" ")[0];
-    setInputIfUnfocused(els.metaProjectName, state.project.project_name);
-    setInputIfUnfocused(els.metaAuthor, state.project.author);
-    setInputIfUnfocused(els.metaSceneName, state.project.scene_name);
-
-    els.btnUndo.disabled = !state.history.can_undo;
-    els.btnUndo.textContent = state.history.can_undo
-      ? "Undo (" + state.history.undo_count + ")"
-      : "Undo";
-    els.btnUndo.title = state.history.can_undo
-      ? "Undo " + state.history.next_undo + " (Ctrl+Z)"
-      : "Nothing to undo";
-
-    els.btnRedo.disabled = !state.history.can_redo;
-    els.btnRedo.textContent = state.history.can_redo
-      ? "Redo (" + state.history.redo_count + ")"
-      : "Redo";
-    els.btnRedo.title = state.history.can_redo
-      ? "Redo " + state.history.next_redo + " (Ctrl+Y)"
-      : "Nothing to redo";
-
-    els.btnToggleRig.textContent = state.viewport.rig_playing ? "Pause Rig" : "Play Rig";
-
-    const activeCamObj = state.objects.find((o) => o.id === state.viewport.active_camera_id);
-    els.vpCameraPill.textContent =
-      "Camera: " +
-      (activeCamObj ? activeCamObj.name : "None") +
-      " · Dist " +
-      formatFloat(state.viewport.camera_distance, 1) +
-      "m";
-
-    renderModeAndGizmoToolbar(state);
-    renderOutliner(state);
-    renderInspector(state);
-    renderMaterialEditor(state);
-    renderWorkspaceAndBottomDock(state);
-
-    els.statObjectsMeshes.textContent = state.stats.object_count + " / " + state.stats.mesh_count;
-    els.statMaterialsUpdates.textContent =
-      (state.stats.material_count || 0) + " / " + (state.stats.gpu_buffer_updates || 0);
-    els.statTriangles.textContent = String(state.stats.total_triangles);
-    els.statMemory.textContent =
-      formatBytes(state.stats.cpu_mesh_bytes) + " / " + formatBytes(state.stats.gpu_mesh_bytes);
-    els.statHistory.textContent =
-      state.history.undo_count + " steps (" + formatBytes(state.history.memory_bytes) + ")";
-
-    const isErr = state.status.level === "error";
-    els.statusDot.classList.toggle("is-error", isErr);
-    els.statusMessage.textContent = state.status.message;
-    els.statusRenderer.textContent = state.viewport.backend_name + " · " + state.viewport.device_name;
-  }
-
-  function triggerDownload(filename, blobPart, mimeType) {
-    const blob = new Blob([blobPart], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
-  }
-
-  function sanitizeFilenameStem(name) {
-    const cleaned = (name || "project").trim().replace(/[^a-zA-Z0-9._-]+/g, "_");
-    return cleaned.length > 0 ? cleaned : "project";
-  }
+  // =========================================================================
+  // DISPATCH HELPERS & FILE SERIALIZATION
+  // =========================================================================
 
   function dispatchTransformFromInputs(coalesce) {
     if (!wasmApi || !currentState || !currentState.inspector) return;
+    const id = currentState.inspector.id;
     const pos = [Number(els.posX.value), Number(els.posY.value), Number(els.posZ.value)];
     const rot = [Number(els.rotX.value), Number(els.rotY.value), Number(els.rotZ.value)];
     const scl = [Number(els.sclX.value), Number(els.sclY.value), Number(els.sclZ.value)];
     if ([...pos, ...rot, ...scl].some((v) => !Number.isFinite(v))) return;
     wasmApi.dispatchAction({
       action: "set_transform",
-      id: currentState.inspector.id,
+      id: id,
       position: pos,
       rotation_deg: rot,
       scale: scl,
@@ -817,6 +1629,11 @@
 
   function dispatchMaterialFromInputs(coalesce) {
     if (!wasmApi || !currentState || !currentState.active_material_id) return;
+    els.valMatMetallic.textContent = Number(els.matMetallic.value).toFixed(2);
+    els.valMatRoughness.textContent = Number(els.matRoughness.value).toFixed(2);
+    els.valMatAo.textContent = Number(els.matAo.value).toFixed(2);
+    els.valMatOpacity.textContent = Number(els.matOpacity.value).toFixed(2);
+
     wasmApi.dispatchAction({
       action: "update_material",
       id: currentState.active_material_id,
@@ -843,6 +1660,8 @@
 
   async function importSelectedFiles(fileList) {
     if (!wasmApi || !fileList || fileList.length === 0) return;
+    if (els.launcherErrorBanner) els.launcherErrorBanner.hidden = true;
+
     const files = Array.from(fileList);
     try {
       wasmApi.fs.mkdir("/fe3d_import");
@@ -859,16 +1678,466 @@
     }
 
     if (!fe3dTargetPath) {
+      const msg = "Please include a .fe3d project file when opening a project.";
       els.statusDot.classList.add("is-error");
-      els.statusMessage.textContent = "Please include a .fe3d project file when opening a project.";
+      els.statusMessage.textContent = msg;
+      if (document.body.dataset.appView === "home" && els.launcherErrorBanner) {
+        els.launcherErrorBanner.hidden = false;
+        els.launcherErrorBanner.textContent = msg;
+      }
       return;
     }
-    wasmApi.loadFileFromVfs(fe3dTargetPath);
+
+    const ok = wasmApi.loadFileFromVfs(fe3dTargetPath);
+    if (!ok) {
+      const errText =
+        currentState && currentState.status
+          ? currentState.status.message
+          : "Invalid or corrupted .fe3d project file.";
+      if (document.body.dataset.appView === "home" && els.launcherErrorBanner) {
+        els.launcherErrorBanner.hidden = false;
+        els.launcherErrorBanner.textContent = "Failed to open project: " + errText;
+      }
+      return;
+    }
+
+    activeProjectRecordId = null;
+    setAppView("studio");
+    setTimeout(() => snapshotActiveProjectToRecent("Opened .fe3d File"), 80);
+  }
+
+  function exportPortableFe3d() {
+    if (!wasmApi || !currentState) return;
+    const jsonText = wasmApi.exportInlineProject();
+    if (!jsonText) return;
+    const stem = sanitizeFilenameStem(currentState.project.project_name);
+    triggerDownload(stem + ".fe3d", jsonText, "application/json");
+    snapshotActiveProjectToRecent("Saved .fe3d");
+    els.statusDot.classList.remove("is-error");
+    els.statusMessage.textContent = "Saved " + stem + ".fe3d (inline schema 1.2)";
+  }
+
+  function exportBinaryBundle() {
+    if (!wasmApi || !currentState) return;
+    try {
+      wasmApi.fs.mkdir("/fe3d_export");
+    } catch (_) {}
+    const stem = sanitizeFilenameStem(currentState.project.project_name);
+    const fe3dPath = "/fe3d_export/" + stem + ".fe3d";
+    const binPath = "/fe3d_export/" + stem + ".fe3dbin";
+    if (!wasmApi.saveBundleToVfs(fe3dPath)) {
+      syncFromEngine(true);
+      return;
+    }
+    const fe3dBytes = wasmApi.fs.readFile(fe3dPath);
+    const binBytes = wasmApi.fs.readFile(binPath);
+    triggerDownload(stem + ".fe3d", fe3dBytes, "application/json");
+    triggerDownload(stem + ".fe3dbin", binBytes, "application/octet-stream");
+    snapshotActiveProjectToRecent("Exported Bundle");
+  }
+
+  // =========================================================================
+  // UNIFIED TOUCH / STYLUS / MULTI-TOUCH VIEWPORT GESTURE CONTROLLER
+  // =========================================================================
+
+  function bindViewportTouchAndPointer() {
+    if (!canvas) return;
+    const activeTouches = new Map();
+    const touchState = {
+      mode: "idle",
+      movedBeyondTap: false,
+      lastPinchDist: 0,
+      lastMidX: 0,
+      lastMidY: 0,
+    };
+
+    function canvasRelativeCss(ev) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: ev.clientX - rect.left,
+        y: ev.clientY - rect.top,
+      };
+    }
+
+    canvas.addEventListener("pointerdown", (ev) => {
+      if (ev.pointerType === "mouse") return;
+      if (!wasmApi) return;
+
+      ev.preventDefault();
+      try {
+        canvas.setPointerCapture(ev.pointerId);
+      } catch (_) {}
+
+      const pt = canvasRelativeCss(ev);
+      activeTouches.set(ev.pointerId, {
+        startX: pt.x,
+        startY: pt.y,
+        x: pt.x,
+        y: pt.y,
+      });
+
+      if (activeTouches.size === 1) {
+        if (wasmApi.hitTestGizmo(pt.x, pt.y)) {
+          touchState.mode = "gizmo";
+          touchState.movedBeyondTap = true;
+          wasmApi.pointerEvent(1, 0, pt.x, pt.y, touchMultiSelect, false, false, false);
+        } else {
+          touchState.mode = "single";
+          touchState.movedBeyondTap = false;
+        }
+      } else if (activeTouches.size >= 2 && touchState.mode !== "gizmo") {
+        touchState.mode = "pinch";
+        touchState.movedBeyondTap = true;
+        const pts = Array.from(activeTouches.values());
+        touchState.lastPinchDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+        touchState.lastMidX = (pts[0].x + pts[1].x) * 0.5;
+        touchState.lastMidY = (pts[0].y + pts[1].y) * 0.5;
+      }
+    });
+
+    canvas.addEventListener("pointermove", (ev) => {
+      if (ev.pointerType === "mouse") return;
+      if (!wasmApi || !activeTouches.has(ev.pointerId)) return;
+      ev.preventDefault();
+
+      const rec = activeTouches.get(ev.pointerId);
+      const pt = canvasRelativeCss(ev);
+      const dx = pt.x - rec.x;
+      const dy = pt.y - rec.y;
+      rec.x = pt.x;
+      rec.y = pt.y;
+
+      if (touchState.mode === "gizmo") {
+        wasmApi.pointerEvent(0, 0, pt.x, pt.y, touchMultiSelect, false, false, false);
+        return;
+      }
+
+      if (activeTouches.size === 1 && touchState.mode === "single") {
+        const totalDist = Math.hypot(pt.x - rec.startX, pt.y - rec.startY);
+        if (!touchState.movedBeyondTap && totalDist < 8) {
+          return;
+        }
+        touchState.movedBeyondTap = true;
+        if (touchNavMode === "pan") {
+          wasmApi.cameraPan(dx, dy);
+        } else if (touchNavMode === "zoom") {
+          wasmApi.cameraZoom(-dy * 0.04);
+        } else {
+          wasmApi.cameraOrbit(dx, dy);
+        }
+      } else if (activeTouches.size >= 2) {
+        touchState.mode = "pinch";
+        touchState.movedBeyondTap = true;
+        const pts = Array.from(activeTouches.values());
+        const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+        const midX = (pts[0].x + pts[1].x) * 0.5;
+        const midY = (pts[0].y + pts[1].y) * 0.5;
+
+        const midDx = midX - touchState.lastMidX;
+        const midDy = midY - touchState.lastMidY;
+        const pinchDelta = dist - touchState.lastPinchDist;
+
+        if (Math.abs(midDx) > 0.2 || Math.abs(midDy) > 0.2) {
+          wasmApi.cameraPan(midDx, midDy);
+        }
+        if (Math.abs(pinchDelta) > 0.5) {
+          wasmApi.cameraZoom(pinchDelta * 0.035);
+        }
+
+        touchState.lastPinchDist = dist;
+        touchState.lastMidX = midX;
+        touchState.lastMidY = midY;
+      }
+    });
+
+    function finishTouch(ev, canceled) {
+      if (ev.pointerType === "mouse") return;
+      if (!activeTouches.has(ev.pointerId)) return;
+      const rec = activeTouches.get(ev.pointerId);
+      activeTouches.delete(ev.pointerId);
+
+      if (touchState.mode === "gizmo" && activeTouches.size === 0) {
+        wasmApi.pointerEvent(2, 0, rec.x, rec.y, touchMultiSelect, false, false, false);
+        touchState.mode = "idle";
+        setTimeout(() => syncFromEngine(true), 20);
+        return;
+      }
+
+      if (
+        !canceled &&
+        touchState.mode === "single" &&
+        !touchState.movedBeyondTap &&
+        activeTouches.size === 0
+      ) {
+        wasmApi.touchTap(rec.x, rec.y, touchMultiSelect);
+        setTimeout(() => syncFromEngine(true), 20);
+      }
+
+      if (activeTouches.size === 0) {
+        touchState.mode = "idle";
+        touchState.movedBeyondTap = false;
+        setTimeout(() => syncFromEngine(false), 20);
+      }
+    }
+
+    canvas.addEventListener("pointerup", (ev) => finishTouch(ev, false));
+    canvas.addEventListener("pointercancel", (ev) => finishTouch(ev, true));
+  }
+
+  // =========================================================================
+  // DRAGGABLE WORKSPACE DOCK SPLITTERS
+  // =========================================================================
+
+  function bindDockSplitters() {
+    if (els.splitterRight) {
+      els.splitterRight.addEventListener("pointerdown", (ev) => {
+        ev.preventDefault();
+        els.splitterRight.classList.add("is-dragging");
+        els.splitterRight.setPointerCapture(ev.pointerId);
+        const startX = ev.clientX;
+        const startW = els.dockRight.getBoundingClientRect().width;
+
+        function onMove(mev) {
+          const nextW = Math.round(Math.max(230, Math.min(540, startW - (mev.clientX - startX))));
+          document.documentElement.style.setProperty("--right-dock-w", nextW + "px");
+        }
+        function onUp(uev) {
+          els.splitterRight.classList.remove("is-dragging");
+          els.splitterRight.removeEventListener("pointermove", onMove);
+          els.splitterRight.removeEventListener("pointerup", onUp);
+          try {
+            els.splitterRight.releasePointerCapture(uev.pointerId);
+          } catch (_) {}
+          if (wasmApi) {
+            const ratio = els.dockRight.getBoundingClientRect().width / Math.max(1, window.innerWidth);
+            wasmApi.dispatchAction({ action: "set_dock_ratios", right: ratio });
+            persistWorkspaceToStorage();
+          }
+        }
+        els.splitterRight.addEventListener("pointermove", onMove);
+        els.splitterRight.addEventListener("pointerup", onUp);
+      });
+    }
+
+    if (els.splitterBottom) {
+      els.splitterBottom.addEventListener("pointerdown", (ev) => {
+        ev.preventDefault();
+        els.dockBottom.classList.remove("is-collapsed");
+        els.splitterBottom.classList.add("is-dragging");
+        els.splitterBottom.setPointerCapture(ev.pointerId);
+        const startY = ev.clientY;
+        const startH = els.dockBottom.getBoundingClientRect().height;
+
+        function onMove(mev) {
+          const nextH = Math.round(Math.max(76, Math.min(380, startH - (mev.clientY - startY))));
+          document.documentElement.style.setProperty("--bottom-dock-h", nextH + "px");
+        }
+        function onUp(uev) {
+          els.splitterBottom.classList.remove("is-dragging");
+          els.splitterBottom.removeEventListener("pointermove", onMove);
+          els.splitterBottom.removeEventListener("pointerup", onUp);
+          try {
+            els.splitterBottom.releasePointerCapture(uev.pointerId);
+          } catch (_) {}
+          if (wasmApi) {
+            const ratio = els.dockBottom.getBoundingClientRect().height / Math.max(1, window.innerHeight);
+            wasmApi.dispatchAction({ action: "set_dock_ratios", bottom: ratio });
+            persistWorkspaceToStorage();
+          }
+        }
+        els.splitterBottom.addEventListener("pointermove", onMove);
+        els.splitterBottom.addEventListener("pointerup", onUp);
+      });
+    }
+  }
+
+  // =========================================================================
+  // MENUS, MODALS & STUDIO UI EVENT BINDINGS
+  // =========================================================================
+
+  function closeAllDropdownMenus() {
+    document.querySelectorAll(".menu-item.is-open").forEach((item) => {
+      item.classList.remove("is-open");
+      const panel = item.querySelector(".menu-dropdown");
+      if (panel) panel.hidden = true;
+    });
   }
 
   function bindUiEvents() {
-    els.btnNew.addEventListener("click", () => {
-      if (wasmApi) wasmApi.dispatchAction({ action: "new_starter_project" });
+    renderStudioSelector();
+    renderSelectedStudioHomePanel();
+    renderWorkspaceTabBar();
+    setInspectorCategory("all");
+
+    if (els.launcherProjectAuthor) {
+      els.launcherProjectAuthor.value = appPrefs.defaultAuthor || "Final Effect 3D";
+    }
+
+    els.btnLauncherCreate.addEventListener("click", () => {
+      if (!wasmApi) return;
+      const projName = (els.launcherProjectName.value || "").trim() || "Untitled Studio Project";
+      const projAuthor =
+        (els.launcherProjectAuthor.value || "").trim() ||
+        appPrefs.defaultAuthor ||
+        "Final Effect 3D";
+      activeProjectRecordId = null;
+      wasmApi.dispatchAction({
+        action: "create_new_project",
+        template: selectedTemplateId,
+        project_name: projName,
+        author: projAuthor,
+      });
+      activateWorkspaceById("layout", false);
+      setAppView("studio");
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          snapshotActiveProjectToRecent("Created New Project");
+        });
+      });
+    });
+
+    els.btnLauncherOpen.addEventListener("click", () => {
+      els.fileOpenInput.value = "";
+      els.fileOpenInput.click();
+    });
+
+    els.btnHomeResumeStudio.addEventListener("click", () => {
+      setAppView("studio");
+    });
+
+    els.btnFutureBack3d.addEventListener("click", () => {
+      selectedStudioId = "3d_studio";
+      renderStudioSelector();
+      renderSelectedStudioHomePanel();
+    });
+
+    if (els.btnFutureJumpShading) {
+      els.btnFutureJumpShading.addEventListener("click", () => {
+        selectedStudioId = "3d_studio";
+        renderStudioSelector();
+        renderSelectedStudioHomePanel();
+        setAppView("studio");
+        activateWorkspaceById("shading", false);
+      });
+    }
+
+    els.btnGoHome.addEventListener("click", async () => {
+      closeAllDropdownMenus();
+      await snapshotActiveProjectToRecent("Active Session");
+      setAppView("home");
+    });
+
+    document.querySelectorAll("[data-menu-trigger]").forEach((trigger) => {
+      trigger.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const item = trigger.closest(".menu-item");
+        const panel = item.querySelector(".menu-dropdown");
+        const wasOpen = item.classList.contains("is-open");
+        closeAllDropdownMenus();
+        if (!wasOpen) {
+          item.classList.add("is-open");
+          panel.hidden = false;
+        }
+      });
+    });
+
+    document.addEventListener("click", () => closeAllDropdownMenus());
+
+    function saveNamedCustomWorkspace() {
+      if (!wasmApi) return;
+      const wsJson = wasmApi.exportWorkspaceJson();
+      if (wsJson && REG.saveCustomWorkspaceLayout(wsJson)) {
+        persistWorkspaceToStorage();
+        els.statusDot.classList.remove("is-error");
+        els.statusMessage.textContent = "Saved custom workspace layout (scene data untouched)";
+      }
+    }
+
+    function restoreNamedCustomWorkspace() {
+      if (!wasmApi) return;
+      const saved = REG.loadCustomWorkspaceLayout();
+      if (!saved) {
+        els.statusMessage.textContent = "No custom workspace layout saved yet.";
+        return;
+      }
+      try {
+        const parsed = JSON.parse(saved);
+        syncWorkspaceTabFromLayoutName(parsed.layout_name);
+        wasmApi.dispatchAction({ action: "import_workspace_json", json_text: saved });
+        applyDockRatiosCss(parsed);
+        persistWorkspaceToStorage();
+        els.statusDot.classList.remove("is-error");
+        els.statusMessage.textContent = "Restored saved custom workspace layout";
+      } catch (_) {}
+    }
+
+    document.querySelectorAll("[data-menu-cmd]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const cmd = btn.dataset.menuCmd;
+        closeAllDropdownMenus();
+        if (!wasmApi) return;
+
+        if (cmd === "new_showcase") {
+          activeProjectRecordId = null;
+          wasmApi.dispatchAction({ action: "new_starter_project" });
+        } else if (cmd === "new_cube") {
+          activeProjectRecordId = null;
+          wasmApi.dispatchAction({
+            action: "create_new_project",
+            template: "minimal_cube",
+            project_name: "General Cube Scene",
+          });
+        } else if (cmd === "new_empty") {
+          activeProjectRecordId = null;
+          wasmApi.dispatchAction({
+            action: "create_new_project",
+            template: "empty_stage",
+            project_name: "Empty Stage",
+          });
+        } else if (cmd === "open_file") {
+          els.fileOpenInput.value = "";
+          els.fileOpenInput.click();
+        } else if (cmd === "save_fe3d") {
+          exportPortableFe3d();
+        } else if (cmd === "export_bundle") {
+          exportBinaryBundle();
+        } else if (cmd === "go_home") {
+          await snapshotActiveProjectToRecent("Active Session");
+          setAppView("home");
+        } else if (cmd === "undo") {
+          wasmApi.dispatchAction({ action: "undo" });
+        } else if (cmd === "redo") {
+          wasmApi.dispatchAction({ action: "redo" });
+        } else if (cmd === "duplicate") {
+          wasmApi.dispatchAction({ action: "duplicate_selected" });
+        } else if (cmd === "delete_obj") {
+          wasmApi.dispatchAction({ action: "delete_selected" });
+        } else if (cmd === "deselect") {
+          wasmApi.dispatchAction({ action: "select_object", id: 0 });
+        } else if (cmd === "preferences") {
+          els.settingsModal.hidden = false;
+        } else if (cmd === "frame_selection") {
+          wasmApi.dispatchAction({ action: "frame_selection" });
+        } else if (cmd === "toggle_toolshelf") {
+          els.toolShelf.hidden = !els.toolShelf.hidden;
+          els.btnVpRestoreShelf.hidden = !els.toolShelf.hidden;
+        } else if (cmd === "toggle_right_dock") {
+          els.dockRight.hidden = !els.dockRight.hidden;
+          if (els.splitterRight) els.splitterRight.hidden = els.dockRight.hidden;
+        } else if (cmd === "toggle_bottom_dock") {
+          els.dockBottom.classList.toggle("is-collapsed");
+        } else if (cmd === "toggle_hud") {
+          appPrefs.showViewportHud = !appPrefs.showViewportHud;
+          REG.savePreferences(appPrefs);
+          applyPreferencesAndResponsiveMode();
+        } else if (cmd === "save_custom_layout") {
+          saveNamedCustomWorkspace();
+        } else if (cmd === "restore_custom_layout") {
+          restoreNamedCustomWorkspace();
+        } else if (cmd === "reset_layout") {
+          activateWorkspaceById(activeWorkspaceId, true);
+        }
+      });
     });
 
     els.btnOpen.addEventListener("click", () => {
@@ -880,33 +2149,8 @@
       importSelectedFiles(els.fileOpenInput.files);
     });
 
-    els.btnExportFe3d.addEventListener("click", () => {
-      if (!wasmApi || !currentState) return;
-      const jsonText = wasmApi.exportInlineProject();
-      if (!jsonText) return;
-      const stem = sanitizeFilenameStem(currentState.project.project_name);
-      triggerDownload(stem + ".fe3d", jsonText, "application/json");
-      els.statusDot.classList.remove("is-error");
-      els.statusMessage.textContent = "Downloaded " + stem + ".fe3d (inline schema 1.2)";
-    });
-
-    els.btnExportBundle.addEventListener("click", () => {
-      if (!wasmApi || !currentState) return;
-      try {
-        wasmApi.fs.mkdir("/fe3d_export");
-      } catch (_) {}
-      const stem = sanitizeFilenameStem(currentState.project.project_name);
-      const fe3dPath = "/fe3d_export/" + stem + ".fe3d";
-      const binPath = "/fe3d_export/" + stem + ".fe3dbin";
-      if (!wasmApi.saveBundleToVfs(fe3dPath)) {
-        syncFromEngine(true);
-        return;
-      }
-      const fe3dBytes = wasmApi.fs.readFile(fe3dPath);
-      const binBytes = wasmApi.fs.readFile(binPath);
-      triggerDownload(stem + ".fe3d", fe3dBytes, "application/json");
-      triggerDownload(stem + ".fe3dbin", binBytes, "application/octet-stream");
-    });
+    els.btnExportFe3d.addEventListener("click", exportPortableFe3d);
+    els.btnExportBundle.addEventListener("click", exportBinaryBundle);
 
     els.btnUndo.addEventListener("click", () => {
       if (wasmApi) wasmApi.dispatchAction({ action: "undo" });
@@ -916,7 +2160,45 @@
       if (wasmApi) wasmApi.dispatchAction({ action: "redo" });
     });
 
-    // Mode & Gizmo buttons
+    [els.btnOpenSettings, els.btnStudioSettings].forEach((b) => {
+      if (b) {
+        b.addEventListener("click", () => {
+          applyPreferencesAndResponsiveMode();
+          els.settingsModal.hidden = false;
+        });
+      }
+    });
+
+    els.btnCloseSettings.addEventListener("click", () => {
+      els.settingsModal.hidden = true;
+    });
+
+    els.prefLayoutMode.addEventListener("change", () => {
+      appPrefs.layoutMode = els.prefLayoutMode.value;
+      REG.savePreferences(appPrefs);
+      applyPreferencesAndResponsiveMode();
+    });
+
+    els.prefUiDensity.addEventListener("change", () => {
+      appPrefs.uiDensity = els.prefUiDensity.value;
+      REG.savePreferences(appPrefs);
+      applyPreferencesAndResponsiveMode();
+    });
+
+    els.prefDefaultAuthor.addEventListener("change", () => {
+      appPrefs.defaultAuthor = els.prefDefaultAuthor.value.trim() || "Final Effect 3D";
+      REG.savePreferences(appPrefs);
+    });
+
+    els.prefShowHud.addEventListener("change", () => {
+      appPrefs.showViewportHud = els.prefShowHud.checked;
+      REG.savePreferences(appPrefs);
+      applyPreferencesAndResponsiveMode();
+    });
+
+    els.btnPrefSaveLayout.addEventListener("click", saveNamedCustomWorkspace);
+    els.btnPrefRestoreLayout.addEventListener("click", restoreNamedCustomWorkspace);
+
     document.querySelectorAll("[data-edit-mode]").forEach((btn) => {
       btn.addEventListener("click", () => {
         if (!wasmApi) return;
@@ -931,24 +2213,80 @@
       });
     });
 
+    if (els.btnToolSelect) {
+      els.btnToolSelect.addEventListener("click", () => {
+        canvas.focus();
+      });
+    }
+
     els.btnGizmoSpace.addEventListener("click", () => {
       if (!wasmApi || !currentState || !currentState.editor) return;
       const nextSpace = currentState.editor.gizmo_space === "local" ? "world" : "local";
       wasmApi.dispatchAction({ action: "set_gizmo_space", space: nextSpace });
     });
 
-    // Workspace presets & panel visibility chips
-    els.workspacePresetSelect.addEventListener("change", () => {
-      if (!wasmApi) return;
-      wasmApi.dispatchAction({
-        action: "apply_workspace_preset",
-        preset: els.workspacePresetSelect.value,
+    els.btnCollapseShelf.addEventListener("click", () => {
+      els.toolShelf.hidden = true;
+      els.btnVpRestoreShelf.hidden = false;
+    });
+    els.btnVpRestoreShelf.addEventListener("click", () => {
+      els.toolShelf.hidden = false;
+      els.btnVpRestoreShelf.hidden = true;
+    });
+
+    if (els.btnLandscapeInspectorToggle) {
+      els.btnLandscapeInspectorToggle.addEventListener("click", () => {
+        document.body.classList.toggle("is-landscape-drawer-closed");
       });
-      persistWorkspaceToStorage();
+    }
+
+    document.querySelectorAll("[data-touch-nav]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        touchNavMode = btn.dataset.touchNav;
+        document.querySelectorAll("[data-touch-nav]").forEach((b) => {
+          b.classList.toggle("is-active", b.dataset.touchNav === touchNavMode);
+        });
+      });
+    });
+
+    if (els.btnTouchMultiSelect) {
+      els.btnTouchMultiSelect.addEventListener("click", () => {
+        touchMultiSelect = !touchMultiSelect;
+        els.btnTouchMultiSelect.classList.toggle("is-active", touchMultiSelect);
+      });
+    }
+
+    document.querySelectorAll("[data-mp-drawer]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeMobileDrawer = btn.dataset.mpDrawer;
+        document.body.dataset.mpDrawer = activeMobileDrawer;
+        document.querySelectorAll("[data-mp-drawer]").forEach((b) => {
+          b.classList.toggle("is-active", b.dataset.mpDrawer === activeMobileDrawer);
+        });
+        if (activeMobileDrawer === "inspector") {
+          setInspectorCategory("all");
+        } else if (activeMobileDrawer === "materials") {
+          setInspectorCategory("material");
+        } else if (activeMobileDrawer === "assets") {
+          activeBottomEditor = "asset_browser";
+          if (currentState) renderWorkspaceAndBottomDock(currentState);
+        } else if (activeMobileDrawer === "timeline") {
+          activeBottomEditor = "timeline";
+          if (currentState) renderWorkspaceAndBottomDock(currentState);
+        } else if (activeMobileDrawer === "console") {
+          activeBottomEditor = "console";
+          if (currentState) renderWorkspaceAndBottomDock(currentState);
+        }
+      });
+    });
+
+    els.workspacePresetSelect.addEventListener("change", () => {
+      activateWorkspaceById(els.workspacePresetSelect.value, true);
     });
 
     document.querySelectorAll("[data-panel-toggle]").forEach((btn) => {
       btn.addEventListener("click", () => {
+        closeAllDropdownMenus();
         if (!wasmApi || !currentState || !currentState.workspace) return;
         const key = btn.dataset.panelToggle;
         const p = currentState.workspace.panels.find((item) => item.key === key);
@@ -958,11 +2296,22 @@
       });
     });
 
+    els.bottomEditorSelect.addEventListener("change", () => {
+      activeBottomEditor = els.bottomEditorSelect.value;
+      els.dockBottom.classList.remove("is-collapsed");
+      if (currentState) renderWorkspaceAndBottomDock(currentState);
+    });
+
     document.querySelectorAll("[data-bottom-tab]").forEach((tab) => {
       tab.addEventListener("click", () => {
-        activeBottomTab = tab.dataset.bottomTab;
+        activeBottomEditor = tab.dataset.bottomTab;
+        els.dockBottom.classList.remove("is-collapsed");
         if (currentState) renderWorkspaceAndBottomDock(currentState);
       });
+    });
+
+    els.btnCollapseBottom.addEventListener("click", () => {
+      els.dockBottom.classList.toggle("is-collapsed");
     });
 
     els.btnTimelinePlay.addEventListener("click", () => {
@@ -973,8 +2322,33 @@
       });
     });
 
+    if (els.timelineScrubber && els.timelineFrameNum) {
+      els.timelineScrubber.addEventListener("input", () => {
+        els.timelineFrameNum.value = els.timelineScrubber.value;
+      });
+      els.timelineFrameNum.addEventListener("change", () => {
+        const f = Math.max(1, Math.min(240, Number(els.timelineFrameNum.value) || 1));
+        els.timelineFrameNum.value = String(f);
+        els.timelineScrubber.value = String(f);
+      });
+    }
+
+    document.querySelectorAll("[data-insp-tab]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        setInspectorCategory(btn.dataset.inspTab);
+      });
+    });
+
+    if (els.outlinerFilter) {
+      els.outlinerFilter.addEventListener("input", () => {
+        outlinerFilterQuery = els.outlinerFilter.value || "";
+        if (currentState) renderOutliner(currentState);
+      });
+    }
+
     document.querySelectorAll("[data-preset]").forEach((btn) => {
       btn.addEventListener("click", () => {
+        closeAllDropdownMenus();
         if (!wasmApi) return;
         wasmApi.dispatchAction({ action: "add_preset", preset: btn.dataset.preset });
       });
@@ -1004,24 +2378,22 @@
       if (wasmApi) wasmApi.dispatchAction({ action: "select_object", id: 0 });
     });
 
-    // Mesh Edit buttons
-    els.btnMeshExtrude.addEventListener("click", () => {
+    function triggerExtrude() {
       if (!wasmApi) return;
       const dist = Number(els.meshExtrudeDist.value);
       wasmApi.dispatchAction({
         action: "extrude_selected_faces",
         distance: Number.isFinite(dist) ? dist : 0.35,
       });
-    });
+    }
 
+    els.btnMeshExtrude.addEventListener("click", triggerExtrude);
     els.btnMeshBoundary.addEventListener("click", () => {
       if (wasmApi) wasmApi.dispatchAction({ action: "select_boundary_loop" });
     });
-
     els.btnMeshFill.addEventListener("click", () => {
       if (wasmApi) wasmApi.dispatchAction({ action: "fill_selected_face" });
     });
-
     els.btnMeshAssignMat.addEventListener("click", () => {
       if (!wasmApi || !currentState || !currentState.active_material_id) return;
       wasmApi.dispatchAction({
@@ -1029,12 +2401,23 @@
         material_id: currentState.active_material_id,
       });
     });
-
     els.btnMeshDelete.addEventListener("click", () => {
       if (wasmApi) wasmApi.dispatchAction({ action: "delete_mesh_selection" });
     });
 
-    // PBR Material Editor controls
+    document.querySelectorAll("[data-mesh-quick]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const op = btn.dataset.meshQuick;
+        if (op === "extrude") triggerExtrude();
+        else if (op === "boundary" && wasmApi)
+          wasmApi.dispatchAction({ action: "select_boundary_loop" });
+        else if (op === "fill" && wasmApi)
+          wasmApi.dispatchAction({ action: "fill_selected_face" });
+        else if (op === "delete" && wasmApi)
+          wasmApi.dispatchAction({ action: "delete_mesh_selection" });
+      });
+    });
+
     els.matSelect.addEventListener("change", () => {
       if (!wasmApi) return;
       const mid = Number(els.matSelect.value) || 0;
@@ -1065,7 +2448,8 @@
     });
 
     els.btnMatAssignObj.addEventListener("click", () => {
-      if (!wasmApi || !currentState || !currentState.inspector || !currentState.active_material_id) return;
+      if (!wasmApi || !currentState || !currentState.inspector || !currentState.active_material_id)
+        return;
       wasmApi.dispatchAction({
         action: "assign_object_material",
         object_id: currentState.inspector.id,
@@ -1086,7 +2470,6 @@
       el.addEventListener("change", () => dispatchMaterialFromInputs(false));
     });
 
-    // Pressing Enter inside any text/number input commits and blurs cleanly
     document.querySelectorAll('input[type="text"], input[type="number"]').forEach((input) => {
       input.addEventListener("keydown", (ev) => {
         if (ev.key === "Enter") {
@@ -1150,9 +2533,15 @@
     });
 
     [
-      els.posX, els.posY, els.posZ,
-      els.rotX, els.rotY, els.rotZ,
-      els.sclX, els.sclY, els.sclZ,
+      els.posX,
+      els.posY,
+      els.posZ,
+      els.rotX,
+      els.rotY,
+      els.rotZ,
+      els.sclX,
+      els.sclY,
+      els.sclZ,
     ].forEach((input) => {
       input.addEventListener("change", () => dispatchTransformFromInputs(false));
     });
@@ -1177,14 +2566,18 @@
     window.addEventListener("mouseup", () => setTimeout(() => syncFromEngine(false), 20));
     window.addEventListener("keyup", () => setTimeout(() => syncFromEngine(false), 20));
 
-    const stage = document.getElementById("viewport-stage");
-    stage.addEventListener("dragover", (ev) => ev.preventDefault());
-    stage.addEventListener("drop", (ev) => {
-      ev.preventDefault();
-      if (ev.dataTransfer && ev.dataTransfer.files) {
-        importSelectedFiles(ev.dataTransfer.files);
-      }
-    });
+    if (els.viewportStage) {
+      els.viewportStage.addEventListener("dragover", (ev) => ev.preventDefault());
+      els.viewportStage.addEventListener("drop", (ev) => {
+        ev.preventDefault();
+        if (ev.dataTransfer && ev.dataTransfer.files) {
+          importSelectedFiles(ev.dataTransfer.files);
+        }
+      });
+    }
+
+    bindViewportTouchAndPointer();
+    bindDockSplitters();
   }
 
   bindUiEvents();
@@ -1194,5 +2587,5 @@
       clearInterval(bootTimer);
       setInterval(() => syncFromEngine(false), 60);
     }
-  }, 40);
+  }, 35);
 })();

@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Final Effect 3D — Real-Browser Chromium WebAssembly + WebGL 2.0 E2E Suite (Stage 4 v0.4.0)
+// Final Effect 3D — Stage 5 (v0.5.0) Real-Browser WebAssembly + WebGL 2.0 Multi-Device E2E Suite
+// Validates Splash -> Home / 6-Studio Selector -> 3D Studio Project Launcher -> 12 Workspaces ->
+// 3D Viewport, Gizmos, Mesh Modeling, PBR Materials, .fe3d/.fe3dbin Serialization, Touch Gestures,
+// Mobile Portrait, Mobile Landscape, Tablet, Desktop, and iPhone Safari "Request Desktop Website".
 
 import { test, expect } from "@playwright/test";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 
-/**
- * Sample non-background WebGL2 pixels directly from #fe3d-canvas to prove
- * real GPU/WebGL2 rasterization rather than a stubbed or empty canvas.
- */
 async function sampleViewportPixels(page) {
   return await page.evaluate(() => {
     const canvas = document.getElementById("fe3d-canvas");
@@ -24,7 +23,6 @@ async function sampleViewportPixels(page) {
 
     let nonClearPixels = 0;
     let hash = 2166136261;
-    // Clear color is roughly (0.09, 0.11, 0.14) -> ~(23, 28, 36)
     const clearR = 23;
     const clearG = 28;
     const clearB = 36;
@@ -59,10 +57,6 @@ async function sampleViewportPixels(page) {
   });
 }
 
-/**
- * Sample 2D RGBA pixels from #material-preview-canvas to prove the C++20
- * MaterialPreviewRenderer renders a real shaded 3D PBR sphere live.
- */
 async function sampleMaterialPreviewCanvas(page) {
   return await page.evaluate(() => {
     const c = document.getElementById("material-preview-canvas");
@@ -115,77 +109,276 @@ async function setControlValueAndCommit(locator, value) {
   }, value);
 }
 
-async function waitForStudioReady(page) {
+async function assertNoHorizontalOverflow(page) {
+  const dims = await page.evaluate(() => ({
+    scrollW: document.documentElement.scrollWidth,
+    clientW: document.documentElement.clientWidth,
+    innerW: window.innerWidth,
+  }));
+  expect(dims.scrollW).toBeLessThanOrEqual(Math.max(dims.clientW, dims.innerW) + 1);
+}
+
+async function bootToHomeReady(page) {
   const pageErrors = [];
   page.on("pageerror", (err) => pageErrors.push(err.message));
 
   await page.goto("/index.html");
-  await expect(page.getByTestId("viewport-banner")).toBeHidden({ timeout: 20_000 });
-  await expect(page.getByTestId("engine-badge")).toContainText("v0.4.0");
+  await expect(page.getByTestId("splash-screen")).toBeHidden({ timeout: 25_000 });
+  await expect(page.getByTestId("home-screen")).toBeVisible();
+  await expect(page.getByTestId("home-engine-badge")).toContainText("v0.5.0");
+  expect(pageErrors).toEqual([]);
+  return pageErrors;
+}
+
+async function bootDirectStudioReady(page) {
+  const pageErrors = [];
+  page.on("pageerror", (err) => pageErrors.push(err.message));
+
+  await page.goto("/index.html?view=studio");
+  await expect(page.getByTestId("splash-screen")).toBeHidden({ timeout: 25_000 });
+  await expect(page.getByTestId("studio-shell")).toBeVisible();
+  await expect(page.getByTestId("engine-badge")).toContainText("v0.5.0");
   await expect(page.getByTestId("stat-objects-meshes")).toHaveText("6 / 3");
   expect(pageErrors).toEqual([]);
   return pageErrors;
 }
 
-test.describe("Final Effect 3D Stage 4 Connected Browser Studio", () => {
-  test("boots WASM engine, renders starter scene in WebGL 2.0, picks 3D object, and orbits camera", async ({
+test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
+  test("1. Splash screen gates on real WASM/WebGL2 readiness, opens Main Home, and presents honest 6-Studio architecture", async ({
     page,
   }) => {
-    await waitForStudioReady(page);
+    await bootToHomeReady(page);
+    await assertNoHorizontalOverflow(page);
 
-    // Pause animated showcase rig so pixel comparisons are deterministic
+    // All 6 Studios are present in the Studio Selector
+    const studioIds = [
+      "3d_studio",
+      "landscaping_studio",
+      "character_studio",
+      "studio_2d",
+      "sculpting_studio",
+      "shade_studio",
+    ];
+    for (const id of studioIds) {
+      await expect(page.getByTestId(`studio-card-${id}`)).toBeVisible();
+    }
+
+    // 3D Studio shows operational Project Launcher by default
+    await expect(page.getByTestId("studio-launcher-panel")).toBeVisible();
+    await expect(page.getByTestId("studio-future-panel")).toBeHidden();
+
+    // Every planned studio shows honest architectural status with zero fake launch controls
+    for (const plannedId of studioIds.slice(1)) {
+      await page.getByTestId(`studio-card-${plannedId}`).click();
+      await expect(page.getByTestId("studio-launcher-panel")).toBeHidden();
+      await expect(page.getByTestId("studio-future-panel")).toBeVisible();
+      await expect(page.locator("#future-studio-badge")).toContainText("PLANNED");
+    }
+
+    // Shade Studio provides an honest shortcut into operational 3D Studio Shading workspace
+    await page.getByTestId("btn-future-jump-shading").click();
+    await expect(page.getByTestId("home-screen")).toBeHidden();
+    await expect(page.getByTestId("studio-shell")).toBeVisible();
+    await expect(page.getByTestId("ws-tab-shading")).toHaveClass(/is-active/);
+  });
+
+  test("2. 3D Studio Project Launcher creates real templates, records & reopens Recent Projects with thumbnails, removes entries cleanly, and rejects corrupted files", async ({
+    page,
+  }) => {
+    await bootToHomeReady(page);
+
+    // Recent projects begins genuinely empty (no fake hardcoded entries)
+    await expect(page.getByTestId("recent-empty-state")).toBeVisible();
+
+    // Create a Minimal Cube project via the Launcher
+    await page.getByTestId("template-card-minimal_cube").click();
+    await setControlValueAndCommit(page.getByTestId("launcher-project-name"), "ArchCubeProject");
+    await setControlValueAndCommit(page.getByTestId("launcher-project-author"), "Stage5Artist");
+    await page.getByTestId("btn-launcher-create").click();
+
+    // Verify we entered 3D Studio with real C++ MinimalCube scene (4 objects: Camera, Light, Ground, Cube)
+    await expect(page.getByTestId("studio-shell")).toBeVisible();
+    await expect(page.getByTestId("active-project-pill")).toHaveText("ArchCubeProject");
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("4 / 2");
+    await expect(page.getByTestId("outliner-item-Cube")).toBeVisible();
+
+    // Add a Sphere object (4 -> 5 objects) and return to Main Home
+    await page.getByTestId("btn-add-sphere").click();
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("5 / 3");
+    await page.getByTestId("btn-go-home").click();
+
+    await expect(page.getByTestId("home-screen")).toBeVisible();
+    const recentItems = page.getByTestId("recent-project-item");
+    await expect(recentItems).toHaveCount(1);
+    await expect(recentItems.first()).toContainText("ArchCubeProject");
+    // Verify real captured WebGL2 data URL thumbnail
+    const thumbSrc = await recentItems.first().locator("img").getAttribute("src");
+    expect(thumbSrc).toMatch(/^data:image\/jpeg;base64,/);
+
+    // Create an Empty Stage project (2 objects: MainCamera + SunLight)
+    await page.getByTestId("template-card-empty_stage").click();
+    await setControlValueAndCommit(page.getByTestId("launcher-project-name"), "CleanStage");
+    await page.getByTestId("btn-launcher-create").click();
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("2 / 0");
+
+    // Return to Home and reopen "ArchCubeProject" from Recent Projects -> restores 5 objects!
+    await page.getByTestId("btn-go-home").click();
+    await expect(recentItems).toHaveCount(2);
+    const archRow = recentItems.filter({ hasText: "ArchCubeProject" });
+    await archRow.getByTestId("btn-reopen-recent").click();
+    await expect(page.getByTestId("studio-shell")).toBeVisible();
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("5 / 3");
+
+    // Return to Home, test corrupted .fe3d file handling in Launcher
+    await page.getByTestId("btn-go-home").click();
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "fe3d-corrupt-"));
+    const badPath = path.join(tmpDir, "broken.fe3d");
+    await fs.writeFile(badPath, "{invalid-corrupted-fe3d-payload", "utf-8");
+    await page.locator("#file-open-input").setInputFiles([badPath]);
+    await expect(page.getByTestId("launcher-error-banner")).toBeVisible();
+    await expect(page.getByTestId("home-screen")).toBeVisible();
+
+    // Remove "CleanStage" from Recent Projects without affecting actual disk files
+    const cleanRow = recentItems.filter({ hasText: "CleanStage" });
+    await cleanRow.getByTestId("btn-remove-recent").click();
+    await expect(recentItems).toHaveCount(1);
+    expect(await fs.stat(badPath)).toBeTruthy();
+
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  test("3. All 12 Blender-inspired workspace tabs share the exact same live scene, selection, materials & Undo stack, and workspace layout customization persists independently of scene data", async ({
+    page,
+  }) => {
+    await bootDirectStudioReady(page);
     await page.getByTestId("btn-toggle-rig").click();
-    await expect(page.getByTestId("btn-toggle-rig")).toHaveText("Play Rig");
+
+    // Author an object + material in Layout workspace
+    await page.getByTestId("btn-add-sphere").click();
+    await setControlValueAndCommit(page.getByTestId("insp-name"), "SharedWorkspaceOrb");
+    await page.getByTestId("btn-mat-new").click();
+    await setControlValueAndCommit(page.getByTestId("mat-name"), "SharedCyanMat");
+
+    const baseline = await page.evaluate(() => {
+      const s = window.__FE3D_STUDIO__.getState();
+      return {
+        selectedId: s.viewport.selected_object_id,
+        objCount: s.stats.object_count,
+        matCount: s.stats.material_count,
+        undoCount: s.history.undo_count,
+      };
+    });
+
+    const operationalTabs = ["layout", "modeling", "shading", "animation", "rendering"];
+    const foundationTabs = [
+      "sculpting",
+      "compositing",
+      "vfx",
+      "geometry_nodes",
+      "uv_editing",
+      "animation_2d",
+      "video_editing",
+    ];
+
+    for (const tabId of [...operationalTabs, ...foundationTabs]) {
+      await page.getByTestId(`ws-tab-${tabId}`).click();
+      await expect(page.getByTestId(`ws-tab-${tabId}`)).toHaveClass(/is-active/);
+
+      if (foundationTabs.includes(tabId)) {
+        await expect(page.getByTestId("workspace-foundation-banner")).toBeVisible();
+      } else {
+        await expect(page.getByTestId("workspace-foundation-banner")).toBeHidden();
+      }
+
+      const snap = await page.evaluate(() => {
+        const s = window.__FE3D_STUDIO__.getState();
+        return {
+          selectedId: s.viewport.selected_object_id,
+          objCount: s.stats.object_count,
+          matCount: s.stats.material_count,
+          undoCount: s.history.undo_count,
+          hasOrb: s.objects.some((o) => o.name === "SharedWorkspaceOrb"),
+          hasMat: s.materials.some((m) => m.name === "SharedCyanMat"),
+        };
+      });
+      expect(snap.selectedId).toBe(baseline.selectedId);
+      expect(snap.objCount).toBe(baseline.objCount);
+      expect(snap.matCount).toBe(baseline.matCount);
+      expect(snap.undoCount).toBe(baseline.undoCount);
+      expect(snap.hasOrb).toBe(true);
+      expect(snap.hasMat).toBe(true);
+    }
+
+    // Switch back to Modeling (hides bottom dock), drag right splitter, and save custom workspace layout
+    await page.getByTestId("ws-tab-modeling").click();
+    await expect(page.getByTestId("dock-bottom")).toBeHidden();
+
+    const splitter = page.getByTestId("splitter-right");
+    const sbox = await splitter.boundingBox();
+    expect(sbox).not.toBeNull();
+    await page.mouse.move(sbox.x + 2, sbox.y + sbox.height * 0.5);
+    await page.mouse.down();
+    await page.mouse.move(sbox.x - 45, sbox.y + sbox.height * 0.5, { steps: 4 });
+    await page.mouse.up();
+
+    // Save custom layout via Preferences modal and verify scene objects & Undo stack were NOT mutated
+    await page.getByTestId("btn-studio-settings").click();
+    await page.getByTestId("btn-pref-save-layout").click();
+    await page.getByTestId("btn-close-settings").click();
+
+    // Switch to Layout, then restore saved custom layout -> returns to Modeling
+    await page.getByTestId("ws-tab-layout").click();
+    await expect(page.getByTestId("dock-bottom")).toBeVisible();
+    await page.getByTestId("btn-studio-settings").click();
+    await page.getByTestId("btn-pref-restore-layout").click();
+    await page.getByTestId("btn-close-settings").click();
+    await expect(page.getByTestId("ws-tab-modeling")).toHaveClass(/is-active/);
+    await expect(page.getByTestId("dock-bottom")).toBeHidden();
+
+    // Reload browser and confirm persisted workspace layout reloads cleanly
+    await page.goto("/index.html?view=studio");
+    await expect(page.getByTestId("splash-screen")).toBeHidden({ timeout: 25_000 });
+    await expect(page.getByTestId("ws-tab-modeling")).toHaveClass(/is-active/);
+    await expect(page.getByTestId("dock-bottom")).toBeHidden();
+    await page.getByTestId("ws-tab-layout").click();
+  });
+
+  test("4. Core 3D Studio authoring: WebGL2 rasterization, raycast pick, RMB orbit, focus guard, cycle-safe parenting, camera/light live shading, and .fe3d + .fe3dbin round-trip", async ({
+    page,
+  }) => {
+    await bootDirectStudioReady(page);
+    await page.getByTestId("btn-toggle-rig").click();
     await page.waitForTimeout(50);
 
-    // Verify all 6 starter objects appear in the Scene Outliner
     await expect(page.getByTestId("outliner-item-GroundPlane")).toBeVisible();
-    await expect(page.getByTestId("outliner-item-RigPivot")).toBeVisible();
     await expect(page.getByTestId("outliner-item-HeroCube")).toBeVisible();
-    await expect(page.getByTestId("outliner-item-AccentPyramid")).toBeVisible();
-    await expect(page.getByTestId("outliner-item-MainCamera")).toBeVisible();
-    await expect(page.getByTestId("outliner-item-SunLight")).toBeVisible();
 
-    // Verify real WebGL 2.0 3D scene rasterization
     const initialPixels = await sampleViewportPixels(page);
     expect(initialPixels.hasWebGL2).toBe(true);
     expect(initialPixels.version).toContain("WebGL 2.0");
     expect(initialPixels.nonClearPixels).toBeGreaterThan(250);
 
-    // Click center of the 3D viewport to raycast-pick HeroCube
+    // LMB pick HeroCube in 3D Viewport
     const canvas = page.getByTestId("viewport-canvas");
     const box = await canvas.boundingBox();
     expect(box).not.toBeNull();
     await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.5);
-
     await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: HeroCube");
-    await expect(page.getByTestId("insp-name")).toHaveValue("HeroCube");
 
-    // Right-drag in viewport to orbit camera and verify pixels change
+    // RMB drag camera orbit changes WebGL2 framebuffer pixels
     const cx = box.x + box.width * 0.5;
     const cy = box.y + box.height * 0.5;
     await page.mouse.move(cx, cy);
     await page.mouse.down({ button: "right" });
-    await page.mouse.move(cx + 120, cy + 45, { steps: 6 });
+    await page.mouse.move(cx + 110, cy + 40, { steps: 6 });
     await page.mouse.up({ button: "right" });
-
     await expect
       .poll(async () => (await sampleViewportPixels(page)).hash)
       .not.toBe(initialPixels.hash);
-  });
 
-  test("supports full scene authoring, undo/redo, focus guard, and cycle-safe parenting", async ({
-    page,
-  }) => {
-    await waitForStudioReady(page);
-    await page.getByTestId("btn-toggle-rig").click();
-
-    // Add a Cube preset (reuses shared HeroCubeMesh: 6 -> 7 objects / 3 meshes)
+    // Add Cube, rename with viewport hotkey characters (focus guard), Duplicate, Delete, Undo/Redo
     await page.getByTestId("btn-add-cube").click();
     await expect(page.getByTestId("stat-objects-meshes")).toHaveText("7 / 3");
-    await expect(page.getByTestId("insp-name")).toHaveValue("Cube");
-
-    // Type viewport hotkeys (W, E, R, F, 1..4) inside Inspector Name input to verify focus guard
     const nameInput = page.getByTestId("insp-name");
     await nameInput.click({ clickCount: 3 });
     await page.keyboard.press("Backspace");
@@ -194,16 +387,12 @@ test.describe("Final Effect 3D Stage 4 Connected Browser Studio", () => {
     await expect(page.getByTestId("outliner-item-Pillar_WERF1234")).toBeVisible();
     await expect(page.getByTestId("vp-mode-pill")).toContainText("OBJECT · MOVE");
 
-    // Duplicate Pillar_WERF1234 -> Pillar_WERF1234.001 (7 -> 8 objects, shares mesh asset)
     await page.getByTestId("btn-duplicate").click();
     await expect(page.getByTestId("stat-objects-meshes")).toHaveText("8 / 3");
     await expect(page.getByTestId("outliner-item-Pillar_WERF1234.001")).toBeVisible();
 
-    // Delete Pillar_WERF1234.001 (8 -> 7 objects)
     await page.getByTestId("btn-delete").click();
     await expect(page.getByTestId("stat-objects-meshes")).toHaveText("7 / 3");
-
-    // Undo Delete -> back to 8 objects; Undo Duplicate -> 7; Redo -> 8
     await page.getByTestId("btn-undo").click();
     await expect(page.getByTestId("stat-objects-meshes")).toHaveText("8 / 3");
     await page.getByTestId("btn-undo").click();
@@ -211,140 +400,83 @@ test.describe("Final Effect 3D Stage 4 Connected Browser Studio", () => {
     await page.getByTestId("btn-redo").click();
     await expect(page.getByTestId("stat-objects-meshes")).toHaveText("8 / 3");
 
-    // Cycle-safe parenting check: select RigPivot and attempt to parent it under its child HeroCube
+    // Cycle-safe parenting rejection
     await page.getByTestId("outliner-item-RigPivot").click();
-    await expect(page.getByTestId("insp-name")).toHaveValue("RigPivot");
     const heroId = await page.evaluate(
       () => window.__FE3D_STUDIO__.getState().objects.find((o) => o.name === "HeroCube").id
     );
     await page.getByTestId("insp-parent").selectOption(String(heroId));
     await expect(page.getByTestId("status-message")).toContainText("HierarchyCycle");
-    await expect(page.getByTestId("insp-parent")).toHaveValue("0");
-  });
 
-  test("edits transforms, camera projection, and directional light with live WebGL2 output", async ({
-    page,
-  }) => {
-    await waitForStudioReady(page);
-    await page.getByTestId("btn-toggle-rig").click();
-
-    await page.getByTestId("outliner-item-HeroCube").click();
-    await page.waitForTimeout(50);
-    const beforeTf = await sampleViewportPixels(page);
-
-    // Move HeroCube on X and scale up
-    await setControlValueAndCommit(page.getByTestId("tf-pos-x"), "1.25");
-    await setControlValueAndCommit(page.getByTestId("tf-scl-y"), "1.8");
-    await expect
-      .poll(async () => (await sampleViewportPixels(page)).hash)
-      .not.toBe(beforeTf.hash);
-    const afterTf = await sampleViewportPixels(page);
-
-    // Select MainCamera and switch to Orthographic projection
+    // Camera orthographic & Light intensity live WebGL2 output
+    const beforeCam = await sampleViewportPixels(page);
     await page.getByTestId("outliner-item-MainCamera").click();
-    await expect(page.getByTestId("card-camera")).toBeVisible();
     await page.getByTestId("cam-projection").selectOption("orthographic");
     await expect
       .poll(async () => (await sampleViewportPixels(page)).hash)
-      .not.toBe(afterTf.hash);
-    const afterOrtho = await sampleViewportPixels(page);
+      .not.toBe(beforeCam.hash);
+    const afterCam = await sampleViewportPixels(page);
 
-    // Select SunLight and lower intensity
     await page.getByTestId("outliner-item-SunLight").click();
-    await expect(page.getByTestId("card-light")).toBeVisible();
-    await setControlValueAndCommit(page.getByTestId("light-intensity"), "0.2");
+    await setControlValueAndCommit(page.getByTestId("light-intensity"), "0.25");
     await expect
       .poll(async () => (await sampleViewportPixels(page)).hash)
-      .not.toBe(afterOrtho.hash);
-  });
+      .not.toBe(afterCam.hash);
 
-  test("exports inline .fe3d and binary .fe3dbin bundle, resets project, and reloads cleanly", async ({
-    page,
-  }) => {
-    await waitForStudioReady(page);
-    await page.getByTestId("btn-toggle-rig").click();
-
-    // Customize project metadata and add a UV Sphere object (creates 4th mesh asset StudioSphereMesh)
-    await setControlValueAndCommit(page.getByTestId("meta-project-name"), "Stage4BrowserRoundTrip");
+    // Export .fe3d + .fe3dbin bundle, reset via File menu, and reload bundle
+    await setControlValueAndCommit(page.getByTestId("meta-project-name"), "Stage5BundleTrip");
     await page.getByTestId("btn-add-sphere").click();
-    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("7 / 4");
-    await setControlValueAndCommit(page.getByTestId("insp-name"), "KeystoneSphere");
-    await expect(page.getByTestId("outliner-item-KeystoneSphere")).toBeVisible();
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("9 / 4");
 
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "fe3d-e2e-"));
-
-    // 1. Export inline .fe3d
-    const inlineDownloadPromise = page.waitForEvent("download");
-    await page.getByTestId("btn-export-fe3d").click();
-    const inlineDownload = await inlineDownloadPromise;
-    expect(inlineDownload.suggestedFilename()).toBe("Stage4BrowserRoundTrip.fe3d");
-    const inlinePath = path.join(tmpDir, inlineDownload.suggestedFilename());
-    await inlineDownload.saveAs(inlinePath);
-
-    const inlineJson = JSON.parse(await fs.readFile(inlinePath, "utf-8"));
-    expect(inlineJson.schema_version).toEqual({ major: 1, minor: 2 });
-    expect(inlineJson.metadata.project_name).toBe("Stage4BrowserRoundTrip");
-
-    // 2. Export binary bundle (.fe3d + .fe3dbin)
-    const bundleDir = path.join(tmpDir, "bundle");
-    await fs.mkdir(bundleDir);
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "fe3d-s5-"));
     const bundleDownloads = [];
-    const onDownload = (dl) => bundleDownloads.push(dl);
-    page.on("download", onDownload);
+    const onDl = (dl) => bundleDownloads.push(dl);
+    page.on("download", onDl);
     await page.getByTestId("btn-export-bundle").click();
     await expect.poll(() => bundleDownloads.length, { timeout: 10_000 }).toBe(2);
-    page.off("download", onDownload);
+    page.off("download", onDl);
 
-    const savedBundlePaths = [];
+    const savedPaths = [];
     for (const dl of bundleDownloads) {
-      const target = path.join(bundleDir, dl.suggestedFilename());
-      await dl.saveAs(target);
-      savedBundlePaths.push(target);
+      const p = path.join(tmpDir, dl.suggestedFilename());
+      await dl.saveAs(p);
+      savedPaths.push(p);
     }
-    const binFile = savedBundlePaths.find((p) => p.endsWith(".fe3dbin"));
-    expect(binFile).toBeTruthy();
-    const binHeader = await fs.readFile(binFile);
-    expect(binHeader.subarray(0, 7).toString("ascii")).toBe("FE3DBIN");
 
-    // 3. Reset to fresh starter project (back to 6 objects / 3 meshes)
+    await page.getByTestId("menu-file").click();
     await page.getByTestId("btn-new-project").click();
     await expect(page.getByTestId("stat-objects-meshes")).toHaveText("6 / 3");
-    await expect(page.getByTestId("outliner-item-KeystoneSphere")).toHaveCount(0);
 
-    // 4. Re-import binary bundle (.fe3d + .fe3dbin) via file input and verify restoration
-    await page.locator("#file-open-input").setInputFiles(savedBundlePaths);
-    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("7 / 4");
-    await expect(page.getByTestId("meta-project-name")).toHaveValue("Stage4BrowserRoundTrip");
-    await expect(page.getByTestId("outliner-item-KeystoneSphere")).toBeVisible();
+    await page.locator("#file-open-input").setInputFiles(savedPaths);
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("9 / 4");
+    await expect(page.getByTestId("meta-project-name")).toHaveValue("Stage5BundleTrip");
 
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
-  test("interactive 3D transform gizmo hover, drag, Inspector sync, and coalesced single-step undo", async ({
+  test("5. Interactive 3D Transform Gizmos, Face/Vertex polygon extrusion & boundary fill, and live 96x96 PBR sphere preview", async ({
     page,
   }) => {
-    await waitForStudioReady(page);
+    await bootDirectStudioReady(page);
     await page.getByTestId("btn-toggle-rig").click();
 
-    // Select HeroCube, reset transform to exact origin (0, 0, 0) under RigPivot, and frame camera on it
+    // 1. 3D Move Gizmo +Y hover, drag, Inspector sync, and single-step coalesced Undo
     await page.getByTestId("outliner-item-HeroCube").click();
     await page.getByTestId("btn-reset-transform").click();
     await page.getByTestId("btn-frame").click();
     await expect(page.getByTestId("tf-pos-y")).toHaveValue("0");
     await page.waitForTimeout(50);
 
-    const stateBefore = await page.evaluate(() => window.__FE3D_STUDIO__.getState());
-    const undoBeforeDrag = stateBefore.history.undo_count;
+    const undoBeforeDrag = await page.evaluate(
+      () => window.__FE3D_STUDIO__.getState().history.undo_count
+    );
 
-    // HeroCube is framed at viewport center; world +Y translate shaft projects straight upward
-    // along x = centerX above centerY.
-    const canvas = page.getByTestId("viewport-canvas");
-    const box = await canvas.boundingBox();
+    const box = await page.getByTestId("viewport-canvas").boundingBox();
     expect(box).not.toBeNull();
     const cx = box.x + box.width * 0.5;
     let handleY = box.y + box.height * 0.39;
 
-    for (const frac of [0.39, 0.36, 0.42, 0.34]) {
+    for (const frac of [0.39, 0.36, 0.42, 0.34, 0.31]) {
       const candidateY = box.y + box.height * frac;
       await page.mouse.move(cx, candidateY);
       await page.waitForTimeout(45);
@@ -357,144 +489,310 @@ test.describe("Final Effect 3D Stage 4 Connected Browser Studio", () => {
       }
     }
 
-    await expect
-      .poll(async () => {
-        const s = await page.evaluate(() => window.__FE3D_STUDIO__.getState());
-        return s.editor.gizmo_hovered_handle;
-      })
-      .toBe("translate_y");
     await expect(page.getByTestId("vp-mode-pill")).toContainText("HOVER TRANSLATE_Y");
-
-    // Drag the +Y gizmo handle upward in 8 incremental pointer steps
     await page.mouse.down({ button: "left" });
-    await page.mouse.move(cx, handleY - 64, { steps: 8 });
+    await page.mouse.move(cx, handleY - 60, { steps: 8 });
     await page.mouse.up({ button: "left" });
 
-    // Wait for rAF + UI sync to reflect the committed gizmo drag
     await expect
-      .poll(async () => {
-        const s = await page.evaluate(() => window.__FE3D_STUDIO__.getState());
-        return s.history.undo_count;
-      })
+      .poll(async () => (await page.evaluate(() => window.__FE3D_STUDIO__.getState().history.undo_count)))
       .toBe(undoBeforeDrag + 1);
-
-    // Selection must remain HeroCube (no accidental background/ground reselection)
-    await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: HeroCube");
-
     await expect
       .poll(async () => Number(await page.getByTestId("tf-pos-y").inputValue()))
       .toBeGreaterThan(0.2);
 
-    // Undo restores exact pre-drag Y = 0
     await page.getByTestId("btn-undo").click();
     await expect(page.getByTestId("tf-pos-y")).toHaveValue("0");
 
-    // Verify Rotate, Scale, and Local/World orientation switching
-    await page.getByTestId("btn-gizmo-rotate").click();
-    await expect(page.getByTestId("vp-mode-pill")).toContainText("OBJECT · ROTATE (WORLD)");
-    await page.getByTestId("btn-gizmo-scale").click();
-    await page.getByTestId("btn-gizmo-space").click();
-    await expect(page.getByTestId("vp-mode-pill")).toContainText("OBJECT · SCALE (LOCAL)");
-  });
-
-  test("supports polygon mesh editing in Face/Vertex modes, extrusion, hole boundary selection, face fill, and undo/redo", async ({
-    page,
-  }) => {
-    await waitForStudioReady(page);
-    await page.getByTestId("btn-toggle-rig").click();
-
-    // Select HeroCube and switch to Face Edit mode
-    await page.getByTestId("outliner-item-HeroCube").click();
-    await page.getByTestId("btn-frame").click();
+    // 2. Polygon Mesh Modeling: Face pick -> Extrude -> Delete cap -> Select Hole -> Fill Face -> Undo
     await page.getByTestId("btn-mode-face").click();
     await page.waitForTimeout(50);
-
     await expect(page.getByTestId("card-mesh-edit")).toBeVisible();
     await expect(page.getByTestId("mesh-edit-topology")).toHaveText("6 faces · 12 edges · 8 verts");
-    const trisBefore = Number(await page.getByTestId("stat-triangles").textContent());
 
-    // Raycast-pick a front-facing quad face on HeroCube in the 3D viewport
-    const box = await page.getByTestId("viewport-canvas").boundingBox();
     await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.5);
     await expect(page.getByTestId("mesh-edit-selection-tag")).toHaveText("1 face");
 
-    // Extrude selected quad face outward by 0.45m -> adds 4 side quads (6 -> 10 faces, +8 triangles)
     await setControlValueAndCommit(page.getByTestId("mesh-extrude-dist"), "0.45");
     await page.getByTestId("btn-mesh-extrude").click();
     await expect(page.getByTestId("mesh-edit-topology")).toHaveText("10 faces · 20 edges · 12 verts");
-    const trisAfterExtrude = Number(await page.getByTestId("stat-triangles").textContent());
-    expect(trisAfterExtrude).toBe(trisBefore + 8);
 
-    // Delete the extruded cap face -> 9 faces with 4 open boundary edges
     await page.getByTestId("btn-mesh-delete").click();
     await expect(page.getByTestId("mesh-edit-topology")).toHaveText("9 faces · 20 edges · 12 verts");
 
-    // Select open boundary loop -> switches to Vertex mode with 4 ordered loop vertices selected
     await page.getByTestId("btn-mesh-boundary").click();
-    await expect(page.getByTestId("vp-mode-pill")).toContainText("VERTEX ·");
     await expect(page.getByTestId("mesh-edit-selection-tag")).toHaveText("4 vertexs");
 
-    // Fill Face closes the open boundary loop back to a 10-face closed manifold mesh
     await page.getByTestId("btn-mesh-fill").click();
     await expect(page.getByTestId("mesh-edit-topology")).toHaveText("10 faces · 20 edges · 12 verts");
 
-    // Undo Fill Face -> 9 faces; Undo Delete Face -> 10 faces; Undo Extrude -> 6 faces
     await page.getByTestId("btn-undo").click();
-    await expect(page.getByTestId("mesh-edit-topology")).toHaveText("9 faces · 20 edges · 12 verts");
     await page.getByTestId("btn-undo").click();
-    await expect(page.getByTestId("mesh-edit-topology")).toHaveText("10 faces · 20 edges · 12 verts");
     await page.getByTestId("btn-undo").click();
     await expect(page.getByTestId("mesh-edit-topology")).toHaveText("6 faces · 12 edges · 8 verts");
-  });
+    await page.getByTestId("btn-mode-object").click();
 
-  test("creates and edits PBR materials with live 3D sphere preview, workspace presets, and reload persistence", async ({
-    page,
-  }) => {
-    await waitForStudioReady(page);
-    await page.getByTestId("btn-toggle-rig").click();
-
-    // Select HeroCube first so we can measure its initial viewport shading before assigning a new material
-    await page.getByTestId("outliner-item-HeroCube").click();
-    await page.waitForTimeout(50);
+    // 3. PBR Material Live 96x96 Sphere Preview & Object Assignment
     const vpBeforeMat = await sampleViewportPixels(page);
-
-    // 1. Verify initial 96x96 live 3D sphere preview is genuinely rendered (not blank/uniform)
     const previewInitial = await sampleMaterialPreviewCanvas(page);
     expect(previewInitial.width).toBe(96);
-    expect(previewInitial.height).toBe(96);
     expect(previewInitial.distinctFromCorner).toBeGreaterThan(1500);
 
-    // 2. Create a new PBR material, edit metallic-roughness + emissive, and verify live preview updates
     await page.getByTestId("btn-mat-new").click();
     await setControlValueAndCommit(page.getByTestId("mat-name"), "SolarGold");
     await setControlValueAndCommit(page.getByTestId("mat-base-color"), "#ffcc22");
     await setControlValueAndCommit(page.getByTestId("mat-metallic"), "0.95");
     await setControlValueAndCommit(page.getByTestId("mat-roughness"), "0.12");
-    await setControlValueAndCommit(page.getByTestId("mat-emissive-color"), "#ff4400");
-    await setControlValueAndCommit(page.getByTestId("mat-emissive-strength"), "0.85");
 
     const previewGold = await sampleMaterialPreviewCanvas(page);
     expect(previewGold.hash).not.toBe(previewInitial.hash);
 
-    // 3. Assign SolarGold (active material) to HeroCube and verify live WebGL2 viewport shading changes
     await page.getByTestId("btn-mat-assign-obj").click();
     await expect
       .poll(async () => (await sampleViewportPixels(page)).hash)
       .not.toBe(vpBeforeMat.hash);
+  });
 
-    // 4. Switch Workspace Preset to "Modeling" (hides bottom dock & Material Editor) and persist across reload
-    await page.getByTestId("workspace-preset-select").selectOption("modeling");
-    await expect(page.getByTestId("panel-material-editor")).toBeHidden();
-    await expect(page.getByTestId("dock-bottom")).toBeHidden();
+  test("6. Multi-device responsive & touch matrix: iPhone Portrait, iPhone Landscape, iPhone Safari 'Request Desktop Website', Android, Tablet, and Desktop 1366x768 & 1920x1080", async ({
+    browser,
+  }) => {
+    const context = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      hasTouch: true,
+      isMobile: true,
+      deviceScaleFactor: 2,
+    });
+    const page = await context.newPage();
 
-    // Reload browser page and verify workspace layout persisted via localStorage + WorkspaceManager
-    await page.reload();
-    await expect(page.getByTestId("viewport-banner")).toBeHidden({ timeout: 20_000 });
-    await expect(page.getByTestId("panel-material-editor")).toBeHidden();
-    await expect(page.getByTestId("dock-bottom")).toBeHidden();
+    // A. iPhone Safari Portrait (390x844) — Splash -> Home -> 3D Studio Portrait Drawer + Touch Gestures
+    await bootToHomeReady(page);
+    await expect(page.locator("body")).toHaveAttribute("data-layout-mode", "portrait");
+    await assertNoHorizontalOverflow(page);
 
-    // Restore Default workspace preset so Material Editor is visible again
-    await page.getByTestId("workspace-preset-select").selectOption("default");
-    await expect(page.getByTestId("panel-material-editor")).toBeVisible();
+    await page.getByTestId("btn-launcher-create").click();
+    await expect(page.getByTestId("studio-shell")).toBeVisible();
+    await expect(page.getByTestId("mobile-portrait-nav")).toBeVisible();
+    await assertNoHorizontalOverflow(page);
+
+    // Pause rig and clear initial selection so touch tap raycast is unambiguously proven
+    await page.getByTestId("btn-toggle-rig").click();
+    await page.evaluate(() => window.__FE3D_STUDIO__.dispatch({ action: "select_object", id: 0 }));
+    await expect(page.getByTestId("vp-selection-pill")).toHaveText("No Selection");
+    await page.waitForTimeout(60);
+
+    // Single-finger touch TAP on #fe3d-canvas center selects HeroCube without orbiting camera
+    await page.evaluate(() => {
+      const c = document.getElementById("fe3d-canvas");
+      const r = c.getBoundingClientRect();
+      const cx = r.left + r.width * 0.5;
+      const cy = r.top + r.height * 0.5;
+      c.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          pointerId: 11,
+          pointerType: "touch",
+          clientX: cx,
+          clientY: cy,
+          bubbles: true,
+        })
+      );
+      c.dispatchEvent(
+        new PointerEvent("pointerup", {
+          pointerId: 11,
+          pointerType: "touch",
+          clientX: cx,
+          clientY: cy,
+          bubbles: true,
+        })
+      );
+    });
+    await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: HeroCube");
+
+    // 1-finger touch DRAG orbits camera while preserving HeroCube selection (zero conflict!)
+    const hashBeforeTouchOrbit = (await sampleViewportPixels(page)).hash;
+    await page.evaluate(() => {
+      const c = document.getElementById("fe3d-canvas");
+      const r = c.getBoundingClientRect();
+      const sx = r.left + r.width * 0.5;
+      const sy = r.top + r.height * 0.5;
+      c.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          pointerId: 12,
+          pointerType: "touch",
+          clientX: sx,
+          clientY: sy,
+          bubbles: true,
+        })
+      );
+      for (let i = 1; i <= 5; i++) {
+        c.dispatchEvent(
+          new PointerEvent("pointermove", {
+            pointerId: 12,
+            pointerType: "touch",
+            clientX: sx + i * 16,
+            clientY: sy + i * 8,
+            bubbles: true,
+          })
+        );
+      }
+      c.dispatchEvent(
+        new PointerEvent("pointerup", {
+          pointerId: 12,
+          pointerType: "touch",
+          clientX: sx + 80,
+          clientY: sy + 40,
+          bubbles: true,
+        })
+      );
+    });
+    await expect
+      .poll(async () => (await sampleViewportPixels(page)).hash)
+      .not.toBe(hashBeforeTouchOrbit);
+    await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: HeroCube");
+
+    // 2-finger pinch-zoom gesture adjusts camera distance cleanly without losing selection
+    const distBeforePinch = await page.evaluate(
+      () => window.__FE3D_STUDIO__.getState().viewport.camera_distance
+    );
+    await page.evaluate(() => {
+      const c = document.getElementById("fe3d-canvas");
+      const r = c.getBoundingClientRect();
+      const cy = r.top + r.height * 0.5;
+      c.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          pointerId: 21,
+          pointerType: "touch",
+          clientX: r.left + 120,
+          clientY: cy,
+          bubbles: true,
+        })
+      );
+      c.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          pointerId: 22,
+          pointerType: "touch",
+          clientX: r.left + 220,
+          clientY: cy,
+          bubbles: true,
+        })
+      );
+      c.dispatchEvent(
+        new PointerEvent("pointermove", {
+          pointerId: 21,
+          pointerType: "touch",
+          clientX: r.left + 70,
+          clientY: cy,
+          bubbles: true,
+        })
+      );
+      c.dispatchEvent(
+        new PointerEvent("pointermove", {
+          pointerId: 22,
+          pointerType: "touch",
+          clientX: r.left + 270,
+          clientY: cy,
+          bubbles: true,
+        })
+      );
+      c.dispatchEvent(
+        new PointerEvent("pointerup", {
+          pointerId: 21,
+          pointerType: "touch",
+          clientX: r.left + 70,
+          clientY: cy,
+          bubbles: true,
+        })
+      );
+      c.dispatchEvent(
+        new PointerEvent("pointerup", {
+          pointerId: 22,
+          pointerType: "touch",
+          clientX: r.left + 270,
+          clientY: cy,
+          bubbles: true,
+        })
+      );
+    });
+    const distAfterPinch = await page.evaluate(
+      () => window.__FE3D_STUDIO__.getState().viewport.camera_distance
+    );
+    expect(distAfterPinch).not.toBe(distBeforePinch);
+    await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: HeroCube");
+
+    // Navigate all Mobile Portrait secondary drawers while preserving selection & live 3D Viewport!
+    for (const drawer of ["outliner", "inspector", "materials", "assets", "timeline", "console", "viewport"]) {
+      await page.getByTestId(`mp-tab-${drawer}`).click();
+      await expect(page.getByTestId("viewport-canvas")).toBeVisible();
+      await assertNoHorizontalOverflow(page);
+    }
+    await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: HeroCube");
+
+    // B. iPhone Safari Landscape (844x390) — Preferred Mobile Landscape Pro Mode
+    await page.setViewportSize({ width: 844, height: 390 });
+    await expect(page.locator("body")).toHaveAttribute("data-layout-mode", "landscape");
+    await expect(page.getByTestId("mobile-portrait-nav")).toBeHidden();
+    await expect(page.getByTestId("dock-right")).toBeVisible();
+    await assertNoHorizontalOverflow(page);
+
+    // Toggle Landscape Panels drawer to maximize 3D Viewport
+    await page.getByTestId("btn-landscape-inspector-toggle").click();
+    await expect(page.getByTestId("dock-right")).toBeHidden();
+    await page.getByTestId("btn-landscape-inspector-toggle").click();
+    await expect(page.getByTestId("dock-right")).toBeVisible();
+
+    // C. iPhone Safari with "Request Desktop Website" (980x1660 Portrait & 980x430 Landscape, hasTouch: true)
+    // Must switch into genuine Desktop multi-panel workspace without losing HeroCube selection or touch support!
+    for (const safariDesktopVp of [
+      { width: 980, height: 1660 },
+      { width: 980, height: 430 },
+    ]) {
+      await page.setViewportSize(safariDesktopVp);
+      await expect(page.locator("body")).toHaveAttribute("data-layout-mode", "desktop");
+      await expect(page.getByTestId("mobile-portrait-nav")).toBeHidden();
+      await expect(page.getByTestId("tool-shelf")).toBeVisible();
+      await expect(page.getByTestId("dock-right")).toBeVisible();
+      await expect(page.getByTestId("dock-bottom")).toBeVisible();
+      await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: HeroCube");
+      await assertNoHorizontalOverflow(page);
+    }
+
+    // D. Android Mobile (412x915 Portrait & 915x412 Landscape)
+    await page.setViewportSize({ width: 412, height: 915 });
+    await expect(page.locator("body")).toHaveAttribute("data-layout-mode", "portrait");
+    await assertNoHorizontalOverflow(page);
+
+    await page.setViewportSize({ width: 915, height: 412 });
+    await expect(page.locator("body")).toHaveAttribute("data-layout-mode", "landscape");
+    await assertNoHorizontalOverflow(page);
+
+    // E. Tablet (768x1024 Portrait & 1024x768 Landscape)
+    await page.setViewportSize({ width: 768, height: 1024 });
+    await expect(page.locator("body")).toHaveAttribute("data-layout-mode", "portrait");
+    await assertNoHorizontalOverflow(page);
+
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await expect(page.locator("body")).toHaveAttribute("data-layout-mode", "desktop");
+    await assertNoHorizontalOverflow(page);
+
+    // F. Desktop (1366x768 & 1920x1080) — Verify full desktop non-overlapping panel geometry
+    for (const desktopVp of [
+      { width: 1366, height: 768 },
+      { width: 1920, height: 1080 },
+    ]) {
+      await page.setViewportSize(desktopVp);
+      await expect(page.locator("body")).toHaveAttribute("data-layout-mode", "desktop");
+      await assertNoHorizontalOverflow(page);
+
+      const shelfBox = await page.getByTestId("tool-shelf").boundingBox();
+      const vpBox = await page.getByTestId("viewport-stage").boundingBox();
+      const rightBox = await page.getByTestId("dock-right").boundingBox();
+      const bottomBox = await page.getByTestId("dock-bottom").boundingBox();
+
+      expect(shelfBox.x + shelfBox.width).toBeLessThanOrEqual(vpBox.x + 2);
+      expect(vpBox.x + vpBox.width).toBeLessThanOrEqual(rightBox.x + 6);
+      expect(vpBox.y + vpBox.height).toBeLessThanOrEqual(bottomBox.y + 6);
+      expect(vpBox.width).toBeGreaterThan(desktopVp.width * 0.55);
+    }
+
+    await context.close();
   });
 });

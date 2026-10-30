@@ -711,6 +711,55 @@ core::Status EditorController::executeActionJson(std::string_view action_json) {
         return applyWorkspacePresetByName(pv->asString());
     }
 
+    if (action == "set_dock_ratios") {
+        const auto& cur = session_.workspace().state();
+        float left_r = cur.left_dock_width_ratio;
+        float right_r = cur.right_dock_width_ratio;
+        float bottom_r = cur.bottom_dock_height_ratio;
+        if (const auto* lv = cmd.findKey("left"); lv != nullptr) {
+            auto lr = parseJsonFloat(lv, "left");
+            if (!lr) { recordStatus(core::Status(lr.error()), {}); return lr.error(); }
+            left_r = lr.value();
+        }
+        if (const auto* rv = cmd.findKey("right"); rv != nullptr) {
+            auto rr = parseJsonFloat(rv, "right");
+            if (!rr) { recordStatus(core::Status(rr.error()), {}); return rr.error(); }
+            right_r = rr.value();
+        }
+        if (const auto* bv = cmd.findKey("bottom"); bv != nullptr) {
+            auto br = parseJsonFloat(bv, "bottom");
+            if (!br) { recordStatus(core::Status(br.error()), {}); return br.error(); }
+            bottom_r = br.value();
+        }
+        setWorkspaceDockRatios(left_r, right_r, bottom_r);
+        return core::Status::ok();
+    }
+
+    if (action == "set_panel_dock") {
+        const auto* pv = cmd.findKey("panel");
+        const auto* dv = cmd.findKey("dock");
+        if (pv == nullptr || !pv->isString() || dv == nullptr || !dv->isString()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Invalid set_panel_dock payload");
+            recordStatus(st, {});
+            return st;
+        }
+        const auto panel = parsePanelKeyFlexible(pv->asString());
+        const auto dock = project::parseDockRegionSlug(dv->asString());
+        if (!panel.has_value() || !dock.has_value()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Unknown panel or dock region");
+            recordStatus(st, {});
+            return st;
+        }
+        std::uint32_t order = 0;
+        if (const auto* ov = cmd.findKey("tab_order"); ov != nullptr && ov->isNumber()) {
+            if (auto oid = parseJsonId(ov, "tab_order"); oid.hasValue()) {
+                order = static_cast<std::uint32_t>(oid.value());
+            }
+        }
+        setWorkspacePanelDock(panel.value(), dock.value(), order);
+        return core::Status::ok();
+    }
+
     if (action == "import_workspace_json") {
         const auto* jv = cmd.findKey("json_text");
         if (jv == nullptr || !jv->isString()) {
@@ -917,6 +966,31 @@ core::Status EditorController::executeActionJson(std::string_view action_json) {
 
     if (action == "new_starter_project") {
         return newStarterProject();
+    }
+
+    if (action == "create_new_project") {
+        ProjectTemplate tmpl = ProjectTemplate::StarterShowcase;
+        if (const auto* tv = cmd.findKey("template"); tv != nullptr && tv->isString()) {
+            const auto& ts = tv->asString();
+            if (ts == "starter" || ts == "showcase") tmpl = ProjectTemplate::StarterShowcase;
+            else if (ts == "minimal_cube" || ts == "cube") tmpl = ProjectTemplate::MinimalCube;
+            else if (ts == "empty" || ts == "empty_stage") tmpl = ProjectTemplate::EmptyStage;
+            else if (ts == "shader_ball" || ts == "shading") tmpl = ProjectTemplate::ShaderBall;
+            else {
+                auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Unknown project template: " + ts);
+                recordStatus(st, {});
+                return st;
+            }
+        }
+        std::string pname;
+        if (const auto* nv = cmd.findKey("project_name"); nv != nullptr && nv->isString()) {
+            pname = nv->asString();
+        }
+        std::string pauthor;
+        if (const auto* av = cmd.findKey("author"); av != nullptr && av->isString()) {
+            pauthor = av->asString();
+        }
+        return createNewProject(tmpl, std::move(pname), std::move(pauthor));
     }
 
     if (action == "load_inline_json") {

@@ -23,6 +23,15 @@ enum class WorkspacePreset : std::uint8_t {
     Modeling = 1,
     Shading = 2,
     AnimationPrep = 3,
+    Layout = 4,
+    Sculpting = 5,
+    Rendering = 6,
+    Compositing = 7,
+    VFX = 8,
+    GeometryNodes = 9,
+    UvEditing = 10,
+    Animation2D = 11,
+    VideoEditing = 12,
 };
 
 struct PanelRect {

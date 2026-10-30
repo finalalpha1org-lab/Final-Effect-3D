@@ -1,4 +1,4 @@
-# Final Effect 3D — Stage 1–4 Architecture (`v0.4.0`)
+# Final Effect 3D — Stage 1–5 Architecture (`v0.5.0`)
 
 ## 1. Architectural Principles
 
@@ -18,7 +18,7 @@ Final Effect 3D is architected as a modular C++20 engine core surrounded by thin
 finaleffect::platform   (IFileSystem, IClock, AppPaths, IWindow, InputEvent)
         │
         ▼
-finaleffect::core       (Version 0.4.0, Error/Result, Logger, ResourceStats, Engine, IApplication)
+finaleffect::core       (Version 0.5.0, Error/Result, Logger, ResourceStats, Engine, IApplication)
         │
         ▼
 finaleffect::math       (Vec2..4, Quat, Mat4, Transform, Ray, AABB, Intersections)
@@ -105,7 +105,33 @@ finaleffect::app        (TransformGizmo, WorkspaceManager, OrbitCameraController
 
 ---
 
-## 6. Planned Repository Modules (Stage 5+)
+## 6. Stage 5 Complete Creative Application & Multi-Device UI/UX Architecture (`v0.5.0`)
+
+### A. Three-Level Application Flow
+
+1. **Level 1 — Real Engine Initialization Splash Screen (`#app-splash`)**:
+   * Driven strictly by actual Emscripten module loading (`Module.setStatus`) and C++20 initialization milestones exported from `apps/web/main.cpp` (`_fe3d_is_ready`, `_fe3d_get_boot_stage`, `_fe3d_get_boot_message`, `_fe3d_get_init_error`).
+   * Never uses fake timers; if WebAssembly loading or WebGL 2.0 context creation fails, displays diagnostic details and blocks transition into broken screens.
+2. **Level 2 — Main Home, Extensible 6-Studio Selector & Reusable Project Launcher (`#app-home`, `web/studios.js`)**:
+   * **6 Creative Studios**: `3D Studio` (fully operational) alongside `Landscaping Studio`, `Character Studio`, `2D Studio`, `Sculpting Studio`, and `Shade Studio` (honestly presented as planned architectural slots with zero fake launch controls or dummy tools).
+   * **Reusable Project Launcher**: Implemented for `3D Studio` (`ProjectTemplate::{StarterShowcase, MinimalCube, EmptyStage, ShaderBall}` via `EditorController::createNewProject`), real `.fe3d` / `.fe3dbin` VFS import with corruption diagnostics, and real Recent Projects history (`localStorage` metadata + `IndexedDB` `.fe3d` payload cache + genuine WebGL 2.0 canvas thumbnails; `Remove` deletes only the recent record, never user files).
+3. **Level 3 — Professional Blender/Maya-Inspired 3D Studio Workspace (`#app-studio-3d`)**:
+   * **5 Workspace Regions**: Top App Menubar + 12 Workspace Tabs + Contextual Mode Header, Left Collapsible Tool Shelf, Center Priority WebGL 2.0 3D Viewport, Right Stacked Scene Outliner + Vertical-Tabbed Properties/Material Inspector (with live 96×96 3D Cook-Torrance sphere preview), and Resizable/Collapsible Bottom Multi-Editor Area.
+   * **12 Shared-Scene Workspaces**: `Layout`, `Modeling`, `Sculpting`, `Shading`, `Animation`, `Rendering`, `Compositing`, `VFX`, `Geometry Nodes`, `UV Editing`, `2D Animation`, and `Video Editing` (`WorkspaceManager::applyPreset`). Every workspace is a reusable editor arrangement over the **exact same live C++ `Scene`, selection, materials, cameras, lights, and `CommandStack`**. Unfinished node/UV/compositor/sequencer editors are clearly labeled as structural foundations rather than fake tools.
+   * **Independent Layout Persistence**: Custom dock split ratios (`set_dock_ratios`) and saved layouts (`fe3d.saved_workspace_layout.v2`) persist separately from `.fe3d` scene objects and materials.
+
+### B. Unified Desktop, Mobile Landscape, Mobile Portrait & Safari Desktop Mode Strategy
+
+* **Single Unified Application**: `#fe3d-canvas` and the C++20 `StudioSession` remain mounted across all views and layout modes without duplicating DOM state or resetting WebGL 2.0 resources.
+* **Viewport-Dimension Responsive Modes (Never Gated on `pointer: coarse`)**:
+  * **Desktop Mode (`width >= 960px`)**: Full multi-panel desktop studio on `1366×768`, `1920×1080`, Tablet Landscape `1024×768`, AND iPhone Safari **Request Desktop Website** (`~980px` width in both portrait and landscape, even when `hasTouch` is true).
+  * **Mobile Landscape Pro Mode (`width < 960px && width > height`)**: Preferred compact horizontal creative workspace maximizing the 3D Viewport with quick toggleable side Inspector/Outliner panels.
+  * **Mobile Portrait Mode (`width < 960px && height >= width`)**: Viewport-first vertical layout keeping the live 3D Viewport visible above accessible bottom editor drawers (`Viewport`, `Outliner`, `Inspector`, `Materials`, `Assets`, `Timeline`, `Console`).
+* **Conflict-Free Pointer & Multi-Touch Input**: W3C Pointer Events route touch gizmo handle hits (`_fe3d_hit_test_gizmo` -> `_fe3d_pointer_event`) directly to `TransformGizmo`, `< 8px` single-finger taps to `_fe3d_touch_tap` (with optional `+Multi` additive toggle), single-finger drags to `_fe3d_camera_orbit`/`pan`/`zoom`, and two-finger gestures to simultaneous pinch-zoom and midpoint pan.
+
+---
+
+## 7. Planned Repository Modules (Stage 6+)
 
 * `platform/ios/`: Objective-C++ / Swift `UIViewController` + `CAMetalLayer` host integration.
 * `platform/android/`: Android NDK `GameActivity` / `ANativeWindow` host integration.

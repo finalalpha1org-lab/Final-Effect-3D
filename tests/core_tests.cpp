@@ -49,8 +49,8 @@ public:
 };
 
 FE_TEST(Core, VersionAndResult) {
-    FE_EXPECT_EQ(kEngineVersion.toString(), std::string("0.4.0"));
-    FE_EXPECT_TRUE((Version{0, 3, 0} > Version{0, 2, 0}));
+    FE_EXPECT_EQ(kEngineVersion.toString(), std::string("0.5.0"));
+    FE_EXPECT_TRUE((Version{0, 5, 0} > Version{0, 4, 0}));
 
     auto ok_res = Result<int>::ok(42);
     FE_REQUIRE_TRUE(ok_res.hasValue());

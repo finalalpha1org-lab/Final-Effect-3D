@@ -141,6 +141,7 @@ jobs:
           test -f build/ci-wasm/finaleffect_web.wasm
           test -f build/ci-wasm/index.html
           test -f build/ci-wasm/editor.css
+          test -f build/ci-wasm/studios.js
           test -f build/ci-wasm/editor.js
 
       - name: Install Playwright & Headless Chromium

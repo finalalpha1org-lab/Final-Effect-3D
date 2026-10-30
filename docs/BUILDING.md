@@ -111,6 +111,11 @@ Launches Headless Chromium with WebGL 2.0 (`--use-gl=angle --use-angle=swiftshad
 * **`Delete` / `Backspace`**: Delete selected mesh elements (in Mesh Edit mode) or selected object (in Object mode)
 * **`Ctrl+Z` / `Ctrl+Y` (or `Ctrl+Shift+Z`)**: Undo / Redo commands
 * **`Space`**: Pause / resume showcase rig animation
+* **Touch / Mobile & Stylus Gestures (Browser 3D Studio)**:
+  * **1-Finger Tap**: Select 3D object (`Object` mode) or mesh element (`Vertex` / `Edge` / `Face` mode; toggle `+Multi` pill for additive multi-selection)
+  * **1-Finger Drag on Gizmo Handle**: Interactive 3D Move / Rotate / Scale manipulation
+  * **1-Finger Drag on Empty/Scene Area**: Camera Orbit (or Pan / Zoom via top-right Touch Nav cluster)
+  * **2-Finger Pinch & Drag**: Simultaneous dolly zoom and view-plane camera pan
 
 ### Headless CLI Mode (Works Anywhere, Including Headless Servers/CI)
 

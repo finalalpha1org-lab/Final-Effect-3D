@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Final Effect 3D Contributors
 //
-// Final Effect 3D — Browser / WebAssembly Studio Host (Emscripten + WebGL 2.0)
+// Final Effect 3D — Browser / WebAssembly Studio Host (Emscripten + WebGL 2.0, Stage 5 v0.5.0)
 // Shares finaleffect_core, finaleffect_math, finaleffect_scene, finaleffect_project,
 // finaleffect_rendering, and finaleffect_app (StudioSession + EditorController) unchanged
 // with the desktop host.
@@ -47,12 +47,18 @@ EM_JS(void, fe3d_get_viewport_css_size, (double* out_w, double* out_h), {
     const stage = document.getElementById("viewport-stage") || document.getElementById("fe3d-canvas");
     if (!stage) {
         HEAPF64[out_w >> 3] = 960.0;
-        HEAPF64[out_h >> 3] = 600.0;
+        HEAPF64[out_h >> 3] = 540.0;
         return;
     }
     const rect = stage.getBoundingClientRect();
-    HEAPF64[out_w >> 3] = Math.max(1.0, rect.width);
-    HEAPF64[out_h >> 3] = Math.max(1.0, rect.height);
+    if (rect.width < 16.0 || rect.height < 16.0) {
+        // Preserve a valid offscreen framebuffer size while Home or Splash view is active.
+        HEAPF64[out_w >> 3] = 960.0;
+        HEAPF64[out_h >> 3] = 540.0;
+        return;
+    }
+    HEAPF64[out_w >> 3] = rect.width;
+    HEAPF64[out_h >> 3] = rect.height;
 });
 
 EM_JS(void, fe3d_client_to_canvas_css, (double client_x, double client_y, double* out_x, double* out_y), {
@@ -184,6 +190,12 @@ public:
         return fb_size_;
     }
 
+    [[nodiscard]] double devicePixelRatio() const noexcept { return dpr_; }
+
+    void enqueueSyntheticEvent(finaleffect::platform::InputEvent ev) {
+        pending_events_.push_back(std::move(ev));
+    }
+
     void swapBuffers() override {
         // Browser compositor presents WebGL2 default framebuffer automatically at end of rAF callback.
     }
@@ -259,7 +271,6 @@ private:
             .y = fb_y,
             .mods = extractMouseMods(*ev),
         });
-        // Allow default browser focus transition onto #fe3d-canvas so active UI <input> blurs cleanly.
         return EM_FALSE;
     }
 
@@ -325,7 +336,6 @@ private:
     }
 
     static EM_BOOL onKey(int event_type, const EmscriptenKeyboardEvent* ev, void* user_data) {
-        // Do not intercept keyboard typing when an editor <input>, <select>, or <textarea> has focus.
         if (fe3d_is_text_input_focused() != 0) {
             return EM_FALSE;
         }
@@ -371,6 +381,8 @@ struct WebHostContext {
     std::unique_ptr<finaleffect::app::StudioSession> session;
     std::unique_ptr<finaleffect::app::EditorController> editor;
     int ready_state{0}; // 0 = initializing, 1 = ready, -1 = error
+    int boot_stage{0};  // 1 = WebGL2 Context, 2 = PBR Shaders & Engine, 3 = Studio Controller, 4 = Ready
+    std::string boot_message{"Initializing WebAssembly runtime..."};
     std::string init_error;
     std::string state_json_buffer{"{}"};
     std::string export_json_buffer;
@@ -407,6 +419,14 @@ extern "C" {
 
 EMSCRIPTEN_KEEPALIVE int fe3d_is_ready() {
     return g_web_ctx != nullptr ? g_web_ctx->ready_state : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int fe3d_get_boot_stage() {
+    return g_web_ctx != nullptr ? g_web_ctx->boot_stage : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE const char* fe3d_get_boot_message() {
+    return g_web_ctx != nullptr ? g_web_ctx->boot_message.c_str() : "Loading WebAssembly module...";
 }
 
 EMSCRIPTEN_KEEPALIVE const char* fe3d_get_init_error() {
@@ -508,6 +528,108 @@ EMSCRIPTEN_KEEPALIVE const char* fe3d_export_workspace_json() {
     return g_web_ctx->workspace_json_buffer.c_str();
 }
 
+EMSCRIPTEN_KEEPALIVE int fe3d_hit_test_gizmo(double css_x, double css_y) {
+    if (g_web_ctx == nullptr || g_web_ctx->session == nullptr) {
+        return 0;
+    }
+    const double dpr = g_web_ctx->window.devicePixelRatio();
+    return g_web_ctx->session->hitTestGizmoAtScreenPosition(
+               static_cast<float>(css_x * dpr),
+               static_cast<float>(css_y * dpr))
+               ? 1
+               : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int fe3d_touch_tap(double css_x, double css_y, int additive) {
+    if (g_web_ctx == nullptr || g_web_ctx->session == nullptr || g_web_ctx->editor == nullptr) {
+        return 0;
+    }
+    const double dpr = g_web_ctx->window.devicePixelRatio();
+    const auto fx = static_cast<float>(css_x * dpr);
+    const auto fy = static_cast<float>(css_y * dpr);
+    if (g_web_ctx->session->editorMode() == finaleffect::scene::EditMode::Object) {
+        const auto hit = g_web_ctx->editor->pickViewportPixel(fx, fy);
+        return hit.has_value() ? 1 : 0;
+    }
+    return g_web_ctx->session->pickMeshElementAtScreenPosition(fx, fy, additive != 0) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void fe3d_pointer_event(
+    int event_kind,
+    int button,
+    double css_x,
+    double css_y,
+    int shift,
+    int ctrl,
+    int alt,
+    int meta) {
+    if (g_web_ctx == nullptr || g_web_ctx->session == nullptr) {
+        return;
+    }
+    const double dpr = g_web_ctx->window.devicePixelRatio();
+    const double fb_x = css_x * dpr;
+    const double fb_y = css_y * dpr;
+
+    if (event_kind == 0) {
+        (void)g_web_ctx->session->handleInputEvent(finaleffect::platform::CursorMoveEvent{
+            .x = fb_x,
+            .y = fb_y,
+        });
+        return;
+    }
+
+    finaleffect::platform::MouseButton mb = finaleffect::platform::MouseButton::Left;
+    if (button == 1) mb = finaleffect::platform::MouseButton::Middle;
+    else if (button == 2) mb = finaleffect::platform::MouseButton::Right;
+
+    const auto action = (event_kind == 1)
+                            ? finaleffect::platform::KeyAction::Press
+                            : finaleffect::platform::KeyAction::Release;
+    (void)g_web_ctx->session->handleInputEvent(finaleffect::platform::CursorMoveEvent{
+        .x = fb_x,
+        .y = fb_y,
+    });
+    (void)g_web_ctx->session->handleInputEvent(finaleffect::platform::MouseButtonEvent{
+        .button = mb,
+        .action = action,
+        .x = fb_x,
+        .y = fb_y,
+        .mods = {
+            .shift = shift != 0,
+            .ctrl = ctrl != 0,
+            .alt = alt != 0,
+            .super = meta != 0,
+        },
+    });
+}
+
+EMSCRIPTEN_KEEPALIVE void fe3d_camera_orbit(double dx_css, double dy_css) {
+    if (g_web_ctx == nullptr || g_web_ctx->session == nullptr) {
+        return;
+    }
+    const double dpr = g_web_ctx->window.devicePixelRatio();
+    (void)g_web_ctx->session->orbitViewportCamera(
+        static_cast<float>(dx_css * dpr),
+        static_cast<float>(dy_css * dpr));
+}
+
+EMSCRIPTEN_KEEPALIVE void fe3d_camera_pan(double dx_css, double dy_css) {
+    if (g_web_ctx == nullptr || g_web_ctx->session == nullptr) {
+        return;
+    }
+    const double dpr = g_web_ctx->window.devicePixelRatio();
+    (void)g_web_ctx->session->panViewportCamera(
+        static_cast<float>(dx_css * dpr),
+        static_cast<float>(dy_css * dpr));
+}
+
+EMSCRIPTEN_KEEPALIVE void fe3d_camera_zoom(double wheel_steps) {
+    if (g_web_ctx == nullptr || g_web_ctx->session == nullptr) {
+        return;
+    }
+    (void)g_web_ctx->session->zoomViewportCamera(static_cast<float>(wheel_steps));
+}
+
 } // extern "C"
 
 int main() {
@@ -517,18 +639,25 @@ int main() {
     auto ctx = std::make_unique<WebHostContext>(cfg);
     g_web_ctx = ctx.get();
 
+    ctx->boot_stage = 1;
+    ctx->boot_message = "Creating HTML5 WebGL 2.0 graphics context...";
+
     auto win_st = ctx->window.initialize({
         .title = "Final Effect 3D — Studio WebAssembly",
         .width = 960,
-        .height = 600,
+        .height = 540,
     });
     if (!win_st) {
         ctx->ready_state = -1;
         ctx->init_error = win_st.error().format();
+        ctx->boot_message = "WebGL 2.0 context initialization failed";
         std::cerr << "[FinalEffect3D Web] Canvas init failed: " << ctx->init_error << '\n';
         ctx.release();
         return EXIT_FAILURE;
     }
+
+    ctx->boot_stage = 2;
+    ctx->boot_message = "Compiling GLSL ES 3.00 Cook-Torrance PBR shaders & starting C++20 engine...";
 
     auto webgl_device = std::make_unique<finaleffect::rendering::WebGL2RenderDevice>(
         ctx->window.glProcLoader());
@@ -539,16 +668,25 @@ int main() {
     if (!init_st) {
         ctx->ready_state = -1;
         ctx->init_error = init_st.error().format();
+        ctx->boot_message = "Engine & shader initialization failed";
         std::cerr << "[FinalEffect3D Web] Engine init failed: " << ctx->init_error << '\n';
         ctx->window.shutdown();
         ctx.release();
         return EXIT_FAILURE;
     }
 
+    ctx->boot_stage = 3;
+    ctx->boot_message = "Initializing 3D Studio controller, workspace manager & PBR sphere preview...";
+
     ctx->editor = std::make_unique<finaleffect::app::EditorController>(*ctx->session);
+
+    // Render one initial frame immediately so framebuffer & GPU buffers are primed before Studio entry.
+    (void)ctx->engine.stepFrame();
+
+    ctx->boot_stage = 4;
+    ctx->boot_message = "Final Effect 3D v0.5.0 Ready";
     ctx->ready_state = 1;
 
-    // Release unique_ptr ownership into the Emscripten browser animation loop.
     emscripten_set_main_loop_arg(&onBrowserFrame, ctx.release(), 0, EM_TRUE);
     return EXIT_SUCCESS;
 }

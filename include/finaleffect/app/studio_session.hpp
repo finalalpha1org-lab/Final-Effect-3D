@@ -71,6 +71,12 @@ public:
     // Frames selectedObject() (or the entire visible scene when nothing is selected) in the active camera.
     [[nodiscard]] core::Status frameSelectionOrScene();
 
+    // Direct camera & gizmo hit-test helpers for touch/stylus/multi-pointer hosts.
+    [[nodiscard]] core::Status orbitViewportCamera(float delta_pixels_x, float delta_pixels_y);
+    [[nodiscard]] core::Status panViewportCamera(float delta_pixels_x, float delta_pixels_y);
+    [[nodiscard]] core::Status zoomViewportCamera(float wheel_steps);
+    [[nodiscard]] bool hitTestGizmoAtScreenPosition(float screen_x, float screen_y) const noexcept;
+
     [[nodiscard]] scene::ObjectId selectedObject() const noexcept { return selected_object_; }
     void setSelectedObject(scene::ObjectId id) noexcept;
 

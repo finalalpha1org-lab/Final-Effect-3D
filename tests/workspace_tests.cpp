@@ -105,6 +105,31 @@ FE_TEST(Workspace, StandaloneLayoutJsonPersistenceRoundTrip) {
     std::filesystem::remove_all(temp_dir, ec);
 }
 
+FE_TEST(Workspace, AllTwelveCreativeStudioWorkspacePresetsResolveCleanly) {
+    WorkspaceManager wm;
+    const char* slugs[] = {
+        "layout",
+        "modeling",
+        "sculpting",
+        "shading",
+        "animation",
+        "rendering",
+        "compositing",
+        "vfx",
+        "geometry_nodes",
+        "uv_editing",
+        "animation_2d",
+        "video_editing",
+    };
+    for (const char* slug : slugs) {
+        FE_REQUIRE_TRUE(wm.applyPresetByName(slug).hasValue());
+        FE_EXPECT_TRUE(wm.isPanelVisible(WorkspacePanelId::Viewport3D));
+        const auto layout = wm.computeDockLayout(1366, 768);
+        FE_EXPECT_TRUE(layout.center_viewport.width > 400.0f);
+        FE_EXPECT_TRUE(layout.center_viewport.height > 300.0f);
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {

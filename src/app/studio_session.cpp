@@ -472,6 +472,46 @@ core::Status StudioSession::frameSelectionOrScene() {
     return core::Status::ok();
 }
 
+core::Status StudioSession::orbitViewportCamera(float delta_pixels_x, float delta_pixels_y) {
+    camera_controller_.orbit(
+        -delta_pixels_x * config_.orbit_radians_per_pixel,
+        -delta_pixels_y * config_.orbit_radians_per_pixel);
+    return applyCameraControllerToScene();
+}
+
+core::Status StudioSession::panViewportCamera(float delta_pixels_x, float delta_pixels_y) {
+    float fov_y = math::degToRad(48.0f);
+    if (const auto* cam_obj = document_.scene.findObject(document_.scene.activeCamera());
+        cam_obj != nullptr && cam_obj->camera.has_value()) {
+        fov_y = cam_obj->camera->fov_y_radians;
+    }
+    camera_controller_.pan(
+        delta_pixels_x,
+        delta_pixels_y,
+        window_.framebufferSize().height,
+        fov_y);
+    return applyCameraControllerToScene();
+}
+
+core::Status StudioSession::zoomViewportCamera(float wheel_steps) {
+    if (std::fabs(wheel_steps) > 1.0e-5f) {
+        camera_controller_.zoom(wheel_steps);
+        return applyCameraControllerToScene();
+    }
+    return core::Status::ok();
+}
+
+bool StudioSession::hitTestGizmoAtScreenPosition(float screen_x, float screen_y) const noexcept {
+    const auto frame = computeActiveGizmoFrame();
+    const auto ray = computeViewportRay(screen_x, screen_y);
+    if (!frame.has_value() || !ray.has_value()) {
+        return false;
+    }
+    const GizmoMode eff_mode =
+        (editor_mode_ == scene::EditMode::Object) ? gizmo_.mode() : GizmoMode::Translate;
+    return TransformGizmo::pickHandle(eff_mode, frame.value(), ray.value()).has_value();
+}
+
 core::Status StudioSession::processInputEvent(const platform::InputEvent& event) {
     if (const auto* mb = std::get_if<platform::MouseButtonEvent>(&event)) {
         last_cursor_x_ = mb->x;
