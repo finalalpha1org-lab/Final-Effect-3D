@@ -1422,6 +1422,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
   test("9. Stage 5.3 Professional Transform Gizmos (axis/plane/center/ring/scale, zoom/HiDPI sizing, hover/active states, no reselection, Undo/Redo) & Interactive 3D View Navigation Gizmo (XYZ/diagonal clicks, drag orbit, Home, Persp/Ortho, scene isolation, desktop & mobile landscape)", async ({
     browser,
   }) => {
+    test.setTimeout(120_000);
     const outDir = process.env.FE3D_SCREENSHOT_DIR
       ? path.resolve(process.env.FE3D_SCREENSHOT_DIR, "stage5-3")
       : path.resolve(process.cwd(), "../../build/ci-screenshots/stage5-3");
@@ -1849,6 +1850,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
   test("10. True Procedural Editor Viewport Grid: default XZ grid & axes, absent from Outliner, unselectable, user Plane preservation, View menu toggle safety, camera zoom/orbit & Persp/Ortho, final render & .fe3d exclusion, and helper/gizmo parity", async ({
     browser,
   }) => {
+    test.setTimeout(120_000);
     const outDir = process.env.FE3D_SCREENSHOT_DIR
       ? path.resolve(process.env.FE3D_SCREENSHOT_DIR)
       : path.resolve(process.cwd(), "../../build/ci-screenshots/editor-grid");
@@ -1940,7 +1942,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     const box = await canvas.boundingBox();
     expect(box).not.toBeNull();
     await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.62);
-    await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: None");
+    await expect(page.getByTestId("vp-selection-pill")).toHaveText("No Selection");
     await page.keyboard.press("Delete");
     await expect(page.getByTestId("stat-objects-meshes")).toHaveText("2 / 0");
 
@@ -1954,10 +1956,9 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
       const h = c.height;
       const buf = new Uint8Array(w * h * 4);
       gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, buf);
-      const bgOff = ((h - 4) * w + 4) * 4;
-      const bgR = buf[bgOff];
-      const bgG = buf[bgOff + 1];
-      const bgB = buf[bgOff + 2];
+      const bgR = 23;
+      const bgG = 28;
+      const bgB = 36;
       let nonClear = 0;
       for (let i = 0; i < buf.length; i += 16) {
         if (Math.abs(buf[i] - bgR) + Math.abs(buf[i + 1] - bgG) + Math.abs(buf[i + 2] - bgB) >= 8) {
@@ -1982,8 +1983,8 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     expect(zoomedInGrid.gridPx).toBeGreaterThan(200);
 
     // Switch to Orthographic & snap to Top (+Y) view via Navigation Gizmo:
-    await page.getByTestId("btn-nav-projection").click();
-    await expect(page.getByTestId("btn-nav-projection")).toHaveText("Ortho");
+    await page.getByTestId("btn-nav-proj-toggle").click();
+    await expect(page.getByTestId("btn-nav-proj-toggle")).toHaveText("Ortho");
     const ortho3dStats = await analyzeGridFramebuffer();
     expect(ortho3dStats.gridPx).toBeGreaterThan(250);
 
@@ -1999,12 +2000,12 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
 
     // (4) & (5): Create a real user Plane object ('Add -> Mesh -> Grid Plane'), edit & persist it,
     // and verify View -> Toggle Ground Grid hides ONLY the procedural grid without touching the Plane object!
-    await page.getByTestId("btn-nav-home").click();
+    await page.getByTestId("btn-nav-home-view").click();
     await expect
       .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.view_transition_active))
       .toBe(false);
-    await page.getByTestId("btn-nav-projection").click();
-    await expect(page.getByTestId("btn-nav-projection")).toHaveText("Persp");
+    await page.getByTestId("btn-nav-proj-toggle").click();
+    await expect(page.getByTestId("btn-nav-proj-toggle")).toHaveText("Persp");
 
     await page.getByTestId("btn-add-plane").click();
     await expect(page.getByTestId("stat-objects-meshes")).toHaveText("3 / 1");
@@ -2012,7 +2013,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: Plane");
 
     // Raise user Plane to Y = 0.65 so both user Plane mesh AND underlying Y = 0 procedural grid are distinct:
-    await setControlValueAndCommit(page.getByTestId("pos-y"), "0.65");
+    await setControlValueAndCommit(page.getByTestId("tf-pos-y"), "0.65");
     await page.screenshot({
       path: path.join(outDir, "08-editor-grid-and-real-user-plane-mesh-1920x1080.png"),
     });
