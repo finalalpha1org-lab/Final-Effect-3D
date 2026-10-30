@@ -1466,6 +1466,10 @@ core::Status WebGL2RenderDevice::beginShadowTilePass(
         return core::Status::ok();
     }
 
+    if (gl_->ActiveTexture != nullptr && gl_->BindTexture != nullptr) {
+        gl_->ActiveTexture(kGlTexture0);
+        gl_->BindTexture(kGlTexture2D, 0);
+    }
     gl_->BindFramebuffer(kGlFramebuffer, shadow_fbo_);
     gl_->Viewport(
         static_cast<GLint>(tile_x),
@@ -2254,6 +2258,12 @@ core::Status WebGL2RenderDevice::drawMesh(const DrawMeshCommand& command) {
 core::Status WebGL2RenderDevice::endFrame() {
     if (!initialized_ || !in_frame_) {
         return core::Status::fail(core::ErrorCode::InvalidState, "endFrame called without matching beginFrame");
+    }
+    if (gl_->ActiveTexture != nullptr && gl_->BindTexture != nullptr) {
+        gl_->ActiveTexture(kGlTexture1);
+        gl_->BindTexture(kGlTextureCubeMap, 0);
+        gl_->ActiveTexture(kGlTexture0);
+        gl_->BindTexture(kGlTexture2D, 0);
     }
     gl_->UseProgram(0);
     uploaded_scene_lighting_ = nullptr;

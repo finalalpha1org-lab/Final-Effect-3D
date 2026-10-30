@@ -40,9 +40,21 @@ const browser = await chromium.launch({
   args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-webgl", "--ignore-gpu-blocklist"],
 });
 
+const pageLogs = [];
 try {
   const ctx = await browser.newContext({ viewport: { width: 1920, height: 1080 }, hasTouch: true });
   const page = await ctx.newPage();
+  page.on("console", (msg) => {
+    if (msg.type() === "error" || msg.type() === "warning") {
+      pageLogs.push(`[console.${msg.type()}] ${msg.text()}`);
+    }
+  });
+  page.on("pageerror", (err) => {
+    pageLogs.push(`[pageerror] ${err && err.stack ? err.stack : String(err)}`);
+  });
+  page.on("crash", () => {
+    pageLogs.push("[crash] Chromium page crashed");
+  });
 
   await page.goto(`${baseUrl}/index.html`);
   await page.getByTestId("splash-screen").waitFor({ state: "hidden", timeout: 25_000 });
@@ -74,6 +86,10 @@ try {
   await page.screenshot({ path: path.join(outDir, "07-studio-mobile-portrait-390x844-inspector.png") });
 
   await ctx.close();
+} catch (err) {
+  const details = `${err && err.stack ? err.stack : String(err)}\nLOGS:\n${pageLogs.slice(-20).join("\n")}`;
+  console.log(`::error title=capture-baseline::${details.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A")}`);
+  throw err;
 } finally {
   await browser.close();
   server.close();
