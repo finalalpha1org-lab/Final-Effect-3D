@@ -2951,7 +2951,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await expect(page.getByTestId("stat-objects-meshes")).toHaveText("8 / 5");
 
     await page.keyboard.press("Control+z");
-    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("7 / 4");
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("7 / 5");
     await page.keyboard.press("Control+y");
     await expect(page.getByTestId("stat-objects-meshes")).toHaveText("8 / 5");
 
@@ -3024,7 +3024,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
 
     // 1. Outliner multi-selection (Ctrl+Click), Ctrl+G Group, collapse/expand hierarchy,Shift+P Unparent
     await page.getByTestId("outliner-item-HeroCube").click();
-    await page.getByTestId("outliner-item-GroundPlane").click({ modifiers: ["Control"] });
+    await page.getByTestId("outliner-item-AccentPyramid").click({ modifiers: ["Control"] });
     const selIds = await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.selected_object_ids);
     expect(selIds.length).toBe(2);
 
@@ -3153,7 +3153,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await page.getByTestId("outliner-item-HeroCube").click();
     await page.locator("#fe3d-canvas").click({ button: "right", position: { x: 320, y: 260 } });
     await expect(page.getByTestId("viewport-context-menu")).toBeVisible();
-    await expect(page.getByTestId("maya-marking-compass")).toBeVisible();
+    await expect(page.getByTestId("marking-menu-compass")).toBeVisible();
     await page.getByTestId("mm-face").click();
     await expect
       .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().editor.mode))

@@ -37,10 +37,10 @@
   --axis-y: #5dc269;
   --axis-z: #4f8ef2;
 
-  --right-dock-w: 332px;
-  --bottom-dock-h: 132px;
+  --right-dock-w: 318px;
+  --bottom-dock-h: 104px;
   --outliner-h-pct: 27%;
-  --shelf-w: 44px;
+  --shelf-w: 48px;
 
   --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
@@ -2883,14 +2883,15 @@ body[data-layout-mode="portrait"][data-mp-drawer="outliner"] .outliner-panel {
 }
 
 body[data-layout-mode="portrait"][data-mp-drawer="outliner"] .properties-shell,
-body[data-layout-mode="portrait"][data-mp-drawer="outliner"] .maya-cb-panel,
+body[data-layout-mode="portrait"][data-mp-drawer="outliner"] .maya-cb-layer-panel,
 body[data-layout-mode="portrait"][data-mp-drawer="outliner"] .maya-tool-settings-panel {
   display: none !important;
 }
 
 body[data-layout-mode="portrait"][data-mp-drawer="inspector"] .outliner-panel,
+body[data-layout-mode="portrait"][data-mp-drawer="inspector"] .maya-cb-layer-panel,
 body[data-layout-mode="portrait"][data-mp-drawer="materials"] .outliner-panel,
-body[data-layout-mode="portrait"][data-mp-drawer="materials"] .maya-cb-panel {
+body[data-layout-mode="portrait"][data-mp-drawer="materials"] .maya-cb-layer-panel {
   display: none !important;
 }
 
@@ -2908,8 +2909,7 @@ body[data-layout-mode="portrait"][data-mp-drawer="console"] .maya-viewport-panel
   min-height: 180px;
 }
 
-body[data-layout-mode="portrait"] .vp-panel-menubar,
-body[data-layout-mode="portrait"] .vp-panel-toolbar,
+body[data-layout-mode="portrait"] .vp-panel-header-strip,
 body[data-layout-mode="portrait"] .maya-shelf-tabs-row,
 body[data-layout-mode="portrait"] #maya-shelf-icons,
 body[data-layout-mode="portrait"] .maya-command-form {
@@ -3125,7 +3125,7 @@ body[data-layout-mode="portrait"] .pro-btn {
 /* ========================================================================= */
 
 .maya-menubar-row {
-  height: 26px;
+  height: 23px;
   padding: 0 6px;
   background: #282828;
   border-bottom: 1px solid #181818;
@@ -3133,7 +3133,7 @@ body[data-layout-mode="portrait"] .pro-btn {
 }
 
 .maya-brand-btn {
-  height: 20px;
+  height: 19px;
   padding: 0 6px;
   border-radius: 2px;
   border: 1px solid #444444;
@@ -3164,16 +3164,16 @@ body[data-layout-mode="portrait"] .pro-btn {
 }
 
 .maya-ws-tabs-compact {
-  max-width: 460px;
+  max-width: 440px;
 }
 
-.maya-ws-picker .menu-dropdown {
+.maya-ws-menu-item .menu-dropdown {
   right: 0;
   left: auto;
 }
 
 .maya-ws-trigger {
-  height: 20px;
+  height: 19px;
   padding: 0 7px;
   border-radius: 2px;
   border: 1px solid #424242;
@@ -3183,14 +3183,23 @@ body[data-layout-mode="portrait"] .pro-btn {
   white-space: nowrap;
 }
 
-.maya-ws-label-dim {
+.maya-ws-lbl {
   color: #8c8c8c;
   margin-right: 2px;
 }
 
+.menu-section-lbl {
+  padding: 2px 8px;
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #8c8c8c;
+}
+
 /* Row 2: Maya Status Line */
-.maya-statusline {
-  height: 28px;
+.maya-status-line {
+  height: 23px;
   padding: 0 6px;
   background: #303030;
   border-bottom: 1px solid #181818;
@@ -3201,68 +3210,88 @@ body[data-layout-mode="portrait"] .pro-btn {
   scrollbar-width: none;
 }
 
-.maya-statusline::-webkit-scrollbar {
+.maya-status-line::-webkit-scrollbar {
   display: none;
 }
 
-.maya-menuset-picker {
-  flex-shrink: 0;
-}
-
-.maya-menuset-select {
-  height: 21px;
-  padding: 0 6px;
-  border-radius: 2px;
-  border: 1px solid #484848;
-  background: #222222;
-  color: #e6e6e6;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.maya-mask-group,
-.maya-snap-group,
-.maya-right-mode-group {
+.maya-menuset-box,
+.statusline-group,
+.statusline-right-toggles {
   display: inline-flex;
   align-items: center;
   gap: 2px;
   flex-shrink: 0;
 }
 
-.maya-right-mode-group {
-  margin-left: auto;
+.statusline-spacer {
+  flex: 1 1 auto;
 }
 
-.tb-icon-btn {
-  padding: 0 5px !important;
-  min-width: 24px;
+.statusline-sep {
+  width: 1px;
+  height: 14px;
+  background: #444444;
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+.statusline-mini-lbl {
+  font-size: 10px;
+  color: #969696;
+  margin-right: 2px;
+}
+
+.maya-menuset-select {
+  height: 19px;
+  padding: 0 5px;
+  border-radius: 2px;
+  border: 1px solid #484848;
+  background: #222222;
+  color: #e6e6e6;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.sl-icon-btn {
+  height: 19px;
+  min-width: 22px;
+  padding: 0 4px;
+  border-radius: 2px;
+  border: 1px solid #444444;
+  background: #292929;
+  color: #cacaca;
+  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
 }
 
-.tb-btn.is-active,
-.maya-mask-btn.is-active,
-.maya-snap-btn.is-active {
+.sl-icon-btn:hover {
+  background: #424242;
+  color: #ffffff;
+}
+
+.sl-icon-btn.is-active,
+.tb-btn.is-active {
   background: var(--accent-blue) !important;
   border-color: var(--accent-blue-hover) !important;
   color: #ffffff !important;
 }
 
-.maya-render-btn {
-  background: #3b4752;
-  border-color: #5285a6;
-  color: #e6f2fa;
-}
-
 /* Row 3: Customizable Maya Shelf */
 .maya-shelf-bar {
+  height: auto !important;
+  padding: 0 !important;
   background: #2b2b2b;
   border-bottom: 1px solid #161616;
   display: flex;
   flex-direction: column;
+  align-items: stretch !important;
+  gap: 0 !important;
 }
 
 .maya-shelf-tabs-row {
-  height: 21px;
+  height: 18px;
   padding: 0 6px;
   background: #242424;
   border-bottom: 1px solid #1b1b1b;
@@ -3271,17 +3300,17 @@ body[data-layout-mode="portrait"] .pro-btn {
   gap: 2px;
 }
 
-.maya-shelf-gear-btn {
-  width: 22px;
+.shelf-gear-btn {
+  width: 20px;
   border: none;
   background: transparent;
   color: #9e9e9e;
-  font-size: 12px;
+  font-size: 11px;
   padding: 0;
   flex-shrink: 0;
 }
 
-.maya-shelf-gear-btn:hover {
+.shelf-gear-btn:hover {
   color: #ffffff;
   background: #3a3a3a;
 }
@@ -3299,14 +3328,14 @@ body[data-layout-mode="portrait"] .pro-btn {
 }
 
 .maya-shelf-tab {
-  height: 19px;
-  padding: 0 9px;
+  height: 17px;
+  padding: 0 8px;
   border: 1px solid transparent;
   border-bottom: none;
   border-radius: 2px 2px 0 0;
   background: transparent;
   color: #9a9a9a;
-  font-size: 10.5px;
+  font-size: 10px;
   white-space: nowrap;
 }
 
@@ -3322,42 +3351,40 @@ body[data-layout-mode="portrait"] .pro-btn {
   font-weight: 600;
 }
 
-.maya-shelf-body-row {
-  min-height: 36px;
-  padding: 2px 6px;
+.maya-shelf-icons-row {
+  height: 27px;
+  padding: 0 6px;
   background: #333333;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 6px;
+  gap: 5px;
   overflow-x: auto;
   scrollbar-width: none;
 }
 
-.maya-shelf-body-row::-webkit-scrollbar {
+.maya-shelf-icons-row::-webkit-scrollbar {
   display: none;
 }
 
 .maya-shelf-icons {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 3px;
   flex-shrink: 0;
 }
 
 .maya-shelf-item {
-  min-width: 42px;
-  height: 32px;
-  padding: 2px 4px;
+  min-width: 38px;
+  height: 23px;
+  padding: 0 5px;
   border-radius: 2px;
-  border: 1px solid transparent;
+  border: 1px solid #444444;
   background: #3b3b3b;
   color: #dadada;
   display: inline-flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1px;
+  gap: 3px;
 }
 
 .maya-shelf-item:hover {
@@ -3367,32 +3394,44 @@ body[data-layout-mode="portrait"] .pro-btn {
 }
 
 .maya-shelf-item-lbl {
-  font-size: 8.5px;
+  font-size: 9.5px;
   line-height: 1;
-  color: #bdbdbd;
-  max-width: 48px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: #cccccc;
   white-space: nowrap;
 }
 
-.maya-shelf-quick-right {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: auto;
-  flex-shrink: 0;
+.maya-popup-menu {
+  position: fixed;
+  z-index: 165;
+  min-width: 196px;
+  background: #252525;
+  border: 1px solid #525252;
+  border-radius: 3px;
+  padding: 4px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.7);
+  display: flex;
+  flex-direction: column;
 }
 
-.maya-shelf-popup {
-  position: fixed;
-  z-index: 160;
-  min-width: 190px;
+.maya-popup-menu button {
+  height: 24px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 2px;
+  background: transparent;
+  color: #dedede;
+  font-size: 11px;
+  text-align: left;
+}
+
+.maya-popup-menu button:hover:not(:disabled) {
+  background: var(--accent-blue);
+  color: #ffffff;
 }
 
 /* Left Dock (for Left-Docked Outliner layout) */
 .dock-left {
-  width: 224px;
+  width: 220px;
   flex-shrink: 0;
   background: var(--bg-panel);
   border-right: 1px solid var(--border-dark);
@@ -3406,7 +3445,7 @@ body[data-layout-mode="portrait"] .pro-btn {
   max-height: none;
 }
 
-/* Viewport Panel Wrapper + Panel Menu Bar + Panel Icon Bar */
+/* Viewport Panel Wrapper + Unified 22px Maya Panel Menu & Toolbar Strip */
 .maya-viewport-panel {
   flex: 1;
   min-width: 0;
@@ -3417,39 +3456,52 @@ body[data-layout-mode="portrait"] .pro-btn {
   background: #222222;
 }
 
-.vp-panel-menubar {
+.vp-panel-header-strip {
   height: 22px;
   padding: 0 6px;
-  background: #2d2d2d;
-  border-bottom: 1px solid #1b1b1b;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-shrink: 0;
-}
-
-.vp-panel-menus .menu-trigger {
-  height: 19px;
-  padding: 0 6px;
-  font-size: 11px;
-  color: #c6c6c6;
-}
-
-.vp-panel-cam-label {
-  font-size: 10.5px;
-  font-family: var(--font-mono);
-  color: #9e9e9e;
-}
-
-.vp-panel-toolbar {
-  height: 24px;
-  padding: 0 6px;
-  background: #343434;
+  background: #2f2f2f;
   border-bottom: 1px solid #181818;
   display: flex;
   align-items: center;
-  gap: 3px;
+  justify-content: space-between;
+  gap: 8px;
   flex-shrink: 0;
+}
+
+.vp-panel-menubar {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.vp-menu-trigger {
+  height: 18px;
+  padding: 0 5px;
+  border: none;
+  border-radius: 2px;
+  background: transparent;
+  color: #c8c8c8;
+  font-size: 10.5px;
+}
+
+.vp-menu-trigger:hover,
+.menu-item.is-open .vp-menu-trigger {
+  background: #444444;
+  color: #ffffff;
+}
+
+.vp-panel-tag {
+  font-size: 9.5px;
+  font-family: var(--font-mono);
+  color: #8c8c8c;
+  margin-left: 4px;
+}
+
+.vp-panel-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -3458,46 +3510,52 @@ body[data-layout-mode="portrait"] .pro-btn {
   display: none;
 }
 
-.vp-camera-select {
-  height: 19px;
+.vp-cam-select {
+  height: 18px;
   padding: 0 4px;
   border-radius: 2px;
-  border: 1px solid #4a4a4a;
-  background: #232323;
+  border: 1px solid #484848;
+  background: #222222;
   color: #dedede;
-  font-size: 10.5px;
+  font-size: 10px;
 }
 
-.vp-bar-sep {
+.vp-tb-sep {
   width: 1px;
-  height: 14px;
+  height: 13px;
   background: #484848;
   margin: 0 2px;
   flex-shrink: 0;
 }
 
-.vp-toolbar-btn {
-  height: 19px;
-  min-width: 22px;
-  padding: 0 5px;
+.vp-tb-mini {
+  font-size: 9.5px;
+  color: #969696;
+}
+
+.vp-tb-btn {
+  height: 18px;
+  min-width: 20px;
+  padding: 0 4px;
   border-radius: 2px;
-  border: 1px solid #454545;
-  background: #2b2b2b;
+  border: 1px solid #444444;
+  background: #282828;
   color: #c8c8c8;
-  font-size: 10px;
+  font-size: 9.5px;
   font-family: var(--font-mono);
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 2px;
   flex-shrink: 0;
 }
 
-.vp-toolbar-btn:hover {
+.vp-tb-btn:hover {
   background: #444444;
   color: #ffffff;
 }
 
-.vp-toolbar-btn.is-active {
+.vp-tb-btn.is-active {
   background: var(--accent-blue);
   border-color: var(--accent-blue-hover);
   color: #ffffff;
@@ -3509,73 +3567,53 @@ body[data-layout-mode="portrait"] .pro-btn {
 }
 
 .mm-compass-grid {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  grid-template-rows: auto auto auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   gap: 4px;
   padding: 6px;
   background: #242424;
   border-bottom: 1px solid #383838;
   border-radius: 3px;
   margin-bottom: 3px;
-  align-items: center;
 }
 
-.mm-dir-btn {
-  height: 23px !important;
+.mm-mid-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mm-center-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-blue);
+}
+
+.mm-pill {
+  height: 22px !important;
   padding: 0 8px !important;
   justify-content: center !important;
   background: #363636 !important;
   border: 1px solid #505050 !important;
   border-radius: 2px !important;
   font-weight: 600;
+  font-size: 10.5px !important;
   color: #eaeaea !important;
 }
 
-.mm-dir-btn:hover:not(:disabled) {
+.mm-pill:hover:not(:disabled) {
   background: var(--accent-blue) !important;
   border-color: var(--accent-blue-hover) !important;
 }
 
-.mm-dir-btn:disabled {
+.mm-pill:disabled {
   opacity: 0.38;
 }
 
-.mm-north {
-  grid-column: 2;
-  grid-row: 1;
-}
-.mm-west {
-  grid-column: 1;
-  grid-row: 2;
-}
-.mm-center-hub {
-  grid-column: 2;
-  grid-row: 2;
-  font-size: 9px;
-  font-family: var(--font-mono);
-  color: #8fbcd9;
-  text-align: center;
-  padding: 0 4px;
-}
-.mm-east {
-  grid-column: 3;
-  grid-row: 2;
-}
-.mm-south {
-  grid-column: 2;
-  grid-row: 3;
-}
-
 /* Hierarchical Maya Outliner Upgrades */
-.outliner-header-actions {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.maya-outliner-filter-bar {
+.outliner-search-row {
   display: flex;
   gap: 4px;
 }
@@ -3588,6 +3626,7 @@ body[data-layout-mode="portrait"] .pro-btn {
   background: var(--bg-input);
   color: var(--text-main);
   font-size: 10.5px;
+  flex-shrink: 0;
 }
 
 .outliner-twisty {
@@ -3639,10 +3678,10 @@ body[data-layout-mode="portrait"] .pro-btn {
 }
 
 /* Dedicated Maya Channel Box & Display Layer Editor */
-.maya-cb-panel {
-  flex: 0 0 236px;
-  min-height: 150px;
-  max-height: 46%;
+.maya-cb-layer-panel {
+  flex: 0 0 218px;
+  min-height: 140px;
+  max-height: 44%;
   border-bottom: 1px solid var(--border-dark);
   background: var(--bg-panel);
   display: flex;
@@ -3650,8 +3689,7 @@ body[data-layout-mode="portrait"] .pro-btn {
   overflow: hidden;
 }
 
-body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
-.maya-cb-panel:has(~ .properties-shell[hidden]) {
+.maya-cb-layer-panel:has(~ .properties-shell[hidden]) {
   flex: 1 1 auto;
   max-height: none;
 }
@@ -3674,7 +3712,7 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 2px 4px 4px;
+  padding: 2px 4px 3px;
   border-bottom: 1px solid #353535;
   margin-bottom: 2px;
   color: #e8e8e8;
@@ -3699,10 +3737,10 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
 
 .maya-cb-row {
   display: grid;
-  grid-template-columns: 1fr 86px 18px;
+  grid-template-columns: 1fr 82px 17px;
   align-items: center;
   gap: 4px;
-  height: 19px;
+  height: 18px;
   padding-left: 4px;
   background: #2b2b2b;
   border-left: 2px solid transparent;
@@ -3727,13 +3765,13 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
 
 .maya-cb-input {
   width: 100%;
-  height: 17px;
+  height: 16px;
   padding: 0 4px;
   border: 1px solid #191919;
   background: #1c1c1c;
   color: #eaeaea;
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 10px;
   text-align: right;
 }
 
@@ -3743,8 +3781,8 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
 }
 
 .maya-cb-lock-btn {
-  width: 17px;
-  height: 17px;
+  width: 16px;
+  height: 16px;
   padding: 0;
   border: 1px solid #3a3a3a;
   background: #242424;
@@ -3760,18 +3798,18 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
 }
 
 .maya-add-attr-bar {
-  margin-top: 4px;
-  padding-top: 4px;
-  border-top: 1px solid #383838;
+  padding: 3px 6px;
+  border-bottom: 1px solid #383838;
+  background: #232323;
   display: grid;
-  grid-template-columns: 1fr 58px auto;
+  grid-template-columns: 1fr 56px auto;
   gap: 3px;
 }
 
 .maya-add-attr-bar input {
-  height: 20px;
+  height: 19px;
   padding: 0 4px;
-  background: #1b1b1b;
+  background: #181818;
   border: 1px solid #3c3c3c;
   color: #eeeeee;
   font-size: 10.5px;
@@ -3785,12 +3823,31 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
 }
 
 .maya-layer-header {
-  height: 22px;
+  height: 21px;
   padding: 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #1e1e1e;
+}
+
+.maya-layer-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #cfcfcf;
+}
+
+.maya-layer-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }
 
 .maya-layer-list {
-  max-height: 76px;
+  max-height: 64px;
   overflow-y: auto;
   padding: 2px 4px;
   display: flex;
@@ -3799,7 +3856,7 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
 }
 
 .maya-layer-row {
-  height: 20px;
+  height: 19px;
   padding: 0 4px;
   background: #303030;
   border: 1px solid #202020;
@@ -3822,14 +3879,14 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
 
 .layer-box-btn,
 .layer-box-static {
-  width: 16px;
-  height: 15px;
+  width: 15px;
+  height: 14px;
   padding: 0;
   border: 1px solid #4a4a4a;
   background: #222222;
   color: #dcdcdc;
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: 9px;
   font-weight: 700;
   display: inline-flex;
   align-items: center;
@@ -3854,9 +3911,9 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
 }
 
 .layer-mini-act {
-  height: 16px !important;
+  height: 15px !important;
   padding: 0 4px !important;
-  font-size: 9.5px !important;
+  font-size: 9px !important;
 }
 
 /* Tool Settings Panel */
@@ -3869,6 +3926,13 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
   background: var(--bg-panel);
 }
 
+.maya-tool-settings-body {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 /* Maya Node-Tabbed Attribute Editor Top Tabs */
 .properties-shell {
   flex-direction: column !important;
@@ -3876,7 +3940,7 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
 
 .maya-ae-rail {
   width: 100% !important;
-  height: 26px !important;
+  height: 25px !important;
   border-right: none !important;
   border-bottom: 1px solid #181818;
   flex-direction: row !important;
@@ -3888,43 +3952,45 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
 
 .maya-ae-rail .props-tab {
   width: auto !important;
-  height: 21px !important;
+  height: 20px !important;
   padding: 0 6px !important;
-  gap: 4px;
+  gap: 3px;
   border-radius: 2px 2px 0 0;
   white-space: nowrap;
 }
 
-.maya-ae-tab-lbl {
+.ae-tab-lbl {
   font-size: 10px;
 }
 
 /* Maya Time Slider & Range Slider */
-.maya-timeline-body {
-  padding: 4px 8px !important;
+.maya-timeline-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .maya-timeslider-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
 }
 
 .maya-timeslider-track-wrap {
   position: relative;
   flex: 1;
-  min-width: 140px;
-  height: 28px;
+  min-width: 120px;
+  height: 26px;
 }
 
-.maya-timeslider-canvas {
+#maya-timeslider-canvas {
   display: block;
   width: 100%;
-  height: 28px;
+  height: 26px;
   border-radius: 2px;
 }
 
-.maya-timeslider-overlay-input {
+.sr-scrubber-overlay {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -3934,11 +4000,29 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
   margin: 0;
 }
 
-.maya-transport-cluster {
+.maya-transport-bar,
+.maya-key-bar {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   flex-shrink: 0;
+}
+
+.tl-btn {
+  height: 22px;
+  min-width: 24px;
+  padding: 0 5px;
+  border-radius: 2px;
+  border: 1px solid #454545;
+  background: #2b2b2b;
+  color: #d6d6d6;
+  font-size: 10.5px;
+  font-family: var(--font-mono);
+}
+
+.tl-btn:hover {
+  background: #424242;
+  color: #ffffff;
 }
 
 .maya-autokey-btn.is-autokey-on {
@@ -3948,36 +4032,35 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
 }
 
 .maya-rangeslider-row {
-  margin-top: 5px;
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
 }
 
-.maya-range-num {
-  width: 48px;
-  height: 20px;
+.tl-bound-input {
+  width: 46px;
+  height: 19px;
   padding: 0 4px;
   background: #1c1c1c;
   border: 1px solid #3c3c3c;
   border-radius: 2px;
   color: #e2e2e2;
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 10px;
 }
 
-.maya-range-bar-track {
+.maya-range-bar {
   position: relative;
   flex: 1;
   min-width: 60px;
-  height: 14px;
+  height: 13px;
   background: #1f1f1f;
   border: 1px solid #3a3a3a;
   border-radius: 2px;
   overflow: hidden;
 }
 
-.maya-range-bar-thumb {
+.maya-range-thumb {
   position: absolute;
   top: 1px;
   bottom: 1px;
@@ -3988,26 +4071,26 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
   border-radius: 1px;
 }
 
-.maya-tl-select {
-  height: 20px;
+.tl-select {
+  height: 19px;
   padding: 0 4px;
   background: #202020;
   border: 1px solid #3e3e3e;
   border-radius: 2px;
   color: #dcdcdc;
-  font-size: 10.5px;
+  font-size: 10px;
 }
 
 /* Maya Command Line & Help Line Footer */
 .maya-command-footer {
-  height: 25px;
+  height: 22px;
   padding: 0 6px;
   background: #232323;
   border-top: 1px solid #151515;
   gap: 8px;
 }
 
-.maya-cmd-left {
+.maya-cmdline-wrap {
   flex: 1 1 55%;
   min-width: 0;
 }
@@ -4015,9 +4098,9 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
 .maya-command-form {
   display: inline-flex;
   align-items: center;
-  flex: 0 1 320px;
-  min-width: 140px;
-  height: 19px;
+  flex: 0 1 280px;
+  min-width: 130px;
+  height: 17px;
   background: #181818;
   border: 1px solid #3c3c3c;
   border-radius: 2px;
@@ -4032,7 +4115,7 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
   border-right: 1px solid #3c3c3c;
   color: #b4d5ec;
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: 9px;
   font-weight: 700;
 }
 
@@ -4045,11 +4128,11 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
   background: transparent;
   color: #eeeeee;
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 10px;
   outline: none;
 }
 
-.maya-help-right {
+.maya-helpline-wrap {
   flex: 0 1 45%;
   justify-content: flex-end;
 }
@@ -4063,7 +4146,7 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
 }
 
 /* Maya Hold-Spacebar Hotbox Overlay */
-.maya-hotbox-overlay {
+.maya-hotbox {
   position: fixed;
   inset: 0;
   z-index: 180;
@@ -4075,12 +4158,16 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  display: grid;
-  grid-template-columns: auto auto auto;
-  grid-template-rows: auto auto auto;
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-items: center;
+  gap: 8px;
+}
+
+.hotbox-mid {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .hotbox-zone {
@@ -4093,8 +4180,25 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65);
 }
 
-.hotbox-zone button,
-.hotbox-hub-btn {
+.hotbox-west,
+.hotbox-east {
+  flex-direction: column;
+}
+
+.hotbox-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+
+.hb-cam-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.hb-btn {
   height: 23px;
   padding: 0 9px;
   border: 1px solid #4d4d4d;
@@ -4106,20 +4210,17 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
   white-space: nowrap;
 }
 
-.hotbox-zone button:hover,
-.hotbox-hub-btn:hover {
+.hb-btn:hover {
   background: var(--accent-blue);
   border-color: var(--accent-blue-hover);
   color: #ffffff;
 }
 
-.hotbox-north { grid-column: 2; grid-row: 1; }
-.hotbox-west  { grid-column: 1; grid-row: 2; flex-direction: column; }
-.hotbox-center{ grid-column: 2; grid-row: 2; display: flex; flex-direction: column; align-items: center; gap: 3px; }
-.hotbox-east  { grid-column: 3; grid-row: 2; flex-direction: column; }
-.hotbox-south { grid-column: 2; grid-row: 3; }
+.hb-btn-primary {
+  border-color: var(--accent-blue);
+}
 
-.hotbox-brand {
+.hb-brand {
   padding: 4px 12px;
   border-radius: 2px;
   background: #1f1f1f;
@@ -4164,7 +4265,7 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
 }
 
 .maya-floating-window .outliner-panel,
-.maya-floating-window .maya-cb-panel {
+.maya-floating-window .maya-cb-layer-panel {
   flex: 1 1 auto;
   max-height: 62vh;
 }
@@ -4191,16 +4292,16 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
   display: block;
 }
 
-.maya-hotkey-section {
-  border-top: 1px solid #3a3a3a;
-  padding-top: 8px;
+.maya-render-meta {
+  font-size: 10.5px;
+  font-family: var(--font-mono);
+  color: #969696;
+  text-align: center;
 }
 
-.maya-hotkey-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
+.maya-hotkey-editor-box {
+  border-top: 1px solid #3a3a3a;
+  padding-top: 8px;
 }
 
 .maya-hotkey-list {
@@ -4241,12 +4342,15 @@ body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
   }
 }
 
-body[data-layout-mode="landscape"] .maya-shelf-tabs-row,
-body[data-layout-mode="landscape"] #maya-shelf-icons,
-body[data-layout-mode="landscape"] .vp-panel-menubar,
-body[data-layout-mode="landscape"] .maya-rangeslider-row,
-body[data-layout-mode="landscape"] .maya-command-form {
-  display: none;
+body[data-layout-mode="landscape"] {
+  --bottom-dock-h: 78px;
 }
 
-
+body[data-layout-mode="landscape"] .maya-status-line,
+body[data-layout-mode="landscape"] .maya-shelf-tabs-row,
+body[data-layout-mode="landscape"] #maya-shelf-icons,
+body[data-layout-mode="landscape"] .vp-panel-header-strip,
+body[data-layout-mode="landscape"] .maya-rangeslider-row,
+body[data-layout-mode="landscape"] .maya-command-form {
+  display: none !important;
+}

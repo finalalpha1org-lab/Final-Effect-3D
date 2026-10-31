@@ -2416,6 +2416,10 @@
       const s = studio();
       if (s && s.onSync) {
         clearInterval(attachTimer);
+        if (!window.localStorage.getItem("fe3d.workspace.v2")) {
+          dispatch({ action: "set_panel_visible", panel: "timeline", visible: true });
+          if (s.setBottomEditor) s.setBottomEditor("timeline");
+        }
         s.onSync((st) => {
           syncToolAndViewportBars(st);
           renderChannelBox(st);
