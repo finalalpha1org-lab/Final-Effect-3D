@@ -421,9 +421,16 @@ struct WebHostContext {
 
 WebHostContext* g_web_ctx = nullptr;
 
+EM_JS(int, fe3d_is_home_view_occluding, (), {
+    return (document.body && document.body.dataset && document.body.dataset.appView === "home") ? 1 : 0;
+});
+
 void onBrowserFrame(void* user_data) {
     auto* ctx = static_cast<WebHostContext*>(user_data);
     if (ctx == nullptr || ctx->ready_state != 1) {
+        return;
+    }
+    if (fe3d_is_home_view_occluding() != 0) {
         return;
     }
     if (ctx->window.shouldClose()) {
