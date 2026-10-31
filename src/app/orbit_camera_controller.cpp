@@ -30,6 +30,17 @@ void OrbitCameraController::syncFromCameraTransform(
     }
 }
 
+void OrbitCameraController::setPose(
+    const math::Vec3& target,
+    float yaw_radians,
+    float pitch_radians,
+    float distance) noexcept {
+    target_ = target;
+    yaw_radians_ = std::remainder(yaw_radians, math::kTwoPi);
+    pitch_radians_ = std::clamp(pitch_radians, -kMaxPitchRadians, kMaxPitchRadians);
+    distance_ = std::clamp(distance, min_distance_, max_distance_);
+}
+
 void OrbitCameraController::orbit(float delta_yaw_radians, float delta_pitch_radians) noexcept {
     yaw_radians_ = std::remainder(yaw_radians_ + delta_yaw_radians, math::kTwoPi);
     pitch_radians_ = std::clamp(

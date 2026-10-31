@@ -13,7 +13,6 @@ struct StarterSceneHandles {
     scene::ObjectId rig_pivot{scene::ObjectId::invalid()};
     scene::ObjectId hero_cube{scene::ObjectId::invalid()};
     scene::ObjectId accent_pyramid{scene::ObjectId::invalid()};
-    scene::ObjectId ground_plane{scene::ObjectId::invalid()};
     scene::ObjectId camera{scene::ObjectId::invalid()};
     scene::ObjectId sun_light{scene::ObjectId::invalid()};
 };

@@ -8,6 +8,7 @@
 
 #include "finaleffect/rendering/opengl33_render_device.hpp"
 #include "finaleffect/rendering/renderer.hpp"
+#include "finaleffect/scene/editable_mesh.hpp"
 #include "finaleffect/scene/primitives.hpp"
 
 #include <cstddef>
@@ -34,6 +35,8 @@ struct MockGlState {
     int live_shaders{0};
     int live_programs{0};
     int draw_elements_calls{0};
+    int buffer_sub_data_calls{0};
+    int clear_calls{0};
     std::int32_t last_viewport_w{0};
     std::int32_t last_viewport_h{0};
 };
@@ -54,8 +57,11 @@ void FE_GL_APIENTRY mockViewport(std::int32_t, std::int32_t, std::int32_t w, std
 }
 void FE_GL_APIENTRY mockClearColor(float, float, float, float) {}
 void FE_GL_APIENTRY mockClearDepth(double) {}
-void FE_GL_APIENTRY mockClear(std::uint32_t) {}
+void FE_GL_APIENTRY mockClear(std::uint32_t) { ++g_gl.clear_calls; }
 void FE_GL_APIENTRY mockEnable(std::uint32_t) {}
+void FE_GL_APIENTRY mockDisable(std::uint32_t) {}
+void FE_GL_APIENTRY mockBlendFunc(std::uint32_t, std::uint32_t) {}
+void FE_GL_APIENTRY mockDepthMask(std::uint8_t) {}
 void FE_GL_APIENTRY mockDepthFunc(std::uint32_t) {}
 void FE_GL_APIENTRY mockCullFace(std::uint32_t) {}
 void FE_GL_APIENTRY mockFrontFace(std::uint32_t) {}
@@ -82,6 +88,9 @@ void FE_GL_APIENTRY mockGenBuffers(std::int32_t n, std::uint32_t* ids) {
 }
 void FE_GL_APIENTRY mockBindBuffer(std::uint32_t, std::uint32_t) {}
 void FE_GL_APIENTRY mockBufferData(std::uint32_t, std::ptrdiff_t, const void*, std::uint32_t) {}
+void FE_GL_APIENTRY mockBufferSubData(std::uint32_t, std::ptrdiff_t, std::ptrdiff_t, const void*) {
+    ++g_gl.buffer_sub_data_calls;
+}
 void FE_GL_APIENTRY mockDeleteBuffers(std::int32_t n, const std::uint32_t* ids) {
     for (std::int32_t i = 0; i < n; ++i) {
         if (ids[i] != 0) --g_gl.live_buffers;
@@ -152,6 +161,9 @@ platform::GlProcAddressFn mockGlLoader(const char* name) {
     if (sym == "glClearDepth") return toProc(&mockClearDepth);
     if (sym == "glClear") return toProc(&mockClear);
     if (sym == "glEnable") return toProc(&mockEnable);
+    if (sym == "glDisable") return toProc(&mockDisable);
+    if (sym == "glBlendFunc") return toProc(&mockBlendFunc);
+    if (sym == "glDepthMask") return toProc(&mockDepthMask);
     if (sym == "glDepthFunc") return toProc(&mockDepthFunc);
     if (sym == "glCullFace") return toProc(&mockCullFace);
     if (sym == "glFrontFace") return toProc(&mockFrontFace);
@@ -162,6 +174,7 @@ platform::GlProcAddressFn mockGlLoader(const char* name) {
     if (sym == "glGenBuffers") return toProc(&mockGenBuffers);
     if (sym == "glBindBuffer") return toProc(&mockBindBuffer);
     if (sym == "glBufferData") return toProc(&mockBufferData);
+    if (sym == "glBufferSubData") return toProc(&mockBufferSubData);
     if (sym == "glDeleteBuffers") return toProc(&mockDeleteBuffers);
     if (sym == "glVertexAttribPointer") return toProc(&mockVertexAttribPointer);
     if (sym == "glEnableVertexAttribArray") return toProc(&mockEnableVertexAttribArray);
@@ -213,14 +226,41 @@ FE_TEST(OpenGL33Device, FailureHandlingAndZeroLeakLifecycle) {
     FE_EXPECT_EQ(g_gl.live_programs, 1);
 
     scene::Scene scene;
-    const auto mesh_id = scene.registerMesh("Cube", scene::Primitives::createCube()).value();
+    const auto mesh_id = scene.registerEditableMesh("Cube", scene::EditableMesh::createCube(1.0f)).value();
     const auto obj_id = scene.createObject("CubeObj").value();
     FE_REQUIRE_TRUE(scene.assignMesh(obj_id, mesh_id).hasValue());
+    const auto l1 = scene.createObject("LightA").value();
+    const auto l2 = scene.createObject("LightB").value();
+    FE_REQUIRE_TRUE(scene.assignDirectionalLight(
+        l1, scene::DirectionalLightComponent{.color = {1.0f, 0.9f, 0.8f}, .intensity = 1.2f}).hasValue());
+    FE_REQUIRE_TRUE(scene.assignDirectionalLight(
+        l2, scene::DirectionalLightComponent{.color = {0.2f, 0.6f, 1.0f}, .intensity = 0.8f}).hasValue());
 
     FE_REQUIRE_TRUE(renderer.renderScene(scene).hasValue());
     FE_EXPECT_EQ(g_gl.live_vaos, 1);
     FE_EXPECT_EQ(g_gl.live_buffers, 2); // 1 VBO + 1 EBO
     FE_EXPECT_EQ(g_gl.draw_elements_calls, 1);
+
+    // Same-capacity mesh mutation updates VBO/EBO in place via glBufferSubData without allocating new VAOs/VBOs.
+    auto moved_cube = scene::EditableMesh::createCube(1.0f);
+    const std::uint32_t v0 = 0;
+    FE_REQUIRE_TRUE(moved_cube.translateVertices({&v0, 1}, {0.0f, 0.25f, 0.0f}).hasValue());
+    FE_REQUIRE_TRUE(scene.updateMeshEditable(mesh_id, std::move(moved_cube)).hasValue());
+    FE_REQUIRE_TRUE(renderer.renderScene(scene).hasValue());
+    FE_EXPECT_EQ(g_gl.live_vaos, 1);
+    FE_EXPECT_EQ(g_gl.live_buffers, 2);
+    FE_EXPECT_EQ(g_gl.buffer_sub_data_calls, 2);
+
+    // Depth-tested scene-helper overlay subpass + X-ray gizmo overlay subpass
+    const auto& helper_mesh = scene.findMesh(mesh_id)->data;
+    const rendering::ViewportOverlayMesh overlays[2]{
+        {.mesh_data = &helper_mesh, .depth_test_scene = true},
+        {.mesh_data = &helper_mesh, .depth_test_scene = false},
+    };
+    FE_REQUIRE_TRUE(renderer.renderScene(scene, rendering::FrameClearDesc{}, {}, overlays).hasValue());
+    FE_EXPECT_EQ(g_gl.draw_elements_calls, 5); // 2 prior scene draws + 1 scene + 2 overlays
+    FE_EXPECT_EQ(g_gl.live_vaos, 3); // 1 persistent scene mesh + 2 overlay pool slots
+    FE_EXPECT_EQ(g_gl.live_buffers, 6);
 
     FE_REQUIRE_TRUE(renderer.resize(1920, 1080).hasValue());
     FE_EXPECT_EQ(g_gl.last_viewport_w, 1920);
@@ -230,6 +270,45 @@ FE_TEST(OpenGL33Device, FailureHandlingAndZeroLeakLifecycle) {
     FE_EXPECT_EQ(g_gl.live_vaos, 0);
     FE_EXPECT_EQ(g_gl.live_buffers, 0);
     FE_EXPECT_EQ(g_gl.live_programs, 0);
+}
+
+FE_TEST(OpenGL33, ProceduralEditorGridPassAndZeroSceneMeshPollution) {
+    g_gl = MockGlState{};
+    rendering::Renderer renderer(
+        std::make_unique<rendering::OpenGL33RenderDevice>(&mockGlLoader));
+    FE_REQUIRE_TRUE(renderer.initialize(1280, 720).hasValue());
+
+    scene::Scene scene("GridScene");
+    const rendering::ViewportGridOptions grid_visible{.enabled = true, .opacity = 1.0f, .focus_distance = 6.5f};
+    const rendering::ViewportGridOptions grid_hidden{.enabled = false, .opacity = 1.0f, .focus_distance = 6.5f};
+
+    // Empty scene + visible procedural grid: 1 fullscreen pass draw, 0 SceneObjects, 0 scene GPU meshes!
+    FE_REQUIRE_TRUE(renderer.renderScene(scene, {}, {}, {}, nullptr, &grid_visible).hasValue());
+    FE_EXPECT_EQ(scene.objectCount(), std::size_t{0});
+    FE_EXPECT_EQ(scene.meshCount(), std::size_t{0});
+    FE_EXPECT_EQ(renderer.device().liveMeshCount(), std::size_t{0});
+    FE_EXPECT_EQ(g_gl.live_programs, 2); // 1 PBR program + 1 dedicated GLSL 330 procedural grid program
+    FE_EXPECT_EQ(g_gl.draw_elements_calls, 1);
+
+    // Hidden grid or final render (nullptr grid_options) issues zero draw calls on an empty scene.
+    FE_REQUIRE_TRUE(renderer.renderScene(scene, {}, {}, {}, nullptr, &grid_hidden).hasValue());
+    FE_EXPECT_EQ(g_gl.draw_elements_calls, 1);
+    FE_REQUIRE_TRUE(renderer.renderScene(scene).hasValue());
+    FE_EXPECT_EQ(g_gl.draw_elements_calls, 1);
+
+    // Orthographic camera override renders procedural grid cleanly too.
+    rendering::ViewportCameraOverride ortho_cam{};
+    ortho_cam.camera_world = math::Mat4::lookAtRH({0.0f, 8.0f, 0.001f}, math::Vec3::zero(), {0.0f, 0.0f, -1.0f}).inverted().value();
+    ortho_cam.camera.projection = scene::ProjectionType::Orthographic;
+    ortho_cam.camera.orthographic_height = 8.0f;
+    FE_REQUIRE_TRUE(renderer.renderScene(scene, {}, {}, {}, &ortho_cam, &grid_visible).hasValue());
+    FE_EXPECT_EQ(g_gl.draw_elements_calls, 2);
+
+    renderer.shutdown();
+    FE_EXPECT_EQ(g_gl.live_vaos, 0);
+    FE_EXPECT_EQ(g_gl.live_buffers, 0);
+    FE_EXPECT_EQ(g_gl.live_programs, 0);
+    FE_EXPECT_EQ(g_gl.live_shaders, 0);
 }
 
 } // namespace

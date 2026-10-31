@@ -50,12 +50,26 @@ KeyCode translateGlfwKey(int key) noexcept {
             return KeyCode::Y;
         case GLFW_KEY_W:
             return KeyCode::W;
+        case GLFW_KEY_E:
+            return KeyCode::E;
+        case GLFW_KEY_R:
+            return KeyCode::R;
         case GLFW_KEY_A:
             return KeyCode::A;
         case GLFW_KEY_S:
             return KeyCode::S;
         case GLFW_KEY_D:
             return KeyCode::D;
+        case GLFW_KEY_TAB:
+            return KeyCode::Tab;
+        case GLFW_KEY_1:
+            return KeyCode::Digit1;
+        case GLFW_KEY_2:
+            return KeyCode::Digit2;
+        case GLFW_KEY_3:
+            return KeyCode::Digit3;
+        case GLFW_KEY_4:
+            return KeyCode::Digit4;
         case GLFW_KEY_LEFT_SHIFT:
             return KeyCode::LeftShift;
         case GLFW_KEY_LEFT_CONTROL:
@@ -100,9 +114,6 @@ void GlfwWindow::onKey(GLFWwindow* handle, int key, int /*scancode*/, int action
         return;
     }
     const KeyCode code = translateGlfwKey(key);
-    if (code == KeyCode::Escape && action == GLFW_PRESS) {
-        glfwSetWindowShouldClose(handle, GLFW_TRUE);
-    }
     if (code != KeyCode::Unknown) {
         self->pending_events_.emplace_back(KeyEvent{
             .key = code,

@@ -1,4 +1,4 @@
-# Final Effect 3D — Cross-Platform Target Strategy & Roadmap
+# Final Effect 3D — Cross-Platform Target Strategy & Roadmap (`v0.5.0`)
 
 ## 1. Fundamental Separation of Runtime Targets
 
@@ -12,14 +12,14 @@ Final Effect 3D targets three distinct execution models around a single portable
 
 ---
 
-## 2. Per-Platform Architecture & Current Status (Stage 3)
+## 2. Per-Platform Architecture & Current Status (Stage 5 — `v0.5.0`)
 
-| Target Platform | Stage 3 Status | Host / Window Layer | Rendering Backend Strategy |
+| Target Platform | Stage 5 Status | Host / Window Layer | Rendering Backend Strategy |
 | :--- | :--- | :--- | :--- |
-| **Linux (x86_64 / arm64)** | Core, `EditorController`, Viewport, `.fe3dbin` & 11 Test Suites **Verified locally & in CI**; OpenGL 3.3 + GLFW verified under Xvfb in CI | `platform/linux/` + `GlfwWindow` / `HeadlessWindow` | OpenGL 3.3 Core baseline + CPU `SoftwareRenderDevice`; future Vulkan |
-| **Windows (x64 / arm64)** | Core + `EditorController` + OpenGL 3.3 + WebGL2 adapter tests **Verified in CI (MSVC)** | `platform/windows/` + `GlfwWindow` / `HeadlessWindow` | OpenGL 3.3 Core baseline + CPU `SoftwareRenderDevice`; future Vulkan / Direct3D 12 |
-| **macOS (Apple Silicon / Intel)** | Core + `EditorController` + OpenGL 3.3 + WebGL2 adapter tests **Verified in CI (AppleClang)** | `platform/macos/` + `GlfwWindow` / `HeadlessWindow` | OpenGL 3.3 Core forward-compatible prototype (deprecated by Apple); planned native **Metal** backend |
-| **Web Browser (Desktop & Mobile Web)** | Connected Studio UI + `finaleffect_web` WASM + `WebGL2RenderDevice` **Compiled via Emscripten & Verified in Real Headless Chromium (Playwright)** | `Html5CanvasWindow` (`apps/web/main.cpp`) + Connected Studio DOM (`web/`) | **WebGL 2.0 (GLSL ES 3.00)** `IRenderDevice` baseline (`NegativeOneToOne` clip depth); planned **WebGPU** (`ZeroToOne` clip depth) |
+| **Linux (x86_64 / arm64)** | Core, `TransformGizmo`, `EditableMesh`, PBR Materials, 12-preset `WorkspaceManager`, `.fe3d v1.2` & 15 CTest Suites **Verified locally & in CI**; OpenGL 3.3 PBR + GLFW verified under Xvfb in CI | `platform/linux/` + `GlfwWindow` / `HeadlessWindow` | OpenGL 3.3 Core Cook-Torrance PBR + CPU `SoftwareRenderDevice`; future Vulkan |
+| **Windows (x64 / arm64)** | Core + Stage 5 editing/workspace tools + WebGL2 adapter tests **Verified in CI (MSVC Debug & Release, `/WX`)** | `platform/windows/` + `GlfwWindow` / `HeadlessWindow` | OpenGL 3.3 Core Cook-Torrance PBR + CPU `SoftwareRenderDevice`; future Vulkan / Direct3D 12 |
+| **macOS (Apple Silicon / Intel)** | Core + Stage 5 editing/workspace tools + WebGL2 adapter tests **Verified in CI (AppleClang Release, `-Werror`)** | `platform/macos/` + `GlfwWindow` / `HeadlessWindow` | OpenGL 3.3 Core forward-compatible prototype (deprecated by Apple); planned native **Metal** backend |
+| **Web Browser (Desktop, Mobile Web & Safari Desktop Mode)** | Stage 5 3-Level Application (`Splash -> Home / 6-Studio Selector / Project Launcher -> 12-Workspace 3D Studio`) + unified Touch/Pointer gestures **Compiled via Emscripten & Verified in Real Chromium across Desktop, Mobile Landscape, Mobile Portrait, Tablet & Safari Desktop Mode** | `Html5CanvasWindow` (`apps/web/main.cpp`) + Responsive Studio UI (`web/`) | **WebGL 2.0 (GLSL ES 3.00)** Cook-Torrance PBR `IRenderDevice` (`NegativeOneToOne` clip depth); planned **WebGPU** (`ZeroToOne` clip depth) |
 | **iOS / iPadOS** | Architecture prepared; **not yet built** | Planned Objective-C++ / Swift host (`platform/ios/`) with `CAMetalLayer` & touch gestures | Planned native **Metal** `IRenderDevice` (`ZeroToOne` clip depth) |
 | **Android** | Architecture prepared; **not yet built** | Planned NDK `GameActivity` / `ANativeWindow` host (`platform/android/`) | Planned **Vulkan** primary `IRenderDevice` with shared **OpenGL ES 3.0** (`WebGL2RenderDevice` lineage) fallback |
 
@@ -30,6 +30,6 @@ Final Effect 3D targets three distinct execution models around a single portable
 Both `finaleffect_desktop` and `finaleffect_web` link the exact same unmodified portable libraries:
 
 1. **Frame-Driven Non-Blocking Update Loop**: `core::Engine::stepFrame()` executes one discrete frame tick inside desktop `while (!window->shouldClose())` loops AND inside browser `requestAnimationFrame` (`emscripten_set_main_loop_arg`) callbacks.
-2. **Unified Input & Viewport Controller**: `GlfwWindow`, `HeadlessWindow`, and `Html5CanvasWindow` emit identical `platform::InputEvent` structs consumed by `StudioSession` and `OrbitCameraController`.
-3. **Low-Memory Binary Assets (`.fe3dbin`)**: Content-addressed binary geometry chunks avoid heavy JSON text parsing and excess heap allocations on memory-constrained laptops, browsers (32 MiB initial WASM heap), and future mobile devices.
+2. **Unified Input, Gizmo & Workspace Controller**: `GlfwWindow`, `HeadlessWindow`, and `Html5CanvasWindow` emit identical `platform::InputEvent` structs routed through `WorkspaceManager`, `TransformGizmo`, `StudioSession`, and `OrbitCameraController`.
+3. **In-Place GPU Mesh Streaming & `.fe3dbin`**: `IRenderDevice::updateMesh` streams vertex/index edits via `glBufferSubData` when buffer capacity suffices, while `.fe3dbin` (`v1.0`) + `.fe3d` (`v1.2`) keep serialization fast and compact across desktop and 32 MiB initial WASM heaps.
 4. **Dual Clip-Space Depth Convention**: `math::Mat4` and `scene::CameraComponent` natively support both `[-1, 1]` NDC depth (OpenGL 3.3, OpenGL ES 3.0, WebGL 2.0) and `[0, 1]` NDC depth (Metal, Vulkan, WebGPU, Direct3D 12).

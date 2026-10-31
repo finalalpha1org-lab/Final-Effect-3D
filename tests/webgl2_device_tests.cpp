@@ -7,6 +7,7 @@
 
 #include "finaleffect/rendering/renderer.hpp"
 #include "finaleffect/rendering/webgl2_render_device.hpp"
+#include "finaleffect/scene/editable_mesh.hpp"
 #include "finaleffect/scene/primitives.hpp"
 
 #include <cstddef>
@@ -35,6 +36,7 @@ struct MockGles3State {
     int live_shaders{0};
     int live_programs{0};
     int draw_elements_calls{0};
+    int buffer_sub_data_calls{0};
     int clear_depthf_calls{0};
     float last_clear_depth{0.0f};
     std::vector<std::string> uploaded_shader_sources;
@@ -58,6 +60,9 @@ void FE_GLES_APIENTRY mockClearDepthf(float d) {
 }
 void FE_GLES_APIENTRY mockClear(std::uint32_t) {}
 void FE_GLES_APIENTRY mockEnable(std::uint32_t) {}
+void FE_GLES_APIENTRY mockDisable(std::uint32_t) {}
+void FE_GLES_APIENTRY mockBlendFunc(std::uint32_t, std::uint32_t) {}
+void FE_GLES_APIENTRY mockDepthMask(std::uint8_t) {}
 void FE_GLES_APIENTRY mockDepthFunc(std::uint32_t) {}
 void FE_GLES_APIENTRY mockCullFace(std::uint32_t) {}
 void FE_GLES_APIENTRY mockFrontFace(std::uint32_t) {}
@@ -84,6 +89,9 @@ void FE_GLES_APIENTRY mockGenBuffers(std::int32_t n, std::uint32_t* ids) {
 }
 void FE_GLES_APIENTRY mockBindBuffer(std::uint32_t, std::uint32_t) {}
 void FE_GLES_APIENTRY mockBufferData(std::uint32_t, std::ptrdiff_t, const void*, std::uint32_t) {}
+void FE_GLES_APIENTRY mockBufferSubData(std::uint32_t, std::ptrdiff_t, std::ptrdiff_t, const void*) {
+    ++g_gles.buffer_sub_data_calls;
+}
 void FE_GLES_APIENTRY mockDeleteBuffers(std::int32_t n, const std::uint32_t* ids) {
     for (std::int32_t i = 0; i < n; ++i) {
         if (ids[i] != 0) --g_gles.live_buffers;
@@ -162,6 +170,9 @@ platform::GlProcAddressFn mockGles3Loader(const char* name) {
     if (sym == "glClearDepthf") return toProc(&mockClearDepthf);
     if (sym == "glClear") return toProc(&mockClear);
     if (sym == "glEnable") return toProc(&mockEnable);
+    if (sym == "glDisable") return toProc(&mockDisable);
+    if (sym == "glBlendFunc") return toProc(&mockBlendFunc);
+    if (sym == "glDepthMask") return toProc(&mockDepthMask);
     if (sym == "glDepthFunc") return toProc(&mockDepthFunc);
     if (sym == "glCullFace") return toProc(&mockCullFace);
     if (sym == "glFrontFace") return toProc(&mockFrontFace);
@@ -172,6 +183,7 @@ platform::GlProcAddressFn mockGles3Loader(const char* name) {
     if (sym == "glGenBuffers") return toProc(&mockGenBuffers);
     if (sym == "glBindBuffer") return toProc(&mockBindBuffer);
     if (sym == "glBufferData") return toProc(&mockBufferData);
+    if (sym == "glBufferSubData") return toProc(&mockBufferSubData);
     if (sym == "glDeleteBuffers") return toProc(&mockDeleteBuffers);
     if (sym == "glVertexAttribPointer") return toProc(&mockVertexAttribPointer);
     if (sym == "glEnableVertexAttribArray") return toProc(&mockEnableVertexAttribArray);
@@ -215,15 +227,77 @@ FE_TEST(WebGL2Device, GlslEs300ComplianceClearDepthfAndZeroLeakLifecycle) {
         FE_EXPECT_TRUE(src.rfind("#version 300 es\n", 0) == 0);
         FE_EXPECT_TRUE(src.find("precision highp float;") != std::string::npos);
     }
+    FE_EXPECT_TRUE(g_gles.uploaded_shader_sources[1].find("evalCookTorranceLobe") != std::string::npos);
+    FE_EXPECT_TRUE(g_gles.uploaded_shader_sources[1].find("u_extra_light_radiances") != std::string::npos);
 
     scene::Scene scene;
-    const auto pyr_mesh = scene.registerMesh("Pyramid", scene::Primitives::createPyramid()).value();
+    const auto pyr_mesh = scene.registerEditableMesh("Pyramid", scene::EditableMesh::createPyramid()).value();
     const auto obj = scene.createObject("WebPyramid").value();
     FE_REQUIRE_TRUE(scene.assignMesh(obj, pyr_mesh).hasValue());
+    const auto l1 = scene.createObject("LightA").value();
+    const auto l2 = scene.createObject("LightB").value();
+    FE_REQUIRE_TRUE(scene.assignDirectionalLight(
+        l1, scene::DirectionalLightComponent{.color = {1.0f, 0.9f, 0.8f}, .intensity = 1.2f}).hasValue());
+    FE_REQUIRE_TRUE(scene.assignDirectionalLight(
+        l2, scene::DirectionalLightComponent{.color = {0.2f, 0.6f, 1.0f}, .intensity = 0.8f}).hasValue());
 
     FE_REQUIRE_TRUE(renderer.renderScene(scene).hasValue());
     FE_EXPECT_EQ(g_gles.clear_depthf_calls, 1);
     FE_EXPECT_NEAR(g_gles.last_clear_depth, 1.0f, 1e-5f);
+    FE_EXPECT_EQ(g_gles.draw_elements_calls, 1);
+
+    // Same-capacity mesh mutation updates VBO/EBO in place via glBufferSubData without allocating new VAOs/VBOs.
+    auto moved_pyr = scene::EditableMesh::createPyramid();
+    const std::uint32_t v0 = 0;
+    FE_REQUIRE_TRUE(moved_pyr.translateVertices({&v0, 1}, {0.0f, 0.35f, 0.0f}).hasValue());
+    FE_REQUIRE_TRUE(scene.updateMeshEditable(pyr_mesh, std::move(moved_pyr)).hasValue());
+    FE_REQUIRE_TRUE(renderer.renderScene(scene).hasValue());
+    FE_EXPECT_EQ(g_gles.live_vaos, 1);
+    FE_EXPECT_EQ(g_gles.live_buffers, 2);
+    FE_EXPECT_EQ(g_gles.buffer_sub_data_calls, 2);
+
+    // Depth-tested scene-helper overlay subpass + X-ray gizmo overlay subpass:
+    const auto& helper_mesh = scene.findMesh(pyr_mesh)->data;
+    const rendering::ViewportOverlayMesh overlays[2]{
+        {.mesh_data = &helper_mesh, .depth_test_scene = true},
+        {.mesh_data = &helper_mesh, .depth_test_scene = false},
+    };
+    FE_REQUIRE_TRUE(renderer.renderScene(scene, rendering::FrameClearDesc{}, {}, overlays).hasValue());
+    FE_EXPECT_EQ(g_gles.clear_depthf_calls, 4); // 2 prior scene clears + 1 scene clear + 1 X-ray beginOverlayPass
+    FE_EXPECT_EQ(g_gles.draw_elements_calls, 5); // 2 prior scene draws + 1 scene + 2 overlays
+
+    renderer.shutdown();
+    FE_EXPECT_EQ(g_gles.live_vaos, 0);
+    FE_EXPECT_EQ(g_gles.live_buffers, 0);
+    FE_EXPECT_EQ(g_gles.live_programs, 0);
+    FE_EXPECT_EQ(g_gles.live_shaders, 0);
+}
+
+FE_TEST(WebGL2, ProceduralEditorGridPassAndGlslEs300Validation) {
+    g_gles = MockGles3State{};
+    rendering::Renderer renderer(
+        std::make_unique<rendering::WebGL2RenderDevice>(&mockGles3Loader));
+    FE_REQUIRE_TRUE(renderer.initialize(960, 540).hasValue());
+
+    scene::Scene scene("WebGL2GridScene");
+    const rendering::ViewportGridOptions grid_visible{.enabled = true, .opacity = 1.0f, .focus_distance = 6.5f};
+    const rendering::ViewportGridOptions grid_hidden{.enabled = false, .opacity = 1.0f, .focus_distance = 6.5f};
+
+    FE_REQUIRE_TRUE(renderer.renderScene(scene, {}, {}, {}, nullptr, &grid_visible).hasValue());
+    FE_EXPECT_EQ(scene.objectCount(), std::size_t{0});
+    FE_EXPECT_EQ(scene.meshCount(), std::size_t{0});
+    FE_EXPECT_EQ(renderer.device().liveMeshCount(), std::size_t{0});
+    FE_EXPECT_EQ(g_gles.live_programs, 2);
+    FE_EXPECT_EQ(g_gles.uploaded_shader_sources.size(), std::size_t{4});
+    for (const auto& src : g_gles.uploaded_shader_sources) {
+        FE_EXPECT_TRUE(src.rfind("#version 300 es\n", 0) == 0);
+    }
+    FE_EXPECT_EQ(g_gles.draw_elements_calls, 1);
+
+    // Hidden grid and final scene render (nullptr grid_options) skip the grid pass completely.
+    FE_REQUIRE_TRUE(renderer.renderScene(scene, {}, {}, {}, nullptr, &grid_hidden).hasValue());
+    FE_EXPECT_EQ(g_gles.draw_elements_calls, 1);
+    FE_REQUIRE_TRUE(renderer.renderScene(scene).hasValue());
     FE_EXPECT_EQ(g_gles.draw_elements_calls, 1);
 
     renderer.shutdown();

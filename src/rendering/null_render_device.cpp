@@ -36,6 +36,11 @@ core::Status NullRenderDevice::initialize(std::uint32_t width, std::uint32_t hei
 void NullRenderDevice::shutdown() noexcept {
     live_meshes_.clear();
     total_bytes_ = 0;
+    buffer_updates_ = 0;
+    shadow_bytes_ = 0;
+    environment_bytes_ = 0;
+    environment_revision_ = 0;
+    in_shadow_pass_ = false;
     in_frame_ = false;
     initialized_ = false;
 }
@@ -67,6 +72,25 @@ core::Result<GpuMeshHandle> NullRenderDevice::createMesh(const scene::MeshData& 
     return core::Result<GpuMeshHandle>::ok(GpuMeshHandle{id});
 }
 
+core::Status NullRenderDevice::updateMesh(GpuMeshHandle handle, const scene::MeshData& mesh) {
+    if (!initialized_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "Device not initialized");
+    }
+    const auto it = live_meshes_.find(handle.value);
+    if (it == live_meshes_.end()) {
+        return core::Status::fail(core::ErrorCode::NotFound, "updateMesh referenced unknown GpuMeshHandle");
+    }
+    auto valid = mesh.validate();
+    if (!valid) {
+        return valid;
+    }
+    const std::size_t new_bytes = mesh.byteSize();
+    total_bytes_ = (total_bytes_ - it->second) + new_bytes;
+    it->second = new_bytes;
+    ++buffer_updates_;
+    return core::Status::ok();
+}
+
 void NullRenderDevice::destroyMesh(GpuMeshHandle handle) noexcept {
     const auto it = live_meshes_.find(handle.value);
     if (it != live_meshes_.end()) {
@@ -75,11 +99,90 @@ void NullRenderDevice::destroyMesh(GpuMeshHandle handle) noexcept {
     }
 }
 
+core::Status NullRenderDevice::syncEnvironmentMap(
+    const scene::HdriEnvironmentAsset* asset,
+    std::uint64_t revision) {
+    if (!initialized_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "Device not initialized");
+    }
+    if (asset == nullptr) {
+        environment_bytes_ = 0;
+        environment_revision_ = 0;
+        return core::Status::ok();
+    }
+    if (environment_revision_ != revision) {
+        environment_revision_ = revision;
+        environment_bytes_ = asset->prefiltered_cubemap.gpuByteSize();
+    }
+    return core::Status::ok();
+}
+
+core::Status NullRenderDevice::ensureShadowAtlas(std::uint32_t atlas_size) {
+    if (!initialized_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "Device not initialized");
+    }
+    shadow_bytes_ = static_cast<std::size_t>(atlas_size) * static_cast<std::size_t>(atlas_size) * sizeof(float);
+    return core::Status::ok();
+}
+
+core::Status NullRenderDevice::beginShadowTilePass(
+    std::uint32_t,
+    std::uint32_t,
+    std::uint32_t,
+    std::uint32_t) {
+    if (!initialized_ || in_frame_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "beginShadowTilePass called in invalid state");
+    }
+    in_shadow_pass_ = true;
+    return core::Status::ok();
+}
+
+core::Status NullRenderDevice::drawShadowMesh(
+    GpuMeshHandle mesh_handle,
+    const math::Mat4&,
+    std::uint32_t,
+    std::uint32_t) {
+    if (!initialized_ || !in_shadow_pass_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "drawShadowMesh called outside shadow pass");
+    }
+    if (!live_meshes_.contains(mesh_handle.value)) {
+        return core::Status::fail(core::ErrorCode::NotFound, "drawShadowMesh referenced unknown GpuMeshHandle");
+    }
+    ++total_shadow_draw_calls_;
+    return core::Status::ok();
+}
+
+core::Status NullRenderDevice::endShadowPass() {
+    if (!initialized_ || !in_shadow_pass_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "endShadowPass called without beginShadowTilePass");
+    }
+    in_shadow_pass_ = false;
+    return core::Status::ok();
+}
+
 core::Status NullRenderDevice::beginFrame(const FrameClearDesc&) {
     if (!initialized_ || in_frame_) {
         return core::Status::fail(core::ErrorCode::InvalidState, "Invalid beginFrame state");
     }
     in_frame_ = true;
+    return core::Status::ok();
+}
+
+core::Status NullRenderDevice::drawEditorGrid(const EditorGridCommand&) {
+    if (!initialized_ || !in_frame_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "drawEditorGrid called outside active frame");
+    }
+    if (width_ == 0 || height_ == 0) {
+        return core::Status::ok();
+    }
+    ++total_grid_passes_;
+    return core::Status::ok();
+}
+
+core::Status NullRenderDevice::beginOverlayPass(float) {
+    if (!initialized_ || !in_frame_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "beginOverlayPass called outside active frame");
+    }
     return core::Status::ok();
 }
 

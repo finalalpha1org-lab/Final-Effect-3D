@@ -14,7 +14,7 @@ std::string_view engineName() noexcept {
 }
 
 std::string_view engineVersionString() noexcept {
-    return "0.3.0";
+    return "0.5.0";
 }
 
 } // namespace finaleffect::core

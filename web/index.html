@@ -3,265 +3,1144 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Final Effect 3D — Studio</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Final Effect 3D — Creative Studio Suite (v0.5.0)</title>
   <link rel="stylesheet" href="editor.css" />
 </head>
-<body>
-  <div class="studio-shell" data-testid="studio-shell">
-    <!-- Top Studio Command & Authoring Bar -->
-    <header class="studio-topbar">
-      <div class="brand-cluster">
-        <span class="brand-mark" aria-hidden="true"></span>
-        <div class="brand-titles">
-          <span class="brand-name">Final Effect 3D</span>
-          <span class="brand-badge" id="engine-version-badge" data-testid="engine-badge">v0.3.0 · WebGL 2.0</span>
+<body data-app-view="splash" data-layout-mode="desktop" data-ui-density="comfortable">
+
+  <!-- Hidden global file inputs shared by Project Launcher, 3D Studio File menu & HDRI Environment loader -->
+  <input type="file" id="file-open-input" data-testid="file-open-input" accept=".fe3d,.fe3dbin,.json" multiple hidden />
+  <input type="file" id="file-open-hdri" data-testid="file-open-hdri" accept=".hdr,.pfm" hidden />
+
+  <!-- ===================================================================== -->
+  <!-- LEVEL 1: REAL ENGINE & WEBGPU/WEBGL2 INITIALIZATION SPLASH SCREEN     -->
+  <!-- ===================================================================== -->
+  <section class="app-splash" id="app-splash" data-testid="splash-screen" aria-label="Final Effect 3D Initialization">
+    <div class="splash-card">
+      <div class="splash-brand-row">
+        <div class="splash-logo" id="splash-logo-slot" aria-hidden="true"></div>
+        <div class="splash-titles">
+          <div class="splash-eyebrow">OPEN-SOURCE C++20 CREATIVE ENGINE</div>
+          <h1 class="splash-title">Final Effect 3D</h1>
+          <span class="splash-version" id="splash-version-tag">Version 0.5.0 &middot; WebAssembly + WebGL 2.0</span>
         </div>
       </div>
 
-      <div class="toolbar-group" role="toolbar" aria-label="Project file actions">
-        <button type="button" class="tb-btn" id="btn-new-project" data-testid="btn-new-project" title="Reset to starter 3D showcase project">New</button>
-        <button type="button" class="tb-btn" id="btn-open-project" data-testid="btn-open-project" title="Open .fe3d inline project or .fe3d + .fe3dbin bundle">Open…</button>
-        <input type="file" id="file-open-input" data-testid="file-open-input" accept=".fe3d,.fe3dbin,.json" multiple hidden />
-        <button type="button" class="tb-btn" id="btn-export-fe3d" data-testid="btn-export-fe3d" title="Download portable .fe3d (inline JSON)">Save .fe3d</button>
-        <button type="button" class="tb-btn" id="btn-export-bundle" data-testid="btn-export-bundle" title="Download .fe3d + .fe3dbin binary mesh archive">Export Bundle</button>
+      <div class="splash-Graphic-Preview" aria-hidden="true">
+        <div class="splash-grid-plane"></div>
+        <div class="splash-wire-cube">
+          <span></span><span></span><span></span>
+        </div>
       </div>
 
-      <div class="toolbar-divider"></div>
-
-      <div class="toolbar-group" role="toolbar" aria-label="Undo and redo history">
-        <button type="button" class="tb-btn" id="btn-undo" data-testid="btn-undo" disabled title="Undo (Ctrl+Z)">Undo</button>
-        <button type="button" class="tb-btn" id="btn-redo" data-testid="btn-redo" disabled title="Redo (Ctrl+Y)">Redo</button>
+      <div class="splash-progress-block" id="splash-progress-block">
+        <div class="splash-stage-row">
+          <span class="splash-spinner" id="splash-spinner" aria-hidden="true"></span>
+          <span class="splash-status-text" id="splash-status-text" data-testid="splash-status-text">Downloading WebAssembly binary &amp; preparing runtime…</span>
+          <strong class="splash-pct" id="splash-pct" data-testid="splash-pct">10%</strong>
+        </div>
+        <div class="splash-bar-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="10" id="splash-progressbar">
+          <div class="splash-bar-fill" id="splash-bar-fill" style="width: 10%"></div>
+        </div>
+        <ul class="splash-milestones" id="splash-milestones" data-testid="splash-milestones">
+          <li data-stage="1" class="is-active">WASM Runtime &amp; Memory Heap</li>
+          <li data-stage="2">WebGL 2.0 Context &amp; Framebuffer</li>
+          <li data-stage="3">GLSL ES 3.00 Cook-Torrance PBR Shaders</li>
+          <li data-stage="4">Scene Graph &amp; Studio Controller</li>
+        </ul>
       </div>
 
-      <div class="toolbar-divider"></div>
-
-      <div class="toolbar-group" role="toolbar" aria-label="Create 3D objects">
-        <span class="toolbar-label">Add</span>
-        <button type="button" class="tb-btn" data-preset="cube" data-testid="btn-add-cube" title="Add Cube mesh">+ Cube</button>
-        <button type="button" class="tb-btn" data-preset="pyramid" data-testid="btn-add-pyramid" title="Add Pyramid mesh">+ Pyramid</button>
-        <button type="button" class="tb-btn" data-preset="plane" data-testid="btn-add-plane" title="Add Checker Plane">+ Plane</button>
-        <button type="button" class="tb-btn" data-preset="pivot" data-testid="btn-add-pivot" title="Add Empty Hierarchy Pivot">+ Pivot</button>
-        <button type="button" class="tb-btn" data-preset="light" data-testid="btn-add-light" title="Add Directional Light">+ Light</button>
-        <button type="button" class="tb-btn" data-preset="camera" data-testid="btn-add-camera" title="Add Camera">+ Camera</button>
+      <div class="splash-error-box" id="splash-error-box" data-testid="splash-error-box" hidden>
+        <div class="splash-error-title">Engine Initialization Failed</div>
+        <p class="splash-error-detail" id="splash-error-detail" data-testid="splash-error-detail"></p>
+        <p class="splash-error-hint">Final Effect 3D requires WebAssembly and a hardware or software WebGL 2.0 context. Check browser WebGL 2.0 support and reload.</p>
       </div>
 
-      <div class="toolbar-divider"></div>
+      <div class="splash-footer">
+        <span>GNU GPL v3.0</span>
+        <span>&middot;</span>
+        <span>C++20 Core &middot; Zero Mock Subsystems</span>
+      </div>
+    </div>
+  </section>
 
-      <div class="toolbar-group" role="toolbar" aria-label="Object and viewport tools">
-        <button type="button" class="tb-btn" id="btn-duplicate" data-testid="btn-duplicate" disabled title="Duplicate selected object">Duplicate</button>
-        <button type="button" class="tb-btn tb-btn-danger" id="btn-delete" data-testid="btn-delete" disabled title="Delete selected object (Del)">Delete</button>
-        <button type="button" class="tb-btn" id="btn-frame" data-testid="btn-frame" title="Frame selected object or whole scene (F)">Frame</button>
-        <button type="button" class="tb-btn tb-btn-accent" id="btn-toggle-rig" data-testid="btn-toggle-rig" title="Play or pause showcase rig animation (Space)">Pause Rig</button>
+  <!-- ===================================================================== -->
+  <!-- LEVEL 2: MAIN HOME, 6-STUDIO SELECTOR & REUSABLE PROJECT LAUNCHER     -->
+  <!-- ===================================================================== -->
+  <section class="app-home" id="app-home" data-testid="home-screen" aria-label="Final Effect 3D Home and Studio Selector" hidden>
+    <header class="home-topbar">
+      <div class="home-brand">
+        <span class="brand-icon-slot" data-icon="logo" aria-hidden="true"></span>
+        <div class="home-brand-text">
+          <span class="home-brand-name">Final Effect 3D</span>
+          <span class="home-brand-sub" id="home-engine-badge" data-testid="home-engine-badge">v0.5.0 &middot; WebGL 2.0 Ready</span>
+        </div>
+      </div>
+
+      <div class="home-topbar-actions">
+        <button type="button" class="pro-btn pro-btn-accent" id="btn-home-resume-studio" data-testid="btn-home-resume-studio" hidden>
+          Return to Active 3D Studio
+        </button>
+        <button type="button" class="pro-btn" id="btn-open-settings" data-testid="btn-open-settings">
+          <span class="btn-ic" data-icon="settings"></span>
+          <span>Preferences</span>
+        </button>
       </div>
     </header>
 
-    <!-- Main 3-Column Studio Workspace -->
-    <div class="studio-workspace">
-      <!-- Left Dock: Scene Outliner + Project Metadata -->
-      <aside class="studio-dock dock-left" aria-label="Scene Outliner and Project">
-        <section class="dock-section dock-section-grow">
-          <div class="section-header">
-            <h2>Scene Outliner</h2>
-            <button type="button" class="ghost-btn" id="btn-clear-selection" data-testid="btn-clear-selection" title="Deselect active object">Deselect</button>
+    <div class="home-body">
+      <!-- Left Rail: 6 Creative Studios Selector -->
+      <aside class="home-studio-rail" aria-label="Creative Studios">
+        <div class="rail-section-label">CREATIVE STUDIOS</div>
+        <div class="studio-selector-list" id="studio-selector-list" data-testid="studio-selector"></div>
+
+        <div class="home-rail-footer">
+          <div class="rail-arch-note">
+            <strong>Unified C++20 Architecture</strong>
+            <span>Studios share <code>finaleffect::scene</code>, PBR renderer &amp; <code>.fe3d</code> v1.3 serializer.</span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Main Launcher Content -->
+      <main class="home-main" id="home-main">
+        <!-- Operational Studio Project Launcher (Used by 3D Studio & reusable for future operational studios) -->
+        <div class="launcher-view" id="studio-launcher-panel" data-testid="studio-launcher-panel">
+          <div class="launcher-hero">
+            <div>
+              <div class="studio-status-pill is-operational" id="launcher-studio-badge">OPERATIONAL &middot; v0.5.0</div>
+              <h2 class="launcher-title" id="launcher-studio-title">3D Studio</h2>
+              <p class="launcher-desc" id="launcher-studio-desc"></p>
+            </div>
+            <div class="launcher-hero-actions">
+              <button type="button" class="pro-btn" id="btn-launcher-open" data-testid="btn-launcher-open">
+                <span class="btn-ic" data-icon="folder"></span>
+                <span>Open Project (.fe3d / .fe3dbin)…</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="launcher-error-banner" id="launcher-error-banner" data-testid="launcher-error-banner" hidden></div>
+
+          <div class="launcher-grid">
+            <!-- Create New Project Card -->
+            <section class="launcher-section" aria-label="New Project">
+              <div class="launcher-section-head">
+                <h3>New Project</h3>
+                <span class="muted-tag">Real C++20 Scene &amp; .fe3d Document</span>
+              </div>
+
+              <div class="launcher-meta-row">
+                <label class="pro-field">
+                  <span>Project Name</span>
+                  <input type="text" id="launcher-project-name" data-testid="launcher-project-name" value="Untitled Studio Project" autocomplete="off" />
+                </label>
+                <label class="pro-field">
+                  <span>Author</span>
+                  <input type="text" id="launcher-project-author" data-testid="launcher-project-author" value="Final Effect 3D" autocomplete="off" />
+                </label>
+              </div>
+
+              <div class="template-grid" id="launcher-template-grid" data-testid="launcher-template-grid"></div>
+
+              <div class="launcher-create-bar">
+                <button type="button" class="pro-btn pro-btn-primary pro-btn-lg" id="btn-launcher-create" data-testid="btn-launcher-create">
+                  Create &amp; Enter 3D Studio
+                </button>
+              </div>
+            </section>
+
+            <!-- Recent Projects History Card -->
+            <section class="launcher-section" aria-label="Recent Projects">
+              <div class="launcher-section-head">
+                <h3>Recent Projects</h3>
+                <span class="muted-tag" id="recent-count-tag">0 saved</span>
+              </div>
+              <div class="recent-projects-list" id="recent-projects-list" data-testid="recent-projects-list"></div>
+            </section>
+          </div>
+        </div>
+
+        <!-- Future / Planned Studio Architectural View (Honest, Zero Fake Tools) -->
+        <div class="future-studio-view" id="studio-future-panel" data-testid="studio-future-panel" hidden>
+          <div class="future-card">
+            <div class="studio-status-pill is-planned" id="future-studio-badge">PLANNED &middot; FUTURE STAGE</div>
+            <h2 class="launcher-title" id="future-studio-title">Studio</h2>
+            <p class="future-tagline" id="future-studio-tagline"></p>
+            <p class="launcher-desc" id="future-studio-desc"></p>
+
+            <div class="future-roadmap-box">
+              <h3>Planned Engine &amp; Tooling Scope</h3>
+              <ul class="future-cap-list" id="future-studio-caps"></ul>
+            </div>
+
+            <div class="future-honesty-note">
+              This Creative Studio slot is part of the extensible Final Effect 3D multi-studio architecture and is not yet operational in v0.5.0. No placeholder or mock editors are loaded.
+            </div>
+
+            <div class="future-actions">
+              <button type="button" class="pro-btn pro-btn-primary" id="btn-future-back-3d" data-testid="btn-future-back-3d">
+                Switch to Operational 3D Studio
+              </button>
+              <button type="button" class="pro-btn pro-btn-accent" id="btn-future-jump-shading" data-testid="btn-future-jump-shading" hidden>
+                Open Operational PBR Shading in 3D Studio
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </section>
+
+  <!-- ===================================================================== -->
+  <!-- LEVEL 3: PROFESSIONAL BLENDER-INSPIRED 3D STUDIO WORKSPACE            -->
+  <!-- ===================================================================== -->
+  <div class="studio-shell" id="app-studio-3d" data-testid="studio-shell">
+    <!-- TOP REGION: Row 1 — Brand/Home, App Menus, 12 Workspace Tabs, Project Actions -->
+    <header class="studio-header">
+      <div class="topbar-primary">
+        <div class="topbar-left">
+          <button type="button" class="home-nav-btn" id="btn-go-home" data-testid="btn-go-home" title="Return to Main Home &amp; Studio Launcher">
+            <span class="btn-ic" data-icon="logo"></span>
+            <span class="home-nav-label">Home</span>
+          </button>
+
+          <!-- Application Menus -->
+          <nav class="menubar" aria-label="Application Menu">
+            <div class="menu-item">
+              <button type="button" class="menu-trigger" data-menu-trigger="file" data-testid="menu-file">File</button>
+              <div class="menu-dropdown" data-menu-panel="file" hidden>
+                <button type="button" data-menu-cmd="new_showcase" id="btn-new-project" data-testid="btn-new-project">New Showcase Project</button>
+                <button type="button" data-menu-cmd="new_cube">New General Cube Scene</button>
+                <button type="button" data-menu-cmd="new_empty">New Empty Stage</button>
+                <div class="menu-sep"></div>
+                <button type="button" data-menu-cmd="open_file">Open .fe3d / Bundle…</button>
+                <button type="button" data-menu-cmd="save_fe3d">Save Portable .fe3d</button>
+                <button type="button" data-menu-cmd="export_bundle">Export .fe3d + .fe3dbin Bundle</button>
+                <div class="menu-sep"></div>
+                <button type="button" data-menu-cmd="go_home">Project Launcher &amp; Studios…</button>
+              </div>
+            </div>
+
+            <div class="menu-item">
+              <button type="button" class="menu-trigger" data-menu-trigger="edit" data-testid="menu-edit">Edit</button>
+              <div class="menu-dropdown" data-menu-panel="edit" hidden>
+                <button type="button" data-menu-cmd="undo">Undo <kbd>Ctrl+Z</kbd></button>
+                <button type="button" data-menu-cmd="redo">Redo <kbd>Ctrl+Y</kbd></button>
+                <div class="menu-sep"></div>
+                <button type="button" data-menu-cmd="duplicate">Duplicate Object</button>
+                <button type="button" data-menu-cmd="delete_obj">Delete Selected <kbd>Del</kbd></button>
+                <button type="button" data-menu-cmd="deselect">Clear Selection</button>
+                <div class="menu-sep"></div>
+                <button type="button" data-menu-cmd="preferences">Preferences…</button>
+              </div>
+            </div>
+
+            <div class="menu-item">
+              <button type="button" class="menu-trigger" data-menu-trigger="add" data-testid="menu-add">Add</button>
+              <div class="menu-dropdown" data-menu-panel="add" hidden>
+                <button type="button" data-preset="cube">Mesh &rarr; Cube</button>
+                <button type="button" data-preset="sphere">Mesh &rarr; UV Sphere</button>
+                <button type="button" data-preset="pyramid">Mesh &rarr; Pyramid</button>
+                <button type="button" data-preset="plane">Mesh &rarr; Grid Plane</button>
+                <div class="menu-sep"></div>
+                <button type="button" data-preset="light" data-testid="menu-add-directional-light">Light &rarr; Directional Light</button>
+                <button type="button" data-preset="point_light" data-testid="menu-add-point-light">Light &rarr; Point Light</button>
+                <button type="button" data-preset="spot_light" data-testid="menu-add-spot-light">Light &rarr; Spot Light</button>
+                <button type="button" data-preset="area_light" data-testid="menu-add-area-light">Light &rarr; Area Light</button>
+                <div class="menu-sep"></div>
+                <button type="button" data-preset="pivot">Empty Pivot</button>
+                <button type="button" data-preset="camera">Camera</button>
+              </div>
+            </div>
+
+            <div class="menu-item">
+              <button type="button" class="menu-trigger" data-menu-trigger="workspace" data-testid="menu-workspace">Workspace</button>
+              <div class="menu-dropdown" data-menu-panel="workspace" hidden>
+                <button type="button" data-menu-cmd="save_custom_layout" data-testid="cmd-save-custom-layout">Save Current Layout as Custom</button>
+                <button type="button" data-menu-cmd="restore_custom_layout" data-testid="cmd-restore-custom-layout">Restore Saved Custom Layout</button>
+                <button type="button" data-menu-cmd="reset_layout" data-testid="cmd-reset-layout">Reset Active Workspace Layout</button>
+                <div class="menu-sep"></div>
+                <button type="button" data-panel-toggle="scene_outliner" data-testid="toggle-panel-outliner">Toggle Scene Outliner</button>
+                <button type="button" data-panel-toggle="properties" data-testid="toggle-panel-properties">Toggle Properties Inspector</button>
+                <button type="button" data-panel-toggle="material_editor" data-testid="toggle-panel-materials">Toggle Material Editor</button>
+                <button type="button" data-panel-toggle="asset_browser" data-testid="toggle-panel-assets">Toggle Asset Browser</button>
+                <button type="button" data-panel-toggle="timeline" data-testid="toggle-panel-timeline">Toggle Timeline</button>
+                <button type="button" data-panel-toggle="console" data-testid="toggle-panel-console">Toggle Console</button>
+              </div>
+            </div>
+
+            <div class="menu-item">
+              <button type="button" class="menu-trigger" data-menu-trigger="view" data-testid="menu-view">View</button>
+              <div class="menu-dropdown" data-menu-panel="view" hidden>
+                <button type="button" data-menu-cmd="frame_selection">Frame Selected / Scene <kbd>F</kbd></button>
+                <button type="button" data-menu-cmd="toggle_toolshelf" data-testid="cmd-toggle-toolshelf">Toggle Left Tool Shelf</button>
+                <button type="button" data-menu-cmd="toggle_right_dock" data-testid="cmd-toggle-right-dock">Toggle Right Inspector Area</button>
+                <button type="button" data-menu-cmd="toggle_bottom_dock" data-testid="cmd-toggle-bottom-dock">Toggle Bottom Area</button>
+                <button type="button" data-menu-cmd="toggle_hud">Toggle Viewport HUD</button>
+                <div class="menu-sep"></div>
+                <button type="button" data-menu-cmd="toggle_camera_view" data-testid="cmd-toggle-camera-view">Toggle Active Camera View</button>
+                <button type="button" data-menu-cmd="toggle_editor_helpers" data-testid="cmd-toggle-editor-helpers">Toggle Scene Helpers</button>
+                <button type="button" data-menu-cmd="toggle_editor_grid" data-testid="cmd-toggle-editor-grid">Toggle Ground Grid</button>
+              </div>
+            </div>
+          </nav>
+        </div>
+
+        <!-- 12 Blender-Inspired Workspace Tabs (Scrollable Horizontal Strip + Overflow Chevrons) -->
+        <div class="workspace-tabs-wrap" id="workspace-tabs-wrap">
+          <button type="button" class="ws-scroll-btn" id="btn-ws-scroll-left" data-testid="btn-ws-scroll-left" hidden aria-label="Scroll Workspace Tabs Left" title="Scroll Workspace Tabs Left">&lsaquo;</button>
+          <div class="workspace-tab-strip" id="workspace-tabs" data-testid="workspace-tabs" role="tablist" aria-label="3D Studio Workspaces"></div>
+          <button type="button" class="ws-scroll-btn" id="btn-ws-scroll-right" data-testid="btn-ws-scroll-right" hidden aria-label="Scroll Workspace Tabs Right" title="Scroll Workspace Tabs Right">&rsaquo;</button>
+        </div>
+
+        <!-- Synced select preserved for programmatic & mobile compact access -->
+        <select id="workspace-preset-select" data-testid="workspace-preset-select" class="sr-workspace-select" title="Active Workspace">
+          <option value="layout">Layout</option>
+          <option value="modeling">Modeling</option>
+          <option value="sculpting">Sculpting</option>
+          <option value="shading">Shading</option>
+          <option value="animation">Animation</option>
+          <option value="rendering">Rendering</option>
+          <option value="compositing">Compositing</option>
+          <option value="vfx">VFX</option>
+          <option value="geometry_nodes">Geometry Nodes</option>
+          <option value="uv_editing">UV Editing</option>
+          <option value="animation_2d">2D Animation</option>
+          <option value="video_editing">Video Editing</option>
+        </select>
+
+        <!-- Right Quick Actions: Project Badge, Open/Save, Undo/Redo, Preferences -->
+        <div class="topbar-right">
+          <span class="project-active-pill" id="active-project-pill" data-testid="active-project-pill" title="Active Project">Showcase</span>
+          <span class="engine-mini-badge" id="engine-version-badge" data-testid="engine-badge">v0.5.0</span>
+          <button type="button" class="tb-btn" id="btn-undo" data-testid="btn-undo" disabled title="Undo (Ctrl+Z)"><span class="btn-ic" data-icon="undo"></span><span class="tb-txt">Undo</span></button>
+          <button type="button" class="tb-btn" id="btn-redo" data-testid="btn-redo" disabled title="Redo (Ctrl+Y)"><span class="btn-ic" data-icon="redo"></span><span class="tb-txt">Redo</span></button>
+          <button type="button" class="tb-btn" id="btn-open-project" data-testid="btn-open-project" title="Open .fe3d or .fe3dbin bundle"><span class="btn-ic" data-icon="folder"></span><span class="tb-txt">Open</span></button>
+          <button type="button" class="tb-btn" id="btn-export-fe3d" data-testid="btn-export-fe3d" title="Save portable .fe3d (v1.2)"><span class="btn-ic" data-icon="save"></span><span class="tb-txt">Save</span></button>
+          <button type="button" class="tb-btn hide-xs" id="btn-export-bundle" data-testid="btn-export-bundle" title="Export .fe3d + .fe3dbin binary mesh archive">Bundle</button>
+          <button type="button" class="tb-btn tb-icon-only" id="btn-studio-settings" data-testid="btn-studio-settings" title="Studio &amp; Layout Preferences"><span class="btn-ic" data-icon="settings"></span></button>
+        </div>
+      </div>
+
+      <!-- Row 2: Blender-Style Viewport & Contextual Mode Header -->
+      <div class="topbar-subbar" id="topbar-subbar">
+        <div class="subbar-group" role="toolbar" aria-label="Interaction Mode">
+          <button type="button" class="mode-pill is-active" data-edit-mode="object" id="btn-mode-object" data-testid="btn-mode-object" title="Object Mode (1 / Tab)">Object</button>
+          <button type="button" class="mode-pill" data-edit-mode="vertex" id="btn-mode-vertex" data-testid="btn-mode-vertex" disabled title="Vertex Mode (2)"><span class="btn-ic" data-icon="vertex"></span>Vertex</button>
+          <button type="button" class="mode-pill" data-edit-mode="edge" id="btn-mode-edge" data-testid="btn-mode-edge" disabled title="Edge Mode (3)"><span class="btn-ic" data-icon="edge"></span>Edge</button>
+          <button type="button" class="mode-pill" data-edit-mode="face" id="btn-mode-face" data-testid="btn-mode-face" disabled title="Face Mode (4 / Tab)"><span class="btn-ic" data-icon="face"></span>Face</button>
+        </div>
+
+        <div class="subbar-divider"></div>
+
+        <div class="subbar-group" role="toolbar" aria-label="Transform Orientation">
+          <span class="subbar-lbl">Orient</span>
+          <button type="button" class="tb-btn" id="btn-gizmo-space" data-testid="btn-gizmo-space" title="Toggle World / Local transform orientation">World</button>
+        </div>
+
+        <div class="subbar-divider"></div>
+
+        <!-- Contextual Object Tools -->
+        <div class="subbar-group" id="ctx-object-tools" role="toolbar" aria-label="Object Operations">
+          <button type="button" class="tb-btn" data-preset="cube" data-testid="btn-add-cube" title="Add Cube">+ Cube</button>
+          <button type="button" class="tb-btn" data-preset="sphere" data-testid="btn-add-sphere" title="Add UV Sphere">+ Sphere</button>
+          <button type="button" class="tb-btn" data-preset="pyramid" data-testid="btn-add-pyramid" title="Add Pyramid">+ Pyramid</button>
+          <button type="button" class="tb-btn hide-compact" data-preset="plane" data-testid="btn-add-plane" title="Add Plane">+ Plane</button>
+          <button type="button" class="tb-btn hide-compact" data-preset="pivot" data-testid="btn-add-pivot" title="Add Empty Pivot">+ Pivot</button>
+          <button type="button" class="tb-btn hide-compact" data-preset="light" data-testid="btn-add-light" title="Add Directional Light">+ Light</button>
+          <button type="button" class="tb-btn hide-compact" data-preset="camera" data-testid="btn-add-camera" title="Add Camera">+ Camera</button>
+          <div class="subbar-divider"></div>
+          <button type="button" class="tb-btn" id="btn-duplicate" data-testid="btn-duplicate" disabled title="Duplicate selected object">Duplicate</button>
+          <button type="button" class="tb-btn tb-btn-danger" id="btn-delete" data-testid="btn-delete" disabled title="Delete selected object (Del)">Delete</button>
+          <button type="button" class="tb-btn" id="btn-frame" data-testid="btn-frame" title="Frame selection or scene (F)"><span class="btn-ic" data-icon="frame"></span>Frame</button>
+          <button type="button" class="tb-btn tb-btn-accent" id="btn-toggle-rig" data-testid="btn-toggle-rig" title="Toggle showcase rig animation (Space)">Pause Rig</button>
+        </div>
+
+        <!-- Contextual Mesh Edit Quick Bar (visible alongside Object bar when in Vertex/Edge/Face mode) -->
+        <div class="subbar-group" id="ctx-mesh-subbar" hidden role="toolbar" aria-label="Mesh Edit Quick Tools">
+          <div class="subbar-divider"></div>
+          <button type="button" class="tb-btn" data-mesh-quick="extrude" title="Extrude selected faces">Extrude</button>
+          <button type="button" class="tb-btn" data-mesh-quick="boundary" title="Select open boundary hole loop">Select Hole</button>
+          <button type="button" class="tb-btn" data-mesh-quick="fill" title="Fill selected boundary vertices">Fill Face</button>
+          <button type="button" class="tb-btn tb-btn-danger" data-mesh-quick="delete" title="Delete selected mesh elements">Del Elem</button>
+        </div>
+
+        <!-- Mobile Landscape Quick Drawer Toggle -->
+        <div class="subbar-right-mobile">
+          <button type="button" class="tb-btn" id="btn-landscape-inspector-toggle" data-testid="btn-landscape-inspector-toggle" title="Toggle Outliner &amp; Inspector Drawer">
+            Panels
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- MAIN STUDIO WORKSPACE GRID -->
+    <div class="studio-workspace" id="studio-workspace" data-testid="studio-workspace">
+      <!-- LEFT REGION: Blender-Style Compact Tool Shelf -->
+      <aside class="tool-shelf" id="tool-shelf" data-testid="tool-shelf" aria-label="Viewport Tool Shelf">
+        <div class="shelf-group">
+          <button type="button" class="shelf-btn" id="btn-tool-select" data-testid="btn-tool-select" title="Select / Pick (Click or Tap)">
+            <span class="btn-ic" data-icon="select"></span>
+            <span class="shelf-lbl">Select</span>
+          </button>
+          <button type="button" class="shelf-btn is-active" data-gizmo-mode="translate" id="btn-gizmo-translate" data-testid="btn-gizmo-translate" title="Move Gizmo (W)">
+            <span class="btn-ic" data-icon="move"></span>
+            <span class="shelf-lbl">Move</span>
+          </button>
+          <button type="button" class="shelf-btn" data-gizmo-mode="rotate" id="btn-gizmo-rotate" data-testid="btn-gizmo-rotate" title="Rotate Gizmo (E)">
+            <span class="btn-ic" data-icon="rotate"></span>
+            <span class="shelf-lbl">Rotate</span>
+          </button>
+          <button type="button" class="shelf-btn" data-gizmo-mode="scale" id="btn-gizmo-scale" data-testid="btn-gizmo-scale" title="Scale Gizmo (R)">
+            <span class="btn-ic" data-icon="scale"></span>
+            <span class="shelf-lbl">Scale</span>
+          </button>
+        </div>
+
+        <div class="shelf-sep"></div>
+
+        <div class="shelf-group">
+          <button type="button" class="shelf-btn" data-preset="cube" title="Add Cube"><span class="btn-ic" data-icon="cube"></span><span class="shelf-lbl">Cube</span></button>
+          <button type="button" class="shelf-btn" data-preset="sphere" title="Add UV Sphere"><span class="btn-ic" data-icon="sphere"></span><span class="shelf-lbl">Sphere</span></button>
+          <button type="button" class="shelf-btn" data-preset="pyramid" title="Add Pyramid"><span class="btn-ic" data-icon="pyramid"></span><span class="shelf-lbl">Pyram</span></button>
+          <button type="button" class="shelf-btn" data-preset="light" title="Add Directional Light"><span class="btn-ic" data-icon="light"></span><span class="shelf-lbl">Light</span></button>
+          <button type="button" class="shelf-btn" data-preset="camera" title="Add Camera"><span class="btn-ic" data-icon="camera"></span><span class="shelf-lbl">Cam</span></button>
+        </div>
+
+        <div class="shelf-spacer"></div>
+
+        <button type="button" class="shelf-collapse-btn" id="btn-collapse-shelf" data-testid="btn-collapse-shelf" title="Collapse / Expand Tool Shelf">
+          &laquo;
+        </button>
+      </aside>
+
+      <!-- CENTER REGION: Priority 3D Viewport + Draggable Horizontal Splitter + Bottom Editor Area -->
+      <div class="center-column" id="center-column">
+        <main class="viewport-stage" id="viewport-stage" data-testid="viewport-stage">
+          <!-- Honest Workspace Foundation Notice Strip (Shown only on foundation workspaces) -->
+          <div class="workspace-foundation-banner" id="workspace-foundation-banner" data-testid="workspace-foundation-banner" hidden>
+            <strong id="wf-banner-title">Workspace Foundation</strong>
+            <span id="wf-banner-detail"></span>
+          </div>
+
+          <canvas id="fe3d-canvas" data-testid="viewport-canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
+
+          <!-- Top-Left Non-Intrusive Scene Telemetry Pills -->
+          <div class="viewport-overlay-top" id="viewport-hud-top" data-testid="viewport-hud-top">
+            <span class="vp-pill" id="vp-camera-pill" data-testid="vp-camera-pill">Camera: MainCamera</span>
+            <span class="vp-pill" id="vp-selection-pill" data-testid="vp-selection-pill">No Selection</span>
+            <span class="vp-pill vp-pill-accent" id="vp-mode-pill" data-testid="vp-mode-pill">OBJECT &middot; MOVE (WORLD)</span>
+          </div>
+
+          <!-- Top-Right Blender-Inspired Touch & Navigation Gizmo Cluster -->
+          <div class="viewport-nav-cluster" id="viewport-nav-cluster" data-testid="viewport-nav-cluster" aria-label="Viewport Camera and Touch Controls">
+            <button type="button" class="vp-nav-btn is-active" data-touch-nav="orbit" data-testid="vp-touch-orbit" title="1-Finger Touch Drag: Orbit Camera"><span class="btn-ic" data-icon="orbit"></span><span class="vp-nav-lbl">Orbit</span></button>
+            <button type="button" class="vp-nav-btn" data-touch-nav="pan" data-testid="vp-touch-pan" title="1-Finger Touch Drag: Pan Camera"><span class="btn-ic" data-icon="pan"></span><span class="vp-nav-lbl">Pan</span></button>
+            <button type="button" class="vp-nav-btn" data-touch-nav="zoom" data-testid="vp-touch-zoom" title="1-Finger Touch Drag: Dolly Zoom"><span class="btn-ic" data-icon="zoom"></span><span class="vp-nav-lbl">Zoom</span></button>
+            <button type="button" class="vp-nav-btn" id="btn-touch-multiselect" data-testid="btn-touch-multiselect" title="Additive Multi-Selection Mode for Touch (Shift equivalent)">+Multi</button>
+            <button type="button" class="vp-nav-btn" id="btn-vp-restore-shelf" data-testid="btn-vp-restore-shelf" hidden title="Restore Left Tool Shelf">Tools</button>
+            <button type="button" class="vp-nav-btn" id="btn-vp-restore-right" data-testid="btn-vp-restore-right" hidden title="Restore Right Outliner &amp; Inspector">Inspector</button>
+          </div>
+
+          <!-- Interactive 3D XYZ View Navigation Gizmo (Controls Editor Observer Camera Only) -->
+          <div class="viewport-view-gizmo" id="viewport-view-gizmo" data-testid="viewport-view-gizmo" role="group" aria-label="3D View Orientation Gizmo">
+            <div class="view-gizmo-sphere-wrap">
+              <canvas id="view-nav-gizmo-canvas" data-testid="view-nav-gizmo-canvas" width="96" height="96" aria-label="Interactive 3D XYZ View Gizmo — Click axis or diagonal to orient view, drag to orbit editor camera"></canvas>
+              <span class="view-gizmo-hover-tip" id="view-gizmo-hover-tip" data-testid="view-gizmo-hover-tip" hidden></span>
+            </div>
+            <div class="view-gizmo-subcontrols">
+              <button type="button" class="view-gizmo-mini-btn" id="btn-nav-home-view" data-testid="btn-nav-home-view" title="Reset Editor Viewport to Home View">Home</button>
+              <button type="button" class="view-gizmo-mini-btn" id="btn-nav-proj-toggle" data-testid="btn-nav-proj-toggle" title="Toggle Editor Viewport Projection (Perspective / Orthographic)">Persp</button>
+            </div>
+          </div>
+
+          <div class="viewport-overlay-bottom" id="viewport-hud-bottom">
+            <span><b>Click/Tap</b> Select &middot; <b>Drag Gizmo</b> Transform &middot; <b>RMB Drag / 1-Finger</b> Orbit &middot; <b>RMB Click</b> Context Menu &middot; <b>2-Finger</b> Pinch Zoom &amp; Pan &middot; <b>W/E/R</b> Gizmo &middot; <b>1-4</b> Mode</span>
+          </div>
+
+          <!-- Blender-Inspired Viewport Context Menu (Clamped within Viewport Bounds) -->
+          <div class="viewport-context-menu" id="viewport-context-menu" data-testid="viewport-context-menu" role="menu" aria-label="3D Viewport Context Menu" hidden>
+            <div class="ctx-menu-header" id="ctx-menu-title">Object Context Menu</div>
+            <button type="button" role="menuitem" data-ctx-cmd="frame" data-testid="ctx-cmd-frame">Frame Selected / Scene <kbd>F</kbd></button>
+            <button type="button" role="menuitem" data-ctx-cmd="duplicate" id="ctx-cmd-duplicate" data-testid="ctx-cmd-duplicate">Duplicate Object</button>
+            <button type="button" role="menuitem" data-ctx-cmd="reset_transform" id="ctx-cmd-reset-tf" data-testid="ctx-cmd-reset-tf">Reset Transform</button>
+            <div class="menu-sep" id="ctx-mesh-sep" hidden></div>
+            <button type="button" role="menuitem" data-ctx-cmd="mesh_extrude" id="ctx-cmd-extrude" hidden>Extrude Selected Faces</button>
+            <button type="button" role="menuitem" data-ctx-cmd="mesh_boundary" id="ctx-cmd-boundary" hidden>Select Open Hole Loop</button>
+            <button type="button" role="menuitem" data-ctx-cmd="mesh_fill" id="ctx-cmd-fill" hidden>Fill Boundary Face</button>
+            <div class="menu-sep"></div>
+            <button type="button" role="menuitem" class="ctx-item-danger" data-ctx-cmd="delete" id="ctx-cmd-delete" data-testid="ctx-cmd-delete">Delete Selected <kbd>Del</kbd></button>
+            <button type="button" role="menuitem" data-ctx-cmd="deselect" data-testid="ctx-cmd-deselect">Clear Selection</button>
+          </div>
+
+          <div class="viewport-banner" id="viewport-banner" data-testid="viewport-banner" hidden></div>
+        </main>
+
+        <!-- Horizontal Resize Splitter between 3D Viewport and Bottom Area -->
+        <div class="dock-splitter dock-splitter-h" id="splitter-bottom" data-testid="splitter-bottom" role="separator" aria-orientation="horizontal" title="Drag to resize Bottom Editor Area"></div>
+
+        <!-- BOTTOM REGION: Reusable Multi-Editor Area (Timeline / Asset Browser / Console / Foundation Editors) -->
+        <section class="bottom-dock" id="dock-bottom" data-testid="dock-bottom" aria-label="Bottom Editor Area">
+          <div class="bottom-dock-header">
+            <label class="editor-type-switcher" title="Switch Area Editor Type">
+              <span class="btn-ic" data-icon="timeline" id="bottom-editor-icon"></span>
+              <select id="bottom-editor-select" data-testid="bottom-editor-select" aria-label="Bottom Area Editor Type">
+                <option value="timeline">Timeline &amp; Playback</option>
+                <option value="asset_browser">Asset Browser</option>
+                <option value="console">System Console</option>
+                <option value="shader_foundation">Shader Editor (Foundation)</option>
+                <option value="uv_foundation">UV Editor (Foundation)</option>
+                <option value="geonodes_foundation">Geometry Nodes (Foundation)</option>
+                <option value="compositor_foundation">Compositor (Foundation)</option>
+                <option value="vse_foundation">Video Sequencer (Foundation)</option>
+              </select>
+            </label>
+
+            <div class="bottom-dock-tabs">
+              <button type="button" class="dock-tab is-active" data-bottom-tab="timeline" id="tab-timeline" data-testid="tab-timeline">Timeline</button>
+              <button type="button" class="dock-tab" data-bottom-tab="asset_browser" id="tab-asset-browser" data-testid="tab-asset-browser">Asset Browser</button>
+              <button type="button" class="dock-tab" data-bottom-tab="console" id="tab-console" data-testid="tab-console">Console</button>
+            </div>
+
+            <div class="bottom-dock-actions">
+              <button type="button" class="ghost-btn mp-drawer-close-btn" data-mp-close-drawer="1" title="Collapse drawer to maximize 3D Viewport">&darr; Viewport</button>
+              <button type="button" class="icon-mini-btn" id="btn-collapse-bottom" data-testid="btn-collapse-bottom" aria-expanded="true" title="Collapse / Expand Bottom Area">&minus;</button>
+            </div>
+          </div>
+
+          <div class="bottom-dock-content" id="bottom-dock-content">
+            <!-- Timeline Pane -->
+            <div class="bottom-pane" id="pane-timeline" data-testid="pane-timeline">
+              <div class="timeline-transport">
+                <button type="button" class="tb-btn tb-btn-accent" id="btn-timeline-play" data-testid="btn-timeline-play">
+                  <span class="btn-ic" data-icon="play"></span>
+                  <span id="lbl-timeline-play">Play Rig</span>
+                </button>
+                <label class="tl-frame-box">
+                  <span>Frame</span>
+                  <input type="number" id="timeline-frame-num" data-testid="timeline-frame-num" min="1" max="240" value="1" />
+                </label>
+                <span class="muted-tag">Start: 1 &middot; End: 240</span>
+                <span class="tl-foundation-note">Live Showcase Rig Active &middot; Keyframe Curve Channels: Foundation</span>
+              </div>
+              <div class="timeline-scrubber-wrap">
+                <input type="range" class="timeline-scrubber" id="timeline-scrubber" data-testid="timeline-scrubber" min="1" max="240" value="1" />
+                <div class="timeline-ticks" aria-hidden="true">
+                  <span>1</span><span>40</span><span>80</span><span>120</span><span>160</span><span>200</span><span>240</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Asset Browser Pane -->
+            <div class="bottom-pane" id="pane-asset-browser" data-testid="pane-asset-browser" hidden>
+              <div class="asset-strip" id="asset-browser-list" data-testid="asset-browser-list"></div>
+            </div>
+
+            <!-- Console Pane -->
+            <div class="bottom-pane" id="pane-console" data-testid="pane-console" hidden>
+              <div class="console-log" id="console-log-list" data-testid="console-log-list"></div>
+            </div>
+
+            <!-- Honest Structural Foundation Editor Pane (Shader / UV / GeoNodes / Compositor / VSE) -->
+            <div class="bottom-pane" id="pane-foundation-editor" data-testid="pane-foundation-editor" hidden>
+              <div class="foundation-editor-box">
+                <div class="foundation-editor-head">
+                  <strong id="fe-pane-title">Editor Foundation</strong>
+                  <span class="studio-status-pill is-planned">ARCHITECTURAL FOUNDATION</span>
+                </div>
+                <p id="fe-pane-desc"></p>
+                <div class="foundation-live-binding" id="fe-pane-binding"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Vertical Resize Splitter between Center Column and Right Outliner/Properties Dock -->
+      <div class="dock-splitter dock-splitter-v" id="splitter-right" data-testid="splitter-right" role="separator" aria-orientation="vertical" title="Drag to resize Outliner &amp; Properties Area"></div>
+
+      <!-- RIGHT REGION: Blender-Inspired Stacked Outliner + Vertical-Tabbed Properties Editor -->
+      <aside class="studio-dock dock-right" id="dock-right" data-testid="dock-right" aria-label="Scene Outliner and Properties Editor">
+        <!-- Upper Panel: Scene Outliner -->
+        <section class="outliner-panel" id="panel-outliner" data-testid="panel-outliner">
+          <div class="area-header">
+            <div class="area-title">
+              <span class="btn-ic" data-icon="outliner"></span>
+              <h2>Scene Outliner</h2>
+            </div>
+            <div class="area-header-actions">
+              <button type="button" class="ghost-btn" id="btn-clear-selection" data-testid="btn-clear-selection" title="Clear active selection">Deselect</button>
+              <button type="button" class="ghost-btn mp-drawer-close-btn" data-mp-close-drawer="1" title="Collapse drawer to maximize 3D Viewport">&darr; Viewport</button>
+              <button type="button" class="icon-mini-btn desktop-only-btn" id="btn-collapse-right" data-testid="btn-collapse-right" title="Collapse Right Outliner &amp; Inspector">&raquo;</button>
+            </div>
+          </div>
+          <div class="outliner-search-row">
+            <input type="search" id="outliner-filter" data-testid="outliner-filter" placeholder="Filter scene objects…" autocomplete="off" />
           </div>
           <div class="outliner-list" id="outliner-list" data-testid="outliner-list" role="tree" aria-label="Scene hierarchy"></div>
         </section>
 
-        <section class="dock-section">
-          <div class="section-header">
-            <h2>Project &amp; Scene</h2>
-          </div>
-          <div class="form-stack">
-            <label class="field-row">
-              <span>Project</span>
-              <input type="text" id="meta-project-name" data-testid="meta-project-name" autocomplete="off" />
-            </label>
-            <label class="field-row">
-              <span>Author</span>
-              <input type="text" id="meta-author" data-testid="meta-author" autocomplete="off" />
-            </label>
-            <label class="field-row">
-              <span>Scene</span>
-              <input type="text" id="meta-scene-name" data-testid="meta-scene-name" autocomplete="off" />
-            </label>
-          </div>
-        </section>
-      </aside>
+        <!-- Horizontal Splitter between Outliner and Properties Inspector -->
+        <div class="dock-splitter dock-splitter-h outliner-splitter" id="splitter-outliner" data-testid="splitter-outliner" role="separator" aria-orientation="horizontal" title="Drag to resize Outliner and Properties height"></div>
 
-      <!-- Center Stage: Live WebGL 2.0 3D Viewport -->
-      <main class="viewport-stage" id="viewport-stage" data-testid="viewport-stage">
-        <canvas id="fe3d-canvas" data-testid="fe3d-canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
-
-        <div class="viewport-overlay-top">
-          <span class="vp-pill" id="vp-camera-pill" data-testid="vp-camera-pill">Camera: MainCamera</span>
-          <span class="vp-pill" id="vp-selection-pill" data-testid="vp-selection-pill">No Selection</span>
-        </div>
-
-        <div class="viewport-overlay-bottom">
-          <span><b>LMB</b> Pick &middot; <b>RMB / Alt+LMB</b> Orbit &middot; <b>MMB / Shift+LMB</b> Pan &middot; <b>Wheel</b> Zoom &middot; <b>F</b> Frame &middot; <b>Del</b> Delete</span>
-        </div>
-
-        <div class="viewport-banner" id="viewport-banner" data-testid="viewport-banner">
-          Initializing WebAssembly Engine &amp; WebGL 2.0 Pipeline…
-        </div>
-      </main>
-
-      <!-- Right Dock: Property Inspector + Telemetry -->
-      <aside class="studio-dock dock-right" aria-label="Property Inspector and Telemetry">
-        <section class="dock-section dock-section-grow">
-          <div class="section-header">
-            <h2>Inspector</h2>
-            <span class="muted-tag" id="inspector-id-badge">None</span>
+        <!-- Lower Panel: Properties / Inspector with Blender Vertical Icon Tab Rail -->
+        <section class="properties-shell" id="properties-shell" data-testid="properties-shell">
+          <div class="props-rail" id="inspector-tabs" data-testid="inspector-tabs" role="tablist" aria-label="Properties Categories">
+            <button type="button" class="props-tab is-active" data-insp-tab="object" data-testid="insp-tab-object" title="Object &amp; Transform Properties">
+              <span class="btn-ic" data-icon="objectProps"></span>
+            </button>
+            <button type="button" class="props-tab" data-insp-tab="modifiers" data-testid="insp-tab-modifiers" title="Mesh Modeling, Geometry &amp; Modifier Foundation">
+              <span class="btn-ic" data-icon="modifiers"></span>
+            </button>
+            <button type="button" class="props-tab" data-insp-tab="material" data-testid="insp-tab-material" title="PBR Material Properties &amp; Live 3D Sphere Preview">
+              <span class="btn-ic" data-icon="material"></span>
+            </button>
+            <button type="button" class="props-tab" data-insp-tab="data" data-testid="insp-tab-data" title="Camera &amp; Directional Light Data">
+              <span class="btn-ic" data-icon="camera"></span>
+            </button>
+            <button type="button" class="props-tab" data-insp-tab="render" data-testid="insp-tab-render" title="Project Metadata &amp; Engine Telemetry">
+              <span class="btn-ic" data-icon="sceneData"></span>
+            </button>
+            <button type="button" class="props-tab" data-insp-tab="all" data-testid="insp-tab-all" title="Pin All Inspector Sections">
+              <span class="props-all-txt">ALL</span>
+            </button>
           </div>
 
-          <!-- Empty Selection State -->
-          <div class="inspector-empty" id="inspector-empty" data-testid="inspector-empty">
-            <p>Click an object in the <b>3D Viewport</b> or <b>Scene Outliner</b> to inspect and edit its transform, hierarchy, and components.</p>
-          </div>
-
-          <!-- Active Object Inspector -->
-          <div class="inspector-body" id="inspector-body" data-testid="inspector-body" hidden>
-            <div class="inspector-card">
-              <div class="field-row">
-                <label for="insp-name">Name</label>
-                <input type="text" id="insp-name" data-testid="insp-name" autocomplete="off" />
-              </div>
-              <div class="field-row">
-                <label for="insp-parent">Parent</label>
-                <select id="insp-parent" data-testid="insp-parent"></select>
-              </div>
-              <label class="checkbox-row">
-                <input type="checkbox" id="insp-visible" data-testid="insp-visible" />
-                <span>Visible in Viewport</span>
-              </label>
-            </div>
-
-            <!-- Transform Card -->
-            <div class="inspector-card">
-              <div class="card-header">
-                <h3>Local Transform</h3>
-                <button type="button" class="ghost-btn" id="btn-reset-transform" data-testid="btn-reset-transform">Reset</button>
-              </div>
-
-              <div class="vec3-group">
-                <span class="vec3-label">Position</span>
-                <div class="vec3-inputs">
-                  <label class="axis-x"><span>X</span><input type="number" step="0.1" id="tf-pos-x" data-testid="tf-pos-x" /></label>
-                  <label class="axis-y"><span>Y</span><input type="number" step="0.1" id="tf-pos-y" data-testid="tf-pos-y" /></label>
-                  <label class="axis-z"><span>Z</span><input type="number" step="0.1" id="tf-pos-z" data-testid="tf-pos-z" /></label>
+          <div class="props-content-scroll" id="props-content-scroll">
+            <!-- OBJECT, TRANSFORM, MODELING & DATA INSPECTOR -->
+            <div id="panel-properties" data-testid="panel-properties">
+              <div class="area-header">
+                <div class="area-title">
+                  <h2 id="props-active-heading">Object Properties</h2>
+                </div>
+                <div class="area-header-actions">
+                  <span class="muted-tag" id="inspector-id-badge">None</span>
+                  <button type="button" class="ghost-btn mp-drawer-close-btn" data-mp-close-drawer="1" title="Return to Full 3D Viewport">Done</button>
                 </div>
               </div>
 
-              <div class="vec3-group">
-                <span class="vec3-label">Rotation (°)</span>
-                <div class="vec3-inputs">
-                  <label class="axis-x"><span>X</span><input type="number" step="5" id="tf-rot-x" data-testid="tf-rot-x" /></label>
-                  <label class="axis-y"><span>Y</span><input type="number" step="5" id="tf-rot-y" data-testid="tf-rot-y" /></label>
-                  <label class="axis-z"><span>Z</span><input type="number" step="5" id="tf-rot-z" data-testid="tf-rot-z" /></label>
-                </div>
+              <div class="inspector-empty" id="inspector-empty" data-testid="inspector-empty">
+                <p>Select an object in the <b>3D Viewport</b> or <b>Scene Outliner</b> to inspect transforms, mesh topology, camera/light settings, and PBR materials.</p>
               </div>
 
-              <div class="vec3-group">
-                <span class="vec3-label">Scale</span>
-                <div class="vec3-inputs">
-                  <label class="axis-x"><span>X</span><input type="number" step="0.1" min="0.01" id="tf-scl-x" data-testid="tf-scl-x" /></label>
-                  <label class="axis-y"><span>Y</span><input type="number" step="0.1" min="0.01" id="tf-scl-y" data-testid="tf-scl-y" /></label>
-                  <label class="axis-z"><span>Z</span><input type="number" step="0.1" min="0.01" id="tf-scl-z" data-testid="tf-scl-z" /></label>
-                </div>
-              </div>
-            </div>
-
-            <!-- Mesh Component Card -->
-            <div class="inspector-card" id="card-mesh" data-testid="card-mesh" hidden>
-              <div class="card-header">
-                <h3>Mesh Component</h3>
-              </div>
-              <div class="kv-grid">
-                <span>Asset</span><strong id="mesh-asset-name">-</strong>
-                <span>Geometry</span><strong id="mesh-geo-counts">-</strong>
-                <span>Local Bounds</span><strong id="mesh-bounds">-</strong>
-              </div>
-            </div>
-
-            <!-- Camera Component Card -->
-            <div class="inspector-card" id="card-camera" data-testid="card-camera" hidden>
-              <div class="card-header">
-                <h3>Camera Component</h3>
-                <button type="button" class="ghost-btn" id="btn-set-active-camera" data-testid="btn-set-active-camera">Set Active</button>
-              </div>
-              <div class="form-stack">
-                <label class="field-row">
-                  <span>Projection</span>
-                  <select id="cam-projection" data-testid="cam-projection">
-                    <option value="perspective">Perspective</option>
-                    <option value="orthographic">Orthographic</option>
-                  </select>
-                </label>
-                <label class="field-row">
-                  <span>FOV Y (°)</span>
-                  <input type="number" step="1" min="5" max="150" id="cam-fov" data-testid="cam-fov" />
-                </label>
-                <label class="field-row">
-                  <span>Ortho Height</span>
-                  <input type="number" step="0.5" min="0.1" id="cam-ortho" data-testid="cam-ortho" />
-                </label>
-                <label class="field-row">
-                  <span>Near / Far</span>
-                  <div class="inline-pair">
-                    <input type="number" step="0.05" min="0.01" id="cam-near" data-testid="cam-near" />
-                    <input type="number" step="5" min="1" id="cam-far" data-testid="cam-far" />
+              <div class="inspector-body" id="inspector-body" data-testid="inspector-body" hidden>
+                <!-- TAB: OBJECT & TRANSFORM -->
+                <div class="insp-section-group" data-insp-section="object">
+                  <div class="inspector-card">
+                    <div class="field-row">
+                      <label for="insp-name">Name</label>
+                      <input type="text" id="insp-name" data-testid="insp-name" autocomplete="off" />
+                    </div>
+                    <div class="field-row">
+                      <label for="insp-parent">Parent</label>
+                      <select id="insp-parent" data-testid="insp-parent"></select>
+                    </div>
+                    <div class="field-row" id="insp-material-row">
+                      <label for="insp-material">Material</label>
+                      <select id="insp-material" data-testid="insp-material"></select>
+                    </div>
+                    <label class="checkbox-row">
+                      <input type="checkbox" id="insp-visible" data-testid="insp-visible" />
+                      <span>Visible in Viewport</span>
+                    </label>
                   </div>
-                </label>
+
+                  <div class="inspector-card">
+                    <div class="card-header">
+                      <h3>Transform</h3>
+                      <button type="button" class="ghost-btn" id="btn-reset-transform" data-testid="btn-reset-transform">Reset</button>
+                    </div>
+
+                    <div class="vec3-group">
+                      <span class="vec3-label">Location</span>
+                      <div class="vec3-inputs">
+                        <label class="axis-x"><span>X</span><input type="number" step="0.1" id="tf-pos-x" data-testid="tf-pos-x" /></label>
+                        <label class="axis-y"><span>Y</span><input type="number" step="0.1" id="tf-pos-y" data-testid="tf-pos-y" /></label>
+                        <label class="axis-z"><span>Z</span><input type="number" step="0.1" id="tf-pos-z" data-testid="tf-pos-z" /></label>
+                      </div>
+                    </div>
+
+                    <div class="vec3-group">
+                      <span class="vec3-label">Rotation (°)</span>
+                      <div class="vec3-inputs">
+                        <label class="axis-x"><span>X</span><input type="number" step="5" id="tf-rot-x" data-testid="tf-rot-x" /></label>
+                        <label class="axis-y"><span>Y</span><input type="number" step="5" id="tf-rot-y" data-testid="tf-rot-y" /></label>
+                        <label class="axis-z"><span>Z</span><input type="number" step="5" id="tf-rot-z" data-testid="tf-rot-z" /></label>
+                      </div>
+                    </div>
+
+                    <div class="vec3-group">
+                      <span class="vec3-label">Scale</span>
+                      <div class="vec3-inputs">
+                        <label class="axis-x"><span>X</span><input type="number" step="0.1" min="0.01" id="tf-scl-x" data-testid="tf-scl-x" /></label>
+                        <label class="axis-y"><span>Y</span><input type="number" step="0.1" min="0.01" id="tf-scl-y" data-testid="tf-scl-y" /></label>
+                        <label class="axis-z"><span>Z</span><input type="number" step="0.1" min="0.01" id="tf-scl-z" data-testid="tf-scl-z" /></label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- TAB: MODIFIERS, MESH EDITING & GEOMETRY -->
+                <div class="insp-section-group" data-insp-section="modifiers">
+                  <div class="inspector-card" id="card-mesh-edit" data-testid="card-mesh-edit" hidden>
+                    <div class="card-header">
+                      <h3>Polygon Mesh Modeling</h3>
+                      <span class="muted-tag" id="mesh-edit-selection-tag" data-testid="mesh-edit-selection-tag">0 selected</span>
+                    </div>
+                    <div class="kv-grid">
+                      <span>Topology</span><strong id="mesh-edit-topology" data-testid="mesh-edit-topology">-</strong>
+                    </div>
+                    <div class="inline-pair">
+                      <input type="number" step="0.05" value="0.35" id="mesh-extrude-dist" data-testid="mesh-extrude-dist" title="Extrude distance along face normal" />
+                      <button type="button" class="tb-btn" id="btn-mesh-extrude" data-testid="btn-mesh-extrude">Extrude Face</button>
+                    </div>
+                    <div class="inline-pair">
+                      <button type="button" class="tb-btn" id="btn-mesh-boundary" data-testid="btn-mesh-boundary">Select Hole</button>
+                      <button type="button" class="tb-btn" id="btn-mesh-fill" data-testid="btn-mesh-fill">Fill Face</button>
+                    </div>
+                    <div class="inline-pair">
+                      <button type="button" class="tb-btn" id="btn-mesh-assign-mat" data-testid="btn-mesh-assign-mat">Assign Mat</button>
+                      <button type="button" class="tb-btn tb-btn-danger" id="btn-mesh-delete" data-testid="btn-mesh-delete">Delete Elem</button>
+                    </div>
+                  </div>
+
+                  <div class="inspector-card" id="card-mesh" data-testid="card-mesh" hidden>
+                    <div class="card-header">
+                      <h3>Mesh Geometry</h3>
+                    </div>
+                    <div class="kv-grid">
+                      <span>Asset</span><strong id="mesh-asset-name">-</strong>
+                      <span>Counts</span><strong id="mesh-geo-counts">-</strong>
+                      <span>Bounds</span><strong id="mesh-bounds">-</strong>
+                    </div>
+                  </div>
+
+                  <div class="inspector-card foundation-subcard" data-testid="modifier-stack-foundation">
+                    <div class="card-header">
+                      <h3>Modifier Stack</h3>
+                      <span class="muted-tag">Foundation</span>
+                    </div>
+                    <p class="foundation-note-sm">Non-destructive procedural modifiers (Mirror, Array, Bevel, Subdivision) are scheduled for a future engine stage. Direct undoable mesh editing is active above.</p>
+                  </div>
+                </div>
+
+                <!-- TAB: CAMERA & LIGHT DATA -->
+                <div class="insp-section-group" data-insp-section="data">
+                  <div class="inspector-card" id="card-camera" data-testid="card-camera" hidden>
+                    <div class="card-header">
+                      <h3>Camera Lens &amp; Clip</h3>
+                      <div class="area-header-actions">
+                        <button type="button" class="ghost-btn" id="btn-toggle-camera-view" data-testid="btn-toggle-camera-view" title="Look through active camera lens or return to free perspective">View Lens</button>
+                        <button type="button" class="ghost-btn" id="btn-set-active-camera" data-testid="btn-set-active-camera">Set Active</button>
+                      </div>
+                    </div>
+                    <div class="form-stack">
+                      <label class="field-row">
+                        <span>Projection</span>
+                        <select id="cam-projection" data-testid="cam-projection">
+                          <option value="perspective">Perspective</option>
+                          <option value="orthographic">Orthographic</option>
+                        </select>
+                      </label>
+                      <label class="field-row">
+                        <span>FOV Y (°)</span>
+                        <input type="number" step="1" min="5" max="150" id="cam-fov" data-testid="cam-fov" />
+                      </label>
+                      <label class="field-row">
+                        <span>Ortho Scale</span>
+                        <input type="number" step="0.5" min="0.1" id="cam-ortho" data-testid="cam-ortho" />
+                      </label>
+                      <label class="field-row">
+                        <span>Clip N / F</span>
+                        <div class="inline-pair">
+                          <input type="number" step="0.05" min="0.01" id="cam-near" data-testid="cam-near" />
+                          <input type="number" step="5" min="1" id="cam-far" data-testid="cam-far" />
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="inspector-card" id="card-light" data-testid="card-light" hidden>
+                    <div class="card-header">
+                      <h3 id="light-card-title">Light</h3>
+                      <label class="checkbox-inline" title="Enable or disable light contribution">
+                        <input type="checkbox" id="light-enabled" data-testid="light-enabled" checked />
+                        <span>Enabled</span>
+                      </label>
+                    </div>
+                    <div class="form-stack">
+                      <label class="field-row">
+                        <span>Type</span>
+                        <select id="light-type" data-testid="light-type">
+                          <option value="directional">Directional (Sun)</option>
+                          <option value="point">Point (Omni)</option>
+                          <option value="spot">Spot (Cone)</option>
+                          <option value="area">Area (Emitter)</option>
+                        </select>
+                      </label>
+                      <label class="field-row">
+                        <span>Color</span>
+                        <input type="color" id="light-color" data-testid="light-color" value="#ffffff" />
+                      </label>
+                      <label class="field-row">
+                        <span>Intensity</span>
+                        <input type="number" step="0.2" min="0" max="500" id="light-intensity" data-testid="light-intensity" />
+                      </label>
+
+                      <!-- Contextual Shape, Range, Falloff & Cone Parameters -->
+                      <div class="light-sub-block" id="light-shape-block" data-testid="light-shape-block" hidden>
+                        <div class="inspector-subhead">Light Shape &amp; Falloff</div>
+                        <label class="field-row" id="light-row-area-shape" hidden>
+                          <span>Emitter</span>
+                          <select id="light-area-shape" data-testid="light-area-shape">
+                            <option value="rectangle">Rectangle</option>
+                            <option value="disk">Disk</option>
+                          </select>
+                        </label>
+                        <label class="field-row" id="light-row-area-width" hidden>
+                          <span id="lbl-light-area-width">Width</span>
+                          <input type="number" step="0.1" min="0.05" max="100" id="light-area-width" data-testid="light-area-width" value="1.6" />
+                        </label>
+                        <label class="field-row" id="light-row-area-height" hidden>
+                          <span>Height</span>
+                          <input type="number" step="0.1" min="0.05" max="100" id="light-area-height" data-testid="light-area-height" value="1.0" />
+                        </label>
+                        <label class="checkbox-row" id="light-row-area-twosided" hidden>
+                          <input type="checkbox" id="light-area-twosided" data-testid="light-area-twosided" />
+                          <span>Two-Sided Emission</span>
+                        </label>
+                        <label class="field-row" id="light-row-area-samples" hidden>
+                          <span>Sampling</span>
+                          <select id="light-area-samples" data-testid="light-area-samples">
+                            <option value="1">Low (4x)</option>
+                            <option value="2">Medium (9x)</option>
+                            <option value="3">High (16x)</option>
+                          </select>
+                        </label>
+                        <label class="field-row" id="light-row-range" hidden>
+                          <span>Range (m)</span>
+                          <input type="number" step="0.5" min="0.2" max="500" id="light-range" data-testid="light-range" value="12" />
+                        </label>
+                        <label class="field-row" id="light-row-falloff" hidden>
+                          <span>Falloff</span>
+                          <select id="light-falloff" data-testid="light-falloff">
+                            <option value="inverse_square_windowed">Inverse Square</option>
+                            <option value="smooth_quadratic">Smooth Quadratic</option>
+                            <option value="smooth_linear">Smooth Linear</option>
+                          </select>
+                        </label>
+                        <label class="field-row" id="light-row-attenuation" hidden>
+                          <span>Exponent</span>
+                          <input type="number" step="0.1" min="0" max="4" id="light-attenuation" data-testid="light-attenuation" value="2.0" />
+                        </label>
+                        <label class="field-row" id="light-row-source-radius" hidden>
+                          <span>Radius</span>
+                          <input type="number" step="0.02" min="0.01" max="10" id="light-source-radius" data-testid="light-source-radius" value="0.08" />
+                        </label>
+                        <label class="field-row" id="light-row-spot-cones" hidden>
+                          <span>Cone In/Out°</span>
+                          <div class="inline-pair">
+                            <input type="number" step="1" min="0" max="88" id="light-inner-cone" data-testid="light-inner-cone" value="18" title="Inner full-brightness cone angle (°)" />
+                            <input type="number" step="1" min="1" max="89" id="light-outer-cone" data-testid="light-outer-cone" value="34" title="Outer cutoff cone angle (°)" />
+                          </div>
+                        </label>
+                        <label class="field-row" id="light-row-cone-falloff" hidden>
+                          <span>Cone Edge</span>
+                          <input type="number" step="0.1" min="0.1" max="16" id="light-cone-falloff" data-testid="light-cone-falloff" value="1.0" />
+                        </label>
+                      </div>
+
+                      <!-- Real-Time Shadow Mapping Controls -->
+                      <div class="light-sub-block" data-testid="light-shadow-block">
+                        <div class="inspector-subhead">
+                          <span>Shadows</span>
+                          <label class="checkbox-inline">
+                            <input type="checkbox" id="light-shadow-enabled" data-testid="light-shadow-enabled" />
+                            <span>Cast</span>
+                          </label>
+                        </div>
+                        <div class="form-stack" id="light-shadow-params">
+                          <label class="field-row">
+                            <span>Quality</span>
+                            <select id="light-shadow-quality" data-testid="light-shadow-quality">
+                              <option value="low">Low (256)</option>
+                              <option value="medium">Medium (512)</option>
+                              <option value="high">High (1024)</option>
+                              <option value="ultra">Ultra (2048)</option>
+                            </select>
+                          </label>
+                          <label class="field-row">
+                            <span>Filter</span>
+                            <select id="light-shadow-filter" data-testid="light-shadow-filter">
+                              <option value="hard">Hard</option>
+                              <option value="pcf3x3">PCF 3&times;3</option>
+                              <option value="pcf5x5">PCF 5&times;5</option>
+                            </select>
+                          </label>
+                          <label class="field-row">
+                            <span>Strength</span>
+                            <input type="number" step="0.05" min="0" max="1" id="light-shadow-strength" data-testid="light-shadow-strength" value="1.0" />
+                          </label>
+                          <label class="field-row">
+                            <span>Bias / Nrm</span>
+                            <div class="inline-pair">
+                              <input type="number" step="0.0005" min="0" max="0.2" id="light-shadow-bias" data-testid="light-shadow-bias" value="0.0025" title="Depth bias" />
+                              <input type="number" step="0.005" min="0" max="0.5" id="light-shadow-normal-bias" data-testid="light-shadow-normal-bias" value="0.02" title="Normal offset bias" />
+                            </div>
+                          </label>
+                          <label class="field-row">
+                            <span>Softness</span>
+                            <input type="number" step="0.1" min="0.1" max="8" id="light-shadow-softness" data-testid="light-shadow-softness" value="1.0" />
+                          </label>
+                        </div>
+                      </div>
+
+                      <!-- Per-Light Object Light Linking -->
+                      <div class="light-sub-block" data-testid="light-linking-block">
+                        <div class="inspector-subhead">Light Linking</div>
+                        <label class="field-row">
+                          <span>Mode</span>
+                          <select id="light-link-mode" data-testid="light-link-mode">
+                            <option value="all">Affect All Objects</option>
+                            <option value="include_only">Include Only</option>
+                            <option value="exclude">Exclude Selected</option>
+                          </select>
+                        </label>
+                        <div id="light-link-list-wrap" hidden>
+                          <label class="checkbox-row">
+                            <input type="checkbox" id="light-link-descendants" data-testid="light-link-descendants" checked />
+                            <span>Apply to Child Hierarchy</span>
+                          </label>
+                          <div class="light-link-checklist" id="light-link-targets" data-testid="light-link-targets"></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="inspector-card" id="card-data-empty">
+                    <p class="foundation-note-sm">Select a Camera or Light (Directional, Point, Spot, Area) to adjust lens, emission, shadows, or light linking.</p>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <!-- Directional Light Component Card -->
-            <div class="inspector-card" id="card-light" data-testid="card-light" hidden>
-              <div class="card-header">
-                <h3>Directional Light</h3>
-              </div>
-              <div class="form-stack">
-                <label class="field-row">
-                  <span>Color</span>
-                  <input type="color" id="light-color" data-testid="light-color" value="#ffffff" />
-                </label>
-                <label class="field-row">
-                  <span>Intensity</span>
-                  <input type="number" step="0.1" min="0" max="20" id="light-intensity" data-testid="light-intensity" />
-                </label>
+            <!-- TAB: PBR MATERIAL EDITOR & LIVE 3D SPHERE PREVIEW -->
+            <div class="insp-section-group" data-insp-section="material" id="panel-material-editor" data-testid="panel-material-editor">
+              <div class="inspector-card">
+                <div class="card-header">
+                  <h3>PBR Material</h3>
+                  <div class="inline-actions">
+                    <button type="button" class="ghost-btn" id="btn-mat-new" data-testid="btn-mat-new" title="Create new PBR material">+ New</button>
+                    <button type="button" class="ghost-btn" id="btn-mat-dup" data-testid="btn-mat-dup" title="Duplicate material">Dup</button>
+                    <button type="button" class="ghost-btn" id="btn-mat-del" data-testid="btn-mat-del" title="Delete unused material">Del</button>
+                    <button type="button" class="ghost-btn mp-drawer-close-btn" data-mp-close-drawer="1" title="Return to Full 3D Viewport">Done</button>
+                  </div>
+                </div>
+
+                <div class="material-preview-row">
+                  <canvas id="material-preview-canvas" data-testid="material-preview-canvas" width="96" height="96" title="Live 3D Cook-Torrance GGX Sphere Preview"></canvas>
+                  <div class="material-header-fields">
+                    <select id="mat-select" data-testid="mat-select" aria-label="Select PBR material"></select>
+                    <input type="text" id="mat-name" data-testid="mat-name" placeholder="Material Name" autocomplete="off" />
+                    <button type="button" class="ghost-btn" id="btn-mat-assign-obj" data-testid="btn-mat-assign-obj">Assign to Object</button>
+                  </div>
+                </div>
+
+                <div class="form-stack" id="mat-params-stack">
+                  <label class="field-row">
+                    <span>Base Color</span>
+                    <input type="color" id="mat-base-color" data-testid="mat-base-color" value="#e07533" />
+                  </label>
+                  <label class="slider-row">
+                    <span>Metallic</span>
+                    <input type="range" min="0" max="1" step="0.01" id="mat-metallic" data-testid="mat-metallic" />
+                    <strong id="val-mat-metallic">0.00</strong>
+                  </label>
+                  <label class="slider-row">
+                    <span>Roughness</span>
+                    <input type="range" min="0.04" max="1" step="0.01" id="mat-roughness" data-testid="mat-roughness" />
+                    <strong id="val-mat-roughness">0.50</strong>
+                  </label>
+                  <label class="slider-row">
+                    <span>Ambient Occ</span>
+                    <input type="range" min="0" max="1" step="0.01" id="mat-ao" data-testid="mat-ao" />
+                    <strong id="val-mat-ao">1.00</strong>
+                  </label>
+                  <label class="field-row">
+                    <span>Emissive</span>
+                    <div class="inline-pair">
+                      <input type="color" id="mat-emissive-color" data-testid="mat-emissive-color" value="#000000" />
+                      <input type="number" min="0" max="50" step="0.2" id="mat-emissive-strength" data-testid="mat-emissive-strength" value="0" />
+                    </div>
+                  </label>
+                  <label class="slider-row">
+                    <span>Opacity</span>
+                    <input type="range" min="0.05" max="1" step="0.01" id="mat-opacity" data-testid="mat-opacity" />
+                    <strong id="val-mat-opacity">1.00</strong>
+                  </label>
+                </div>
               </div>
             </div>
-          </div>
-        </section>
 
-        <!-- Resource & Memory Telemetry -->
-        <section class="dock-section">
-          <div class="section-header">
-            <h2>Engine Telemetry</h2>
-          </div>
-          <div class="kv-grid telemetry-grid" data-testid="telemetry-grid">
-            <span>Objects / Meshes</span><strong id="stat-objects-meshes">0 / 0</strong>
-            <span>Scene Triangles</span><strong id="stat-triangles">0</strong>
-            <span>CPU / GPU Mesh</span><strong id="stat-memory">0 KB / 0 KB</strong>
-            <span>Undo Stack</span><strong id="stat-history">0 steps (0 B)</strong>
+            <!-- TAB: ENVIRONMENT / HDRI IBL, PROJECT METADATA & ENGINE TELEMETRY -->
+            <div class="insp-section-group" data-insp-section="render">
+              <div class="inspector-card" id="card-environment" data-testid="card-environment">
+                <div class="card-header">
+                  <h3>Environment &amp; IBL</h3>
+                  <label class="checkbox-inline" title="Enable scene environment &amp; Image-Based Lighting">
+                    <input type="checkbox" id="env-enabled" data-testid="env-enabled" checked />
+                    <span>Active</span>
+                  </label>
+                </div>
+                <div class="form-stack">
+                  <div class="kv-grid">
+                    <span>HDRI Map</span>
+                    <strong id="env-hdri-status" data-testid="env-hdri-status">Studio Sky (Fallback)</strong>
+                  </div>
+                  <div class="inline-pair">
+                    <button type="button" class="tb-btn" id="btn-load-hdri" data-testid="btn-load-hdri" title="Load Radiance .hdr or .pfm environment map">Load .hdr…</button>
+                    <button type="button" class="tb-btn" id="btn-clear-hdri" data-testid="btn-clear-hdri" disabled title="Remove HDRI map and revert to studio sky">Clear</button>
+                  </div>
+                  <div class="hdri-preset-row">
+                    <button type="button" class="ghost-btn" data-hdri-preset="studio_softbox" data-testid="btn-hdri-softbox" title="Bake physical Studio Softbox HDRI into SH9 + GGX IBL">Softbox</button>
+                    <button type="button" class="ghost-btn" data-hdri-preset="warm_sunset" data-testid="btn-hdri-sunset" title="Bake Golden Sunset HDRI into SH9 + GGX IBL">Sunset</button>
+                    <button type="button" class="ghost-btn" data-hdri-preset="cool_courtyard" data-testid="btn-hdri-courtyard" title="Bake Overcast Courtyard HDRI into SH9 + GGX IBL">Courtyard</button>
+                  </div>
+                  <label class="slider-row">
+                    <span>Intensity</span>
+                    <input type="range" min="0" max="6" step="0.05" value="1" id="env-intensity" data-testid="env-intensity" />
+                    <strong id="val-env-intensity">1.00</strong>
+                  </label>
+                  <label class="slider-row">
+                    <span>Rotation°</span>
+                    <input type="range" min="-180" max="180" step="1" value="0" id="env-rotation" data-testid="env-rotation" />
+                    <strong id="val-env-rotation">0°</strong>
+                  </label>
+                  <label class="slider-row">
+                    <span>Diffuse</span>
+                    <input type="range" min="0" max="3" step="0.05" value="1" id="env-diffuse-scale" data-testid="env-diffuse-scale" />
+                    <strong id="val-env-diffuse">1.00</strong>
+                  </label>
+                  <label class="slider-row">
+                    <span>Specular</span>
+                    <input type="range" min="0" max="3" step="0.05" value="1" id="env-specular-scale" data-testid="env-specular-scale" />
+                    <strong id="val-env-specular">1.00</strong>
+                  </label>
+                </div>
+              </div>
+
+              <div class="inspector-card">
+                <div class="card-header">
+                  <h3>Project &amp; Scene Info</h3>
+                </div>
+                <div class="form-stack">
+                  <label class="field-row">
+                    <span>Project</span>
+                    <input type="text" id="meta-project-name" data-testid="meta-project-name" autocomplete="off" />
+                  </label>
+                  <label class="field-row">
+                    <span>Author</span>
+                    <input type="text" id="meta-author" data-testid="meta-author" autocomplete="off" />
+                  </label>
+                  <label class="field-row">
+                    <span>Scene</span>
+                    <input type="text" id="meta-scene-name" data-testid="meta-scene-name" autocomplete="off" />
+                  </label>
+                </div>
+              </div>
+
+              <div class="inspector-card">
+                <div class="card-header">
+                  <h3>WebGL 2.0 &amp; Memory Telemetry</h3>
+                </div>
+                <div class="kv-grid telemetry-grid" data-testid="telemetry-grid">
+                  <span>Objects / Meshes</span><strong id="stat-objects-meshes" data-testid="stat-objects-meshes">0 / 0</strong>
+                  <span>Materials / Upd</span><strong id="stat-materials-updates" data-testid="stat-materials-updates">0 / 0</strong>
+                  <span>Lights / Shadows</span><strong id="stat-lights-shadows" data-testid="stat-lights-shadows">0 / 0</strong>
+                  <span>Scene Triangles</span><strong id="stat-triangles" data-testid="stat-triangles">0</strong>
+                  <span>CPU / GPU Mesh</span><strong id="stat-memory" data-testid="stat-memory">0 KB / 0 KB</strong>
+                  <span>Shadow / IBL GPU</span><strong id="stat-lighting-gpu" data-testid="stat-lighting-gpu">0 B / 0 B</strong>
+                  <span>Undo History</span><strong id="stat-history" data-testid="stat-history">0 steps (0 B)</strong>
+                </div>
+                <div class="lighting-warn-box" id="stat-lighting-warning" data-testid="stat-lighting-warning" hidden></div>
+              </div>
+            </div>
           </div>
         </section>
       </aside>
     </div>
 
-    <!-- Bottom Studio Status & Backend Bar -->
+    <!-- MOBILE PORTRAIT BOTTOM NAVIGATION BAR (Viewport-first drawer switcher) -->
+    <nav class="mobile-portrait-nav" id="mobile-portrait-nav" data-testid="mobile-portrait-nav" aria-label="Mobile Studio Editors">
+      <button type="button" class="mp-tab is-active" data-mp-drawer="viewport" data-testid="mp-tab-viewport"><span class="btn-ic" data-icon="cube"></span><span>Viewport</span></button>
+      <button type="button" class="mp-tab" data-mp-drawer="outliner" data-testid="mp-tab-outliner"><span class="btn-ic" data-icon="outliner"></span><span>Outliner</span></button>
+      <button type="button" class="mp-tab" data-mp-drawer="inspector" data-testid="mp-tab-inspector"><span class="btn-ic" data-icon="objectProps"></span><span>Inspector</span></button>
+      <button type="button" class="mp-tab" data-mp-drawer="materials" data-testid="mp-tab-materials"><span class="btn-ic" data-icon="material"></span><span>Materials</span></button>
+      <button type="button" class="mp-tab" data-mp-drawer="assets" data-testid="mp-tab-assets"><span class="btn-ic" data-icon="assets"></span><span>Assets</span></button>
+      <button type="button" class="mp-tab" data-mp-drawer="timeline" data-testid="mp-tab-timeline"><span class="btn-ic" data-icon="timeline"></span><span>Timeline</span></button>
+      <button type="button" class="mp-tab" data-mp-drawer="console" data-testid="mp-tab-console"><span class="btn-ic" data-icon="console"></span><span>Console</span></button>
+    </nav>
+
+    <!-- STUDIO STATUS BAR -->
     <footer class="studio-statusbar">
       <div class="status-left">
         <span class="status-dot" id="status-dot"></span>
-        <span id="status-message" data-testid="status-message">Starting Final Effect 3D…</span>
+        <span id="status-message" data-testid="status-message">Ready</span>
       </div>
       <div class="status-right">
+        <span class="status-layout-pill" id="status-layout-mode" data-testid="status-layout-mode">Desktop</span>
         <span id="status-renderer" data-testid="status-renderer">WebGL 2.0</span>
       </div>
     </footer>
   </div>
 
+  <!-- ===================================================================== -->
+  <!-- PREFERENCES & WORKSPACE SETTINGS MODAL (Non-Scene Persistent Prefs)   -->
+  <!-- ===================================================================== -->
+  <div class="modal-backdrop" id="settings-modal" data-testid="settings-modal" hidden>
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
+      <div class="modal-header">
+        <h2 id="settings-modal-title">Preferences &amp; Workspace Layout</h2>
+        <button type="button" class="ghost-btn" id="btn-close-settings" data-testid="btn-close-settings">Close</button>
+      </div>
+      <div class="modal-body">
+        <label class="pro-field">
+          <span>Responsive Layout Mode</span>
+          <select id="pref-layout-mode" data-testid="pref-layout-mode">
+            <option value="auto">Automatic (Desktop &ge;960px &middot; Mobile Landscape &middot; Mobile Portrait)</option>
+            <option value="desktop">Force Desktop Multi-Panel Layout</option>
+            <option value="landscape">Force Compact Landscape Pro Layout</option>
+            <option value="portrait">Force Portrait Drawer Layout</option>
+          </select>
+        </label>
+        <label class="pro-field">
+          <span>Interface Density</span>
+          <select id="pref-ui-density" data-testid="pref-ui-density">
+            <option value="comfortable">Standard Studio Density</option>
+            <option value="compact">High-Density Compact</option>
+          </select>
+        </label>
+        <label class="pro-field">
+          <span>Default Project Author</span>
+          <input type="text" id="pref-default-author" data-testid="pref-default-author" autocomplete="off" />
+        </label>
+        <label class="checkbox-row">
+          <input type="checkbox" id="pref-show-hud" data-testid="pref-show-hud" checked />
+          <span>Show 3D Viewport Telemetry &amp; Shortcut Overlay</span>
+        </label>
+
+        <div class="modal-actions-row">
+          <button type="button" class="pro-btn" id="btn-pref-save-layout" data-testid="btn-pref-save-layout">Save Custom Workspace Layout</button>
+          <button type="button" class="pro-btn" id="btn-pref-restore-layout" data-testid="btn-pref-restore-layout">Restore Saved Layout</button>
+        </div>
+        <p class="foundation-note-sm">Preferences and custom dock arrangements persist in browser storage independently of <code>.fe3d</code> scene objects and materials.</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="studios.js"></script>
   <script src="editor.js"></script>
   <script src="finaleffect_web.js"></script>
 </body>

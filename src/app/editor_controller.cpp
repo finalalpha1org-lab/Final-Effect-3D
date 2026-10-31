@@ -2,14 +2,12 @@
 // Copyright (C) 2026 Final Effect 3D Contributors
 
 #include "finaleffect/app/editor_controller.hpp"
+#include "finaleffect/core/version.hpp"
 #include "finaleffect/math/constants.hpp"
-#include "finaleffect/project/json.hpp"
-#include "finaleffect/scene/primitives.hpp"
+#include "finaleffect/scene/editable_mesh.hpp"
 
-#include <algorithm>
 #include <cmath>
 #include <cstdio>
-#include <limits>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -18,68 +16,39 @@ namespace finaleffect::app {
 
 namespace {
 
-project::JsonValue vec3ToJson(const math::Vec3& v) {
-    return project::JsonArray{
-        project::JsonValue(static_cast<double>(v.x)),
-        project::JsonValue(static_cast<double>(v.y)),
-        project::JsonValue(static_cast<double>(v.z)),
-    };
+std::string_view editModeName(scene::EditMode mode) noexcept {
+    switch (mode) {
+        case scene::EditMode::Vertex: return "vertex";
+        case scene::EditMode::Edge:   return "edge";
+        case scene::EditMode::Face:   return "face";
+        case scene::EditMode::Object:
+        default:
+            return "object";
+    }
 }
 
-core::Result<std::uint64_t> parseJsonId(const project::JsonValue* v, std::string_view name) {
-    if (v == nullptr || !v->isNumber()) {
-        return core::Result<std::uint64_t>::fail(
-            core::ErrorCode::InvalidArgument,
-            "Expected numeric ID field",
-            std::string(name));
-    }
-    const double d = v->asNumber();
-    if (!std::isfinite(d) || d < 0.0 || d > 9007199254740991.0 || std::floor(d) != d) {
-        return core::Result<std::uint64_t>::fail(
-            core::ErrorCode::InvalidArgument,
-            "ID field must be a non-negative integer",
-            std::string(name));
-    }
-    return core::Result<std::uint64_t>::ok(static_cast<std::uint64_t>(d));
-}
-
-core::Result<float> parseJsonFloat(const project::JsonValue* v, std::string_view name) {
-    if (v == nullptr || !v->isNumber()) {
-        return core::Result<float>::fail(
-            core::ErrorCode::InvalidArgument,
-            "Expected numeric field",
-            std::string(name));
-    }
-    const double d = v->asNumber();
-    if (!std::isfinite(d) || std::fabs(d) > static_cast<double>(std::numeric_limits<float>::max())) {
-        return core::Result<float>::fail(
-            core::ErrorCode::InvalidArgument,
-            "Numeric field out of 32-bit float range",
-            std::string(name));
-    }
-    return core::Result<float>::ok(static_cast<float>(d));
-}
-
-core::Result<math::Vec3> parseJsonVec3(const project::JsonValue* v, std::string_view name) {
-    if (v == nullptr || !v->isArray() || v->asArray().size() != 3) {
-        return core::Result<math::Vec3>::fail(
-            core::ErrorCode::InvalidArgument,
-            "Expected 3-element numeric array",
-            std::string(name));
-    }
-    const auto& arr = v->asArray();
-    auto x = parseJsonFloat(&arr[0], name);
-    auto y = parseJsonFloat(&arr[1], name);
-    auto z = parseJsonFloat(&arr[2], name);
-    if (!x) return x.error();
-    if (!y) return y.error();
-    if (!z) return z.error();
-    return core::Result<math::Vec3>::ok(math::Vec3{x.value(), y.value(), z.value()});
+bool sameMaterialValues(const scene::PbrMaterial& a, const scene::PbrMaterial& b) noexcept {
+    return a.id == b.id &&
+           a.base_color.approxEqual(b.base_color, 1e-4f) &&
+           std::fabs(a.metallic - b.metallic) <= 1e-4f &&
+           std::fabs(a.roughness - b.roughness) <= 1e-4f &&
+           std::fabs(a.ambient_occlusion - b.ambient_occlusion) <= 1e-4f &&
+           a.emissive_color.approxEqual(b.emissive_color, 1e-4f) &&
+           std::fabs(a.emissive_strength - b.emissive_strength) <= 1e-4f &&
+           std::fabs(a.opacity - b.opacity) <= 1e-4f;
 }
 
 } // namespace
 
-EditorController::EditorController(StudioSession& session) : session_(session) {}
+EditorController::EditorController(StudioSession& session) : session_(session) {
+    (void)material_preview_.initialize(96, 96);
+    console_entries_.push_back(EditorConsoleEntry{
+        .sequence = ++console_seq_,
+        .is_error = false,
+        .message = "Final Effect 3D Stage 4 Studio ready",
+    });
+    refreshMaterialPreview();
+}
 
 void EditorController::recordStatus(const core::Status& st, std::string_view ok_message) {
     ++state_revision_;
@@ -89,6 +58,50 @@ void EditorController::recordStatus(const core::Status& st, std::string_view ok_
     } else {
         last_status_is_error_ = true;
         last_status_message_ = st.error().format();
+    }
+
+    if (console_entries_.empty() || console_entries_.back().message != last_status_message_) {
+        console_entries_.push_back(EditorConsoleEntry{
+            .sequence = ++console_seq_,
+            .is_error = last_status_is_error_,
+            .message = last_status_message_,
+        });
+        while (console_entries_.size() > 64) {
+            console_entries_.pop_front();
+        }
+    }
+}
+
+scene::MaterialId EditorController::selectedMaterial() const noexcept {
+    const auto& scene = session_.document().scene;
+    if (selected_material_id_.isValid() && scene.findMaterial(selected_material_id_) != nullptr) {
+        return selected_material_id_;
+    }
+    if (session_.selectedObject().isValid()) {
+        if (const auto* obj = scene.findObject(session_.selectedObject());
+            obj != nullptr && obj->material_id.has_value() &&
+            scene.findMaterial(obj->material_id.value()) != nullptr) {
+            return obj->material_id.value();
+        }
+    }
+    if (!scene.materials().empty()) {
+        return scene.materials().front().id;
+    }
+    return scene::MaterialId::invalid();
+}
+
+void EditorController::refreshMaterialPreview() {
+    const scene::MaterialId active_id = selectedMaterial();
+    const auto* mat = active_id.isValid() ? session_.document().scene.findMaterial(active_id) : nullptr;
+    scene::PbrMaterial target = (mat != nullptr) ? *mat : scene::PbrMaterial{.name = "DefaultPreview"};
+
+    if (!has_preview_snapshot_ || active_id != previewed_material_id_ ||
+        !sameMaterialValues(target, previewed_material_snapshot_)) {
+        if (material_preview_.renderMaterial(target).hasValue()) {
+            previewed_material_id_ = active_id;
+            previewed_material_snapshot_ = target;
+            has_preview_snapshot_ = true;
+        }
     }
 }
 
@@ -101,6 +114,11 @@ core::Status EditorController::selectObject(scene::ObjectId id) {
     session_.setSelectedObject(id);
     if (id.isValid()) {
         const auto* obj = session_.document().scene.findObject(id);
+        if (obj->material_id.has_value()) {
+            selected_material_id_ = obj->material_id.value();
+            session_.syncDocumentState(selected_material_id_);
+        }
+        refreshMaterialPreview();
         recordStatus(core::Status::ok(), "Selected '" + obj->name + "'");
     } else {
         recordStatus(core::Status::ok(), "Cleared selection");
@@ -113,6 +131,11 @@ std::optional<scene::RaycastHit> EditorController::pickViewportPixel(float x, fl
     ++state_revision_;
     if (hit.has_value()) {
         if (const auto* obj = session_.document().scene.findObject(hit->object_id); obj != nullptr) {
+            if (obj->material_id.has_value()) {
+                selected_material_id_ = obj->material_id.value();
+                session_.syncDocumentState(selected_material_id_);
+                refreshMaterialPreview();
+            }
             last_status_is_error_ = false;
             last_status_message_ = "Picked '" + obj->name + "'";
         }
@@ -136,20 +159,689 @@ void EditorController::setRigAnimationPlaying(bool playing) noexcept {
     last_status_message_ = playing ? "Showcase rig animation resumed" : "Showcase rig animation paused";
 }
 
+void EditorController::setCameraViewActive(bool active) noexcept {
+    session_.setCameraViewActive(active);
+    ++state_revision_;
+    last_status_is_error_ = false;
+    last_status_message_ = active
+                               ? "Viewing through active scene camera"
+                               : "Switched to free perspective viewport";
+}
+
+void EditorController::setEditorHelpersVisible(bool visible) noexcept {
+    session_.setEditorHelpersVisible(visible);
+    ++state_revision_;
+    last_status_is_error_ = false;
+    last_status_message_ = visible
+                               ? "Shown camera & light viewport helpers"
+                               : "Hidden camera & light viewport helpers";
+}
+
+void EditorController::setEditorGridVisible(bool visible) noexcept {
+    session_.setEditorGridVisible(visible);
+    ++state_revision_;
+    last_status_is_error_ = false;
+    last_status_message_ = visible
+                               ? "Shown viewport ground grid"
+                               : "Hidden viewport ground grid";
+}
+
+void EditorController::setViewportViewPreset(ViewportViewPreset preset, bool smooth) noexcept {
+    session_.setViewportViewPreset(preset, smooth);
+    ++state_revision_;
+    last_status_is_error_ = false;
+    last_status_message_ = "Viewport view: " + std::string(session_.viewportViewLabel());
+}
+
+void EditorController::resetViewportHomeView(bool smooth) noexcept {
+    session_.resetViewportHomeView(smooth);
+    ++state_revision_;
+    last_status_is_error_ = false;
+    last_status_message_ = "Reset viewport to Home view";
+}
+
+void EditorController::setViewportProjection(scene::ProjectionType projection) noexcept {
+    session_.setViewportProjection(projection);
+    ++state_revision_;
+    last_status_is_error_ = false;
+    last_status_message_ =
+        (projection == scene::ProjectionType::Orthographic)
+            ? "Editor viewport: Orthographic"
+            : "Editor viewport: Perspective";
+}
+
+void EditorController::toggleViewportProjection() noexcept {
+    setViewportProjection(
+        (session_.viewportProjection() == scene::ProjectionType::Orthographic)
+            ? scene::ProjectionType::Perspective
+            : scene::ProjectionType::Orthographic);
+}
+
+core::Status EditorController::orbitEditorObserverCamera(float delta_pixels_x, float delta_pixels_y) {
+    auto st = session_.orbitEditorObserverCamera(delta_pixels_x, delta_pixels_y);
+    ++state_revision_;
+    return st;
+}
+
+core::Status EditorController::setEditorMode(scene::EditMode mode) {
+    auto st = session_.setEditorMode(mode);
+    recordStatus(st, "Switched editor mode to " + std::string(editModeName(mode)));
+    return st;
+}
+
+void EditorController::setGizmoMode(GizmoMode mode) noexcept {
+    session_.setGizmoMode(mode);
+    recordStatus(core::Status::ok(), "Gizmo tool: " + std::string(gizmoModeName(mode)));
+}
+
+void EditorController::setGizmoSpace(GizmoSpace space) noexcept {
+    session_.setGizmoSpace(space);
+    recordStatus(core::Status::ok(), "Gizmo space: " + std::string(gizmoSpaceName(space)));
+}
+
+core::Status EditorController::cancelGizmoDrag() {
+    auto st = session_.cancelActiveGizmoDrag();
+    recordStatus(st, "Canceled active gizmo transform");
+    return st;
+}
+
+core::Status EditorController::selectMeshElement(
+    scene::EditMode element_kind,
+    std::uint32_t element_index,
+    bool additive) {
+    if (element_kind == scene::EditMode::Object) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Invalid mesh element kind");
+        recordStatus(st, {});
+        return st;
+    }
+    if (session_.editorMode() != element_kind) {
+        auto mst = session_.setEditorMode(element_kind);
+        if (!mst) {
+            recordStatus(mst, {});
+            return mst;
+        }
+    }
+
+    const auto* obj = session_.document().scene.findObject(session_.selectedObject());
+    const auto* ma = (obj != nullptr && obj->mesh_id.has_value())
+                         ? session_.document().scene.findMesh(obj->mesh_id.value())
+                         : nullptr;
+    if (ma == nullptr || !ma->editable_mesh.has_value()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "No editable mesh selected");
+        recordStatus(st, {});
+        return st;
+    }
+    const auto& em = ma->editable_mesh.value();
+    auto& sel = session_.meshSelection();
+
+    if (element_kind == scene::EditMode::Vertex) {
+        if (element_index >= em.vertexCount()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Vertex index out of range");
+            recordStatus(st, {});
+            return st;
+        }
+        sel.toggleOrSetVertex(element_index, additive);
+    } else if (element_kind == scene::EditMode::Edge) {
+        if (element_index >= em.edgeCount()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Edge index out of range");
+            recordStatus(st, {});
+            return st;
+        }
+        sel.toggleOrSetEdge(element_index, additive);
+    } else if (element_kind == scene::EditMode::Face) {
+        if (element_index >= em.faceCount()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Face index out of range");
+            recordStatus(st, {});
+            return st;
+        }
+        sel.toggleOrSetFace(element_index, additive);
+    }
+
+    session_.syncDocumentState();
+    recordStatus(core::Status::ok(), "Updated mesh element selection");
+    return core::Status::ok();
+}
+
+void EditorController::clearMeshSelection() noexcept {
+    session_.meshSelection().clear();
+    session_.syncDocumentState();
+    recordStatus(core::Status::ok(), "Cleared mesh element selection");
+}
+
+core::Status EditorController::selectBoundaryLoopVertices() {
+    if (!session_.selectedObject().isValid()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Select an editable mesh first");
+        recordStatus(st, {});
+        return st;
+    }
+    auto mst = session_.setEditorMode(scene::EditMode::Vertex);
+    if (!mst) {
+        recordStatus(mst, {});
+        return mst;
+    }
+    const auto* obj = session_.document().scene.findObject(session_.selectedObject());
+    const auto* ma = session_.document().scene.findMesh(obj->mesh_id.value());
+    const auto& em = ma->editable_mesh.value();
+
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> boundary_edges;
+    for (const auto& e : em.edges()) {
+        if (e.isBoundary()) {
+            boundary_edges.emplace_back(e.v0, e.v1);
+        }
+    }
+    if (boundary_edges.size() < 3) {
+        auto st = core::Status::fail(
+            core::ErrorCode::InvalidState,
+            "Mesh is closed (no open boundary loop to select)");
+        recordStatus(st, {});
+        return st;
+    }
+
+    std::vector<bool> used(boundary_edges.size(), false);
+    std::vector<std::uint32_t> loop;
+    loop.push_back(boundary_edges[0].first);
+    loop.push_back(boundary_edges[0].second);
+    used[0] = true;
+
+    while (true) {
+        const std::uint32_t cur = loop.back();
+        if (cur == loop.front() && loop.size() >= 4) {
+            loop.pop_back();
+            break;
+        }
+        bool advanced = false;
+        for (std::size_t i = 0; i < boundary_edges.size(); ++i) {
+            if (used[i]) continue;
+            if (boundary_edges[i].first == cur) {
+                used[i] = true;
+                loop.push_back(boundary_edges[i].second);
+                advanced = true;
+                break;
+            }
+            if (boundary_edges[i].second == cur) {
+                used[i] = true;
+                loop.push_back(boundary_edges[i].first);
+                advanced = true;
+                break;
+            }
+        }
+        if (!advanced) break;
+    }
+    if (loop.size() >= 2 && loop.back() == loop.front()) {
+        loop.pop_back();
+    }
+
+    session_.meshSelection().clear();
+    session_.meshSelection().vertices = std::move(loop);
+    session_.syncDocumentState();
+    recordStatus(
+        core::Status::ok(),
+        "Selected " + std::to_string(session_.meshSelection().vertices.size()) + " boundary loop vertices");
+    return core::Status::ok();
+}
+
+core::Status EditorController::translateMeshSelection(
+    const math::Vec3& local_delta,
+    bool allow_coalesce) {
+    if (session_.editorMode() == scene::EditMode::Object || !session_.selectedObject().isValid()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Enter Mesh Edit mode first");
+        recordStatus(st, {});
+        return st;
+    }
+    const auto* obj = session_.document().scene.findObject(session_.selectedObject());
+    const auto* ma = (obj != nullptr && obj->mesh_id.has_value())
+                         ? session_.document().scene.findMesh(obj->mesh_id.value())
+                         : nullptr;
+    if (ma == nullptr || !ma->editable_mesh.has_value()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Selected object has no editable mesh");
+        recordStatus(st, {});
+        return st;
+    }
+    const auto& sel = session_.meshSelection();
+    if (sel.empty()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Select at least one mesh element to move");
+        recordStatus(st, {});
+        return st;
+    }
+
+    scene::EditableMesh after = ma->editable_mesh.value();
+    core::Status op_st = core::Status::ok();
+    if (session_.editorMode() == scene::EditMode::Vertex) {
+        op_st = after.translateVertices(sel.vertices, local_delta);
+    } else if (session_.editorMode() == scene::EditMode::Edge) {
+        op_st = after.translateEdges(sel.edges, local_delta);
+    } else {
+        op_st = after.translateFaces(sel.faces, local_delta);
+    }
+    if (!op_st) {
+        recordStatus(op_st, {});
+        return op_st;
+    }
+
+    auto cmd_st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::ModifyMeshCommand>(
+            obj->mesh_id.value(),
+            std::move(after),
+            "Translate Mesh Selection",
+            allow_coalesce));
+    recordStatus(cmd_st, "Moved selected mesh elements");
+    return cmd_st;
+}
+
+core::Status EditorController::extrudeSelectedFaces(float distance) {
+    if (session_.editorMode() != scene::EditMode::Face || !session_.selectedObject().isValid()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Switch to Face Edit mode to extrude faces");
+        recordStatus(st, {});
+        return st;
+    }
+    const auto& sel = session_.meshSelection();
+    if (sel.faces.empty()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Select one or more faces to extrude");
+        recordStatus(st, {});
+        return st;
+    }
+    const auto* obj = session_.document().scene.findObject(session_.selectedObject());
+    const auto* ma = (obj != nullptr && obj->mesh_id.has_value())
+                         ? session_.document().scene.findMesh(obj->mesh_id.value())
+                         : nullptr;
+    if (ma == nullptr || !ma->editable_mesh.has_value()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Selected object has no editable mesh");
+        recordStatus(st, {});
+        return st;
+    }
+
+    scene::EditableMesh after = ma->editable_mesh.value();
+    auto ext_res = after.extrudeFaces(sel.faces, distance);
+    if (!ext_res) {
+        core::Status err(ext_res.error());
+        recordStatus(err, {});
+        return err;
+    }
+
+    auto cmd_st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::ModifyMeshCommand>(
+            obj->mesh_id.value(),
+            std::move(after),
+            "Extrude Faces",
+            false));
+    if (cmd_st) {
+        session_.meshSelection().faces = ext_res.value();
+        session_.syncDocumentState();
+    }
+    recordStatus(cmd_st, "Extruded selected faces");
+    return cmd_st;
+}
+
+core::Status EditorController::deleteMeshSelection() {
+    if (session_.editorMode() == scene::EditMode::Object || !session_.selectedObject().isValid()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Enter Mesh Edit mode to delete elements");
+        recordStatus(st, {});
+        return st;
+    }
+    const auto& sel = session_.meshSelection();
+    if (sel.empty()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "No mesh elements selected to delete");
+        recordStatus(st, {});
+        return st;
+    }
+    const auto* obj = session_.document().scene.findObject(session_.selectedObject());
+    const auto* ma = (obj != nullptr && obj->mesh_id.has_value())
+                         ? session_.document().scene.findMesh(obj->mesh_id.value())
+                         : nullptr;
+    if (ma == nullptr || !ma->editable_mesh.has_value()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Selected object has no editable mesh");
+        recordStatus(st, {});
+        return st;
+    }
+
+    scene::EditableMesh after = ma->editable_mesh.value();
+    core::Status del_st = core::Status::ok();
+    if (session_.editorMode() == scene::EditMode::Face) {
+        del_st = after.deleteFaces(sel.faces);
+    } else if (session_.editorMode() == scene::EditMode::Edge) {
+        del_st = after.deleteEdges(sel.edges);
+    } else {
+        del_st = after.deleteVertices(sel.vertices);
+    }
+    if (!del_st) {
+        recordStatus(del_st, {});
+        return del_st;
+    }
+
+    auto cmd_st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::ModifyMeshCommand>(
+            obj->mesh_id.value(),
+            std::move(after),
+            "Delete Mesh Elements",
+            false));
+    if (cmd_st) {
+        session_.meshSelection().clear();
+        session_.syncDocumentState();
+    }
+    recordStatus(cmd_st, "Deleted selected mesh elements");
+    return cmd_st;
+}
+
+core::Status EditorController::createFaceFromSelectedVertices() {
+    if (session_.editorMode() != scene::EditMode::Vertex || !session_.selectedObject().isValid()) {
+        auto st = core::Status::fail(
+            core::ErrorCode::InvalidState,
+            "Switch to Vertex Edit mode and select >= 3 boundary vertices");
+        recordStatus(st, {});
+        return st;
+    }
+    const auto& sel = session_.meshSelection();
+    if (sel.vertices.size() < 3) {
+        auto st = core::Status::fail(
+            core::ErrorCode::InvalidArgument,
+            "Select at least 3 boundary vertices to create a face");
+        recordStatus(st, {});
+        return st;
+    }
+    const auto* obj = session_.document().scene.findObject(session_.selectedObject());
+    const auto* ma = (obj != nullptr && obj->mesh_id.has_value())
+                         ? session_.document().scene.findMesh(obj->mesh_id.value())
+                         : nullptr;
+    if (ma == nullptr || !ma->editable_mesh.has_value()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Selected object has no editable mesh");
+        recordStatus(st, {});
+        return st;
+    }
+
+    scene::EditableMesh after = ma->editable_mesh.value();
+    auto face_res = after.fillBoundaryLoop(sel.vertices);
+    if (!face_res) {
+        core::Status err(face_res.error());
+        recordStatus(err, {});
+        return err;
+    }
+    if (selectedMaterial().isValid()) {
+        const std::uint32_t fi = face_res.value();
+        (void)after.assignMaterialToFaces({&fi, 1}, selectedMaterial());
+    }
+
+    auto cmd_st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::ModifyMeshCommand>(
+            obj->mesh_id.value(),
+            std::move(after),
+            "Create Polygon Face",
+            false));
+    if (cmd_st) {
+        (void)session_.setEditorMode(scene::EditMode::Face);
+        session_.meshSelection().faces = {face_res.value()};
+        session_.syncDocumentState();
+    }
+    recordStatus(cmd_st, "Created new polygon face from boundary vertices");
+    return cmd_st;
+}
+
+core::Status EditorController::assignMaterialToSelectedFaces(scene::MaterialId material_id) {
+    if (session_.editorMode() != scene::EditMode::Face || !session_.selectedObject().isValid()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Switch to Face Edit mode first");
+        recordStatus(st, {});
+        return st;
+    }
+    const auto& sel = session_.meshSelection();
+    if (sel.faces.empty()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Select one or more faces first");
+        recordStatus(st, {});
+        return st;
+    }
+    if (material_id.isValid() && session_.document().scene.findMaterial(material_id) == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Material ID not found in scene");
+        recordStatus(st, {});
+        return st;
+    }
+    const auto* obj = session_.document().scene.findObject(session_.selectedObject());
+    const auto* ma = (obj != nullptr && obj->mesh_id.has_value())
+                         ? session_.document().scene.findMesh(obj->mesh_id.value())
+                         : nullptr;
+    if (ma == nullptr || !ma->editable_mesh.has_value()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Selected object has no editable mesh");
+        recordStatus(st, {});
+        return st;
+    }
+
+    scene::EditableMesh after = ma->editable_mesh.value();
+    auto af_st = after.assignMaterialToFaces(sel.faces, material_id);
+    if (!af_st) {
+        recordStatus(af_st, {});
+        return af_st;
+    }
+
+    auto cmd_st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::ModifyMeshCommand>(
+            obj->mesh_id.value(),
+            std::move(after),
+            "Assign Face Material",
+            false));
+    recordStatus(cmd_st, "Assigned PBR material to selected faces");
+    return cmd_st;
+}
+
+std::string EditorController::generateUniqueMaterialName(std::string_view base_prefix) const {
+    const auto& scene = session_.document().scene;
+    if (scene.findMaterialByName(base_prefix) == nullptr) {
+        return std::string(base_prefix);
+    }
+    for (std::uint32_t idx = 1; idx < 10000; ++idx) {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%.*s.%03u", static_cast<int>(base_prefix.size()), base_prefix.data(), idx);
+        if (scene.findMaterialByName(buf) == nullptr) {
+            return std::string(buf);
+        }
+    }
+    return std::string(base_prefix) + "_copy";
+}
+
+core::Status EditorController::selectMaterial(scene::MaterialId id) {
+    if (!id.isValid() || session_.document().scene.findMaterial(id) == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Material ID not found in scene");
+        recordStatus(st, {});
+        return st;
+    }
+    selected_material_id_ = id;
+    session_.syncDocumentState(id);
+    refreshMaterialPreview();
+    const auto* mat = session_.document().scene.findMaterial(id);
+    recordStatus(core::Status::ok(), "Selected material '" + mat->name + "'");
+    return core::Status::ok();
+}
+
+core::Result<scene::MaterialId> EditorController::createMaterial(const scene::PbrMaterial& material) {
+    scene::PbrMaterial clean = material.sanitized();
+    clean.id = scene::MaterialId::invalid();
+    clean.name = generateUniqueMaterialName(clean.name.empty() ? "PBR Material" : clean.name);
+
+    auto cmd = std::make_unique<scene::CreateMaterialCommand>(clean);
+    const auto* raw = cmd.get();
+    auto st = session_.commandStack().execute(session_.document().scene, std::move(cmd));
+    if (!st) {
+        recordStatus(st, {});
+        return st.error();
+    }
+    const scene::MaterialId new_id = raw->createdMaterialId();
+    selected_material_id_ = new_id;
+    session_.syncDocumentState(new_id);
+    refreshMaterialPreview();
+    recordStatus(core::Status::ok(), "Created material '" + clean.name + "'");
+    return core::Result<scene::MaterialId>::ok(new_id);
+}
+
+core::Result<scene::MaterialId> EditorController::duplicateMaterial(scene::MaterialId id) {
+    const auto* src = session_.document().scene.findMaterial(id);
+    if (src == nullptr) {
+        auto err = core::Status::fail(core::ErrorCode::NotFound, "Source material not found");
+        recordStatus(err, {});
+        return err.error();
+    }
+    scene::PbrMaterial copy = *src;
+    copy.id = scene::MaterialId::invalid();
+    copy.name = generateUniqueMaterialName(src->name);
+    return createMaterial(copy);
+}
+
+core::Status EditorController::renameMaterial(scene::MaterialId id, std::string new_name) {
+    const auto* existing = session_.document().scene.findMaterial(id);
+    if (existing == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Material not found");
+        recordStatus(st, {});
+        return st;
+    }
+    if (new_name.empty()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Material name cannot be empty");
+        recordStatus(st, {});
+        return st;
+    }
+    scene::PbrMaterial updated = *existing;
+    updated.name = std::move(new_name);
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::UpdateMaterialCommand>(id, updated, "Rename Material", false));
+    recordStatus(st, "Renamed material");
+    return st;
+}
+
+core::Status EditorController::deleteMaterial(scene::MaterialId id) {
+    const auto* mat = session_.document().scene.findMaterial(id);
+    if (mat == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Material not found");
+        recordStatus(st, {});
+        return st;
+    }
+    const std::string mat_name = mat->name;
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::DeleteMaterialCommand>(id));
+    if (st) {
+        if (selected_material_id_ == id) {
+            selected_material_id_ = scene::MaterialId::invalid();
+        }
+        refreshMaterialPreview();
+    }
+    recordStatus(st, "Deleted material '" + mat_name + "'");
+    return st;
+}
+
+core::Status EditorController::updateMaterial(
+    scene::MaterialId id,
+    const scene::PbrMaterial& material,
+    bool allow_coalesce) {
+    const auto* existing = session_.document().scene.findMaterial(id);
+    if (existing == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Material not found");
+        recordStatus(st, {});
+        return st;
+    }
+    scene::PbrMaterial updated = material.sanitized();
+    updated.id = id;
+    if (material.name.empty()) {
+        updated.name = existing->name;
+    }
+
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::UpdateMaterialCommand>(id, updated, "Update Material", allow_coalesce));
+    if (st) {
+        selected_material_id_ = id;
+        session_.syncDocumentState(id);
+        refreshMaterialPreview();
+    }
+    recordStatus(st, "Updated PBR material '" + updated.name + "'");
+    return st;
+}
+
+core::Status EditorController::assignObjectMaterial(
+    scene::ObjectId object_id,
+    std::optional<scene::MaterialId> material_id) {
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::AssignObjectMaterialCommand>(object_id, material_id));
+    if (st && material_id.has_value() && material_id->isValid()) {
+        selected_material_id_ = material_id.value();
+        session_.syncDocumentState(selected_material_id_);
+        refreshMaterialPreview();
+    }
+    recordStatus(st, material_id.has_value() ? "Assigned material to object" : "Cleared object material");
+    return st;
+}
+
+void EditorController::setPanelVisible(project::WorkspacePanelId panel, bool visible) noexcept {
+    session_.workspace().setPanelVisible(panel, visible);
+    session_.syncDocumentState();
+    recordStatus(
+        core::Status::ok(),
+        std::string(visible ? "Shown panel: " : "Hidden panel: ") +
+            std::string(project::workspacePanelTitle(panel)));
+}
+
+void EditorController::setWorkspaceDockRatios(
+    float left_width,
+    float right_width,
+    float bottom_height) noexcept {
+    session_.workspace().setDockRatios(left_width, right_width, bottom_height);
+    session_.syncDocumentState();
+    ++state_revision_;
+}
+
+void EditorController::setWorkspacePanelDock(
+    project::WorkspacePanelId panel,
+    project::DockRegion region,
+    std::uint32_t tab_order) noexcept {
+    session_.workspace().setPanelDock(panel, region, tab_order);
+    session_.syncDocumentState();
+    recordStatus(
+        core::Status::ok(),
+        "Moved " + std::string(project::workspacePanelTitle(panel)) + " to " +
+            std::string(project::dockRegionSlug(region)) + " dock");
+}
+
+void EditorController::applyWorkspacePreset(WorkspacePreset preset) noexcept {
+    session_.workspace().applyPreset(preset);
+    session_.syncDocumentState();
+    recordStatus(core::Status::ok(), "Applied workspace preset: " + session_.workspace().state().layout_name);
+}
+
+core::Status EditorController::applyWorkspacePresetByName(std::string_view preset_name) {
+    auto st = session_.workspace().applyPresetByName(preset_name);
+    if (st) {
+        session_.syncDocumentState();
+    }
+    recordStatus(st, "Applied workspace preset: " + session_.workspace().state().layout_name);
+    return st;
+}
+
+void EditorController::setTextInputFocused(bool focused) noexcept {
+    session_.setTextInputFocused(focused);
+}
+
+core::Result<std::string> EditorController::exportWorkspaceLayoutJson() const {
+    return session_.workspace().serializeLayoutToJson(true);
+}
+
+core::Status EditorController::importWorkspaceLayoutJson(std::string_view json_text) {
+    auto st = session_.workspace().deserializeLayoutFromJson(json_text);
+    if (st) {
+        session_.syncDocumentState();
+    }
+    recordStatus(st, "Restored workspace layout");
+    return st;
+}
+
 core::Result<scene::MeshId> EditorController::ensurePresetMesh(ScenePreset preset) {
     auto& scene = session_.document().scene;
 
     std::string_view target_name;
     switch (preset) {
-        case ScenePreset::Cube:
-            target_name = "HeroCubeMesh";
-            break;
-        case ScenePreset::Pyramid:
-            target_name = "AccentPyramidMesh";
-            break;
-        case ScenePreset::Plane:
-            target_name = "StudioGroundMesh";
-            break;
+        case ScenePreset::Cube:    target_name = "HeroCubeMesh"; break;
+        case ScenePreset::Pyramid: target_name = "AccentPyramidMesh"; break;
+        case ScenePreset::Plane:   target_name = "StudioPlaneMesh"; break;
+        case ScenePreset::Sphere:  target_name = "StudioSphereMesh"; break;
         default:
             return core::Result<scene::MeshId>::fail(core::ErrorCode::InvalidArgument, "Not a mesh preset");
     }
@@ -161,18 +853,23 @@ core::Result<scene::MeshId> EditorController::ensurePresetMesh(ScenePreset prese
     }
 
     if (preset == ScenePreset::Cube) {
-        return scene.registerMesh(
+        return scene.registerEditableMesh(
             std::string(target_name),
-            scene::Primitives::createCube(1.25f, math::Vec3{0.86f, 0.48f, 0.22f}));
+            scene::EditableMesh::createCube(1.25f, math::Vec3{0.86f, 0.48f, 0.22f}));
     }
     if (preset == ScenePreset::Pyramid) {
-        return scene.registerMesh(
+        return scene.registerEditableMesh(
             std::string(target_name),
-            scene::Primitives::createPyramid(0.95f, 1.25f, math::Vec3{0.24f, 0.68f, 0.88f}));
+            scene::EditableMesh::createPyramid(0.95f, 1.25f, math::Vec3{0.24f, 0.68f, 0.88f}));
     }
-    return scene.registerMesh(
+    if (preset == ScenePreset::Sphere) {
+        return scene.registerEditableMesh(
+            std::string(target_name),
+            scene::EditableMesh::createUvSphere(0.75f, 14, 24, math::Vec3{0.85f, 0.88f, 0.92f}));
+    }
+    return scene.registerEditableMesh(
         std::string(target_name),
-        scene::Primitives::createCheckerPlane(4.0f, 4));
+        scene::EditableMesh::createGridPlane(4.0f, 4));
 }
 
 std::string EditorController::generateUniqueObjectName(std::string_view base_prefix) const {
@@ -201,7 +898,11 @@ core::Result<scene::ObjectId> EditorController::addPresetObject(
     std::string base_name = "Object";
     std::optional<scene::MeshId> mesh_id;
     std::optional<scene::CameraComponent> camera_comp;
-    std::optional<scene::DirectionalLightComponent> light_comp;
+    scene::AnyLightComponent any_light{std::monostate{}};
+    std::optional<scene::MaterialId> mat_id;
+    if (selectedMaterial().isValid()) {
+        mat_id = selectedMaterial();
+    }
 
     const float ring_angle = static_cast<float>(spawn_counter_++) * 1.15f;
     const float ring_radius = 1.35f;
@@ -227,6 +928,13 @@ core::Result<scene::ObjectId> EditorController::addPresetObject(
             mesh_id = m.value();
             break;
         }
+        case ScenePreset::Sphere: {
+            base_name = "Sphere";
+            auto m = ensurePresetMesh(preset);
+            if (!m) return m.error();
+            mesh_id = m.value();
+            break;
+        }
         case ScenePreset::Plane: {
             base_name = "Plane";
             auto m = ensurePresetMesh(preset);
@@ -238,25 +946,109 @@ core::Result<scene::ObjectId> EditorController::addPresetObject(
         case ScenePreset::EmptyPivot: {
             base_name = "Pivot";
             init_tf.position = {0.0f, 0.0f, 0.0f};
+            mat_id = std::nullopt;
             break;
         }
         case ScenePreset::DirectionalLight: {
             base_name = "KeyLight";
-            init_tf.position = {0.0f, 3.0f, 0.0f};
-            init_tf.rotation = math::Quat::fromEulerXYZ(
-                {math::degToRad(-45.0f), math::degToRad(-30.0f), 0.0f});
-            light_comp = scene::DirectionalLightComponent{
-                .color = {1.0f, 0.96f, 0.90f},
-                .intensity = 1.1f,
+            init_tf.position = {
+                1.10f + 0.45f * std::sin(ring_angle),
+                2.35f,
+                -0.45f + 0.45f * std::cos(ring_angle),
             };
+            init_tf.rotation = math::Quat::fromEulerXYZ(
+                {math::degToRad(-46.0f), math::degToRad(36.0f), 0.0f});
+            any_light = scene::DirectionalLightComponent{
+                .color = {1.0f, 0.96f, 0.90f},
+                .intensity = 1.4f,
+            };
+            mat_id = std::nullopt;
+            break;
+        }
+        case ScenePreset::PointLight: {
+            base_name = "PointLight";
+            init_tf.position = {
+                1.25f * std::cos(ring_angle),
+                1.85f,
+                1.25f * std::sin(ring_angle),
+            };
+            any_light = scene::PointLightComponent{
+                .color = {1.0f, 0.92f, 0.80f},
+                .intensity = 8.0f,
+                .enabled = true,
+                .range = 12.0f,
+                .attenuation = 2.0f,
+            };
+            mat_id = std::nullopt;
+            break;
+        }
+        case ScenePreset::SpotLight: {
+            base_name = "SpotLight";
+            const math::Vec3 spot_eye{
+                1.65f + 0.35f * std::cos(ring_angle),
+                2.55f,
+                1.55f + 0.35f * std::sin(ring_angle),
+            };
+            const math::Vec3 spot_target{0.0f, 0.65f, 0.0f};
+            const math::Vec3 off = spot_eye - spot_target;
+            const float horiz = std::sqrt(off.x * off.x + off.z * off.z);
+            init_tf.position = spot_eye;
+            init_tf.rotation = math::Quat::fromEulerXYZ(
+                {-std::atan2(off.y, horiz), std::atan2(off.x, off.z), 0.0f});
+            any_light = scene::SpotLightComponent{
+                .color = {0.96f, 0.98f, 1.0f},
+                .intensity = 14.0f,
+                .enabled = true,
+                .range = 16.0f,
+                .attenuation = 2.0f,
+                .inner_cone_radians = math::degToRad(18.0f),
+                .outer_cone_radians = math::degToRad(34.0f),
+                .cone_falloff = 1.0f,
+            };
+            mat_id = std::nullopt;
+            break;
+        }
+        case ScenePreset::AreaLight: {
+            base_name = "AreaLight";
+            const math::Vec3 area_eye{
+                -1.55f + 0.35f * std::sin(ring_angle),
+                2.15f,
+                1.55f + 0.35f * std::cos(ring_angle),
+            };
+            const math::Vec3 area_target{0.0f, 0.70f, 0.0f};
+            const math::Vec3 off = area_eye - area_target;
+            const float horiz = std::sqrt(off.x * off.x + off.z * off.z);
+            init_tf.position = area_eye;
+            init_tf.rotation = math::Quat::fromEulerXYZ(
+                {-std::atan2(off.y, horiz), std::atan2(off.x, off.z), 0.0f});
+            any_light = scene::AreaLightComponent{
+                .shape = scene::AreaLightShape::Rectangle,
+                .color = {1.0f, 0.96f, 0.90f},
+                .intensity = 10.0f,
+                .enabled = true,
+                .width = 1.6f,
+                .height = 1.0f,
+                .range = 16.0f,
+                .two_sided = false,
+            };
+            mat_id = std::nullopt;
             break;
         }
         case ScenePreset::Camera: {
             base_name = "Camera";
-            init_tf.position = {3.5f, 2.5f, 5.0f};
+            const math::Vec3 cam_eye{
+                -1.55f + 0.40f * std::cos(ring_angle),
+                1.85f,
+                1.95f + 0.35f * std::sin(ring_angle),
+            };
+            const math::Vec3 cam_target{0.0f, 0.72f, 0.0f};
+            const math::Vec3 cam_off = cam_eye - cam_target;
+            const float cam_horiz = std::sqrt(cam_off.x * cam_off.x + cam_off.z * cam_off.z);
+            init_tf.position = cam_eye;
             init_tf.rotation = math::Quat::fromEulerXYZ(
-                {math::degToRad(-22.0f), math::degToRad(32.0f), 0.0f});
+                {-std::atan2(cam_off.y, cam_horiz), std::atan2(cam_off.x, cam_off.z), 0.0f});
             camera_comp = scene::CameraComponent{};
+            mat_id = std::nullopt;
             break;
         }
     }
@@ -268,7 +1060,9 @@ core::Result<scene::ObjectId> EditorController::addPresetObject(
         init_tf,
         mesh_id,
         camera_comp,
-        light_comp);
+        std::nullopt,
+        mat_id);
+    create_cmd->setAnyLightComponent(std::move(any_light));
     const auto* raw_cmd = create_cmd.get();
 
     auto st = session_.commandStack().execute(scene, std::move(create_cmd));
@@ -307,7 +1101,9 @@ core::Result<scene::ObjectId> EditorController::duplicateSelectedObject() {
         dup_tf,
         src->mesh_id,
         src->camera,
-        src->directional_light);
+        std::nullopt,
+        src->material_id);
+    cmd->setAnyLightComponent(src->anyLightComponent());
     const auto* raw = cmd.get();
 
     auto st = session_.commandStack().execute(session_.document().scene, std::move(cmd));
@@ -397,7 +1193,7 @@ core::Status EditorController::setObjectTransformEulerDegrees(
     auto st = session_.commandStack().execute(
         session_.document().scene,
         std::make_unique<scene::SetTransformCommand>(id, tf, allow_coalesce));
-    if (st && id == session_.document().scene.activeCamera()) {
+    if (st && session_.isCameraViewActive() && id == session_.document().scene.activeCamera()) {
         session_.cameraController().syncFromCameraTransform(tf, session_.cameraController().target());
     }
     recordStatus(st, "Updated transform");
@@ -424,7 +1220,7 @@ core::Status EditorController::setCameraComponent(
 
 core::Status EditorController::setActiveCamera(scene::ObjectId id) {
     auto st = session_.document().scene.setActiveCamera(id);
-    if (st) {
+    if (st && session_.isCameraViewActive()) {
         if (const auto* cam_obj = session_.document().scene.findObject(id); cam_obj != nullptr) {
             session_.cameraController().syncFromCameraTransform(
                 cam_obj->local_transform,
@@ -441,8 +1237,299 @@ core::Status EditorController::setDirectionalLightComponent(
     bool allow_coalesce) {
     auto st = session_.commandStack().execute(
         session_.document().scene,
-        std::make_unique<scene::SetDirectionalLightCommand>(id, light, allow_coalesce));
+        std::make_unique<scene::SetLightComponentCommand>(id, light, allow_coalesce, "Edit Directional Light"));
     recordStatus(st, "Updated directional light");
+    return st;
+}
+
+core::Status EditorController::setPointLightComponent(
+    scene::ObjectId id,
+    const scene::PointLightComponent& light,
+    bool allow_coalesce) {
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetLightComponentCommand>(id, light, allow_coalesce, "Edit Point Light"));
+    recordStatus(st, "Updated point light");
+    return st;
+}
+
+core::Status EditorController::setSpotLightComponent(
+    scene::ObjectId id,
+    const scene::SpotLightComponent& light,
+    bool allow_coalesce) {
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetLightComponentCommand>(id, light, allow_coalesce, "Edit Spot Light"));
+    recordStatus(st, "Updated spot light");
+    return st;
+}
+
+core::Status EditorController::setAreaLightComponent(
+    scene::ObjectId id,
+    const scene::AreaLightComponent& light,
+    bool allow_coalesce) {
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetLightComponentCommand>(id, light, allow_coalesce, "Edit Area Light"));
+    recordStatus(st, "Updated area light");
+    return st;
+}
+
+core::Status EditorController::setAnyLightComponent(
+    scene::ObjectId id,
+    scene::AnyLightComponent light,
+    bool allow_coalesce,
+    std::string label) {
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetLightComponentCommand>(
+            id, std::move(light), allow_coalesce, std::move(label)));
+    recordStatus(st, "Updated light settings");
+    return st;
+}
+
+core::Status EditorController::convertObjectLightType(
+    scene::ObjectId id,
+    scene::LightType target_type) {
+    const auto* obj = session_.document().scene.findObject(id);
+    if (obj == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Object not found");
+        recordStatus(st, {});
+        return st;
+    }
+
+    scene::AnyLightComponent converted =
+        scene::convertLightComponentType(obj->anyLightComponent(), target_type);
+
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetLightComponentCommand>(
+            id, std::move(converted), false, "Change Light Type"));
+    recordStatus(st, "Changed light type to " + std::string(scene::lightTypeSlug(target_type)));
+    return st;
+}
+
+core::Status EditorController::setLightLinking(
+    scene::ObjectId light_id,
+    scene::LightLinkingSettings linking) {
+    const auto* obj = session_.document().scene.findObject(light_id);
+    if (obj == nullptr || !obj->hasAnyLight()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Target object has no light component");
+        recordStatus(st, {});
+        return st;
+    }
+
+    // Keep only valid existing scene object IDs.
+    scene::LightLinkingSettings cleaned{};
+    cleaned.mode = linking.mode;
+    cleaned.include_descendants = linking.include_descendants;
+    for (const auto tid : linking.linked_objects) {
+        if (tid.isValid() && session_.document().scene.findObject(tid) != nullptr) {
+            cleaned.linked_objects.push_back(tid);
+        }
+    }
+    cleaned.normalize();
+
+    scene::AnyLightComponent updated = obj->anyLightComponent();
+    if (auto* d = std::get_if<scene::DirectionalLightComponent>(&updated)) d->linking = std::move(cleaned);
+    else if (auto* p = std::get_if<scene::PointLightComponent>(&updated)) p->linking = std::move(cleaned);
+    else if (auto* s = std::get_if<scene::SpotLightComponent>(&updated)) s->linking = std::move(cleaned);
+    else if (auto* a = std::get_if<scene::AreaLightComponent>(&updated)) a->linking = std::move(cleaned);
+
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetLightComponentCommand>(
+            light_id, std::move(updated), false, "Update Light Linking"));
+    recordStatus(st, "Updated light linking");
+    return st;
+}
+
+core::Status EditorController::toggleLightLinkTarget(
+    scene::ObjectId light_id,
+    scene::ObjectId target_id,
+    bool linked) {
+    const auto* obj = session_.document().scene.findObject(light_id);
+    if (obj == nullptr || !obj->hasAnyLight()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Target object has no light component");
+        recordStatus(st, {});
+        return st;
+    }
+    if (!target_id.isValid() || session_.document().scene.findObject(target_id) == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Linked target object not found");
+        recordStatus(st, {});
+        return st;
+    }
+
+    const auto* link_ptr = obj->lightLinking();
+    if (link_ptr == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Target object has no light linking state");
+        recordStatus(st, {});
+        return st;
+    }
+    scene::LightLinkingSettings next = *link_ptr;
+    if (linked) {
+        next.linked_objects.push_back(target_id);
+        next.normalize();
+    } else {
+        next.removeObjectReference(target_id);
+    }
+    return setLightLinking(light_id, std::move(next));
+}
+
+core::Status EditorController::setEnvironmentSettings(
+    const scene::EnvironmentLighting& env,
+    bool allow_coalesce,
+    std::string label) {
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetEnvironmentLightingCommand>(env, allow_coalesce, std::move(label)));
+    recordStatus(st, "Updated environment lighting");
+    return st;
+}
+
+core::Status EditorController::loadEnvironmentHdriFromMemory(
+    std::span<const std::uint8_t> bytes,
+    std::string source_name) {
+    const std::string resolved_name = source_name.empty() ? "Environment.hdr" : source_name;
+    auto asset_res = scene::HdriEnvironmentAsset::loadFromMemory(bytes, resolved_name);
+    if (!asset_res) {
+        core::Status err = asset_res.error();
+        recordStatus(err, {});
+        return err;
+    }
+
+    scene::EnvironmentLighting next = session_.document().scene.environment();
+    next.enabled = true;
+    next.source_path = resolved_name;
+    next.hdri_asset = std::move(asset_res.value());
+
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetEnvironmentLightingCommand>(
+            std::move(next), false, "Assign HDRI Environment"));
+    recordStatus(st, "Loaded HDRI environment '" + resolved_name + "'");
+    return st;
+}
+
+core::Status EditorController::loadEnvironmentHdriFromFile(
+    const std::filesystem::path& path,
+    const platform::IFileSystem& file_system) {
+    auto asset_res = scene::HdriEnvironmentAsset::loadFromFile(path, file_system);
+    if (!asset_res) {
+        core::Status err = asset_res.error();
+        recordStatus(err, {});
+        return err;
+    }
+
+    scene::EnvironmentLighting next = session_.document().scene.environment();
+    next.enabled = true;
+    next.source_path = path.string();
+    next.hdri_asset = std::move(asset_res.value());
+
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetEnvironmentLightingCommand>(
+            std::move(next), false, "Assign HDRI Environment"));
+    recordStatus(st, "Loaded HDRI environment '" + path.filename().string() + "'");
+    return st;
+}
+
+core::Status EditorController::loadBuiltInHdriPreset(std::string_view preset_slug) {
+    scene::HdriImage img{};
+    img.width = 64;
+    img.height = 32;
+    img.pixels.resize(static_cast<std::size_t>(img.width) * static_cast<std::size_t>(img.height));
+
+    std::string label_name;
+    if (preset_slug == "studio_softbox") {
+        label_name = "Studio_Softbox_Rig.hdr";
+    } else if (preset_slug == "warm_sunset") {
+        label_name = "Golden_Sunset_Horizon.hdr";
+    } else if (preset_slug == "cool_courtyard") {
+        label_name = "Overcast_Courtyard_Dome.hdr";
+    } else {
+        auto st = core::Status::fail(
+            core::ErrorCode::InvalidArgument,
+            "Unknown studio HDRI preset: " + std::string(preset_slug));
+        recordStatus(st, {});
+        return st;
+    }
+
+    for (std::uint32_t y = 0; y < img.height; ++y) {
+        const float v = (static_cast<float>(y) + 0.5f) / static_cast<float>(img.height);
+        const float theta = v * math::kPi;
+        const float sin_t = std::sin(theta);
+        const float cos_t = std::cos(theta);
+        for (std::uint32_t x = 0; x < img.width; ++x) {
+            const float u = (static_cast<float>(x) + 0.5f) / static_cast<float>(img.width);
+            const float phi = (u - 0.5f) * math::kTwoPi;
+            const math::Vec3 dir{
+                sin_t * std::sin(phi),
+                cos_t,
+                sin_t * std::cos(phi),
+            };
+
+            math::Vec3 rad{};
+            if (preset_slug == "studio_softbox") {
+                const float sky = std::clamp(dir.y * 0.5f + 0.5f, 0.0f, 1.0f);
+                rad = math::Vec3{0.10f, 0.12f, 0.16f} * (1.0f - sky) +
+                      math::Vec3{0.28f, 0.32f, 0.40f} * sky;
+                const math::Vec3 key_dir = math::Vec3{-0.55f, 0.62f, 0.56f}.normalized();
+                const math::Vec3 rim_dir = math::Vec3{0.70f, 0.38f, -0.60f}.normalized();
+                const float key_lobe = std::pow(std::max(0.0f, dir.dot(key_dir)), 14.0f);
+                const float rim_lobe = std::pow(std::max(0.0f, dir.dot(rim_dir)), 18.0f);
+                rad += math::Vec3{11.5f, 10.6f, 9.4f} * key_lobe;
+                rad += math::Vec3{3.8f, 5.4f, 8.2f} * rim_lobe;
+            } else if (preset_slug == "warm_sunset") {
+                const float horizon = std::exp(-std::fabs(dir.y) * 5.0f);
+                const float upper = std::max(0.0f, dir.y);
+                rad = math::Vec3{0.12f, 0.09f, 0.08f} +
+                      math::Vec3{0.26f, 0.36f, 0.68f} * upper +
+                      math::Vec3{1.85f, 0.78f, 0.28f} * horizon;
+                const math::Vec3 sun_dir = math::Vec3{0.72f, 0.22f, 0.66f}.normalized();
+                const float sun_lobe = std::pow(std::max(0.0f, dir.dot(sun_dir)), 36.0f);
+                rad += math::Vec3{16.0f, 9.2f, 3.6f} * sun_lobe;
+            } else {
+                const float zenith = std::clamp(dir.y * 0.5f + 0.5f, 0.0f, 1.0f);
+                rad = math::Vec3{0.14f, 0.16f, 0.18f} * (1.0f - zenith) +
+                      math::Vec3{0.85f, 1.05f, 1.35f} * (zenith * zenith);
+                const math::Vec3 sky_open = math::Vec3{0.0f, 0.94f, 0.34f}.normalized();
+                rad += math::Vec3{3.4f, 3.9f, 4.6f} * std::pow(std::max(0.0f, dir.dot(sky_open)), 8.0f);
+            }
+            img.pixels[static_cast<std::size_t>(y) * img.width + x] = rad;
+        }
+    }
+
+    auto asset_res = scene::HdriEnvironmentAsset::buildFromImage(img, label_name);
+    if (!asset_res) {
+        core::Status err = asset_res.error();
+        recordStatus(err, {});
+        return err;
+    }
+
+    scene::EnvironmentLighting next = session_.document().scene.environment();
+    next.enabled = true;
+    next.source_path.clear(); // Portable generated HDRI embeds RGBE directly when saved
+    next.hdri_asset = std::move(asset_res.value());
+
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetEnvironmentLightingCommand>(
+            std::move(next), false, "Assign Studio HDRI"));
+    recordStatus(st, "Assigned HDRI preset '" + label_name + "'");
+    return st;
+}
+
+core::Status EditorController::clearEnvironmentHdri() {
+    scene::EnvironmentLighting next = session_.document().scene.environment();
+    next.source_path.clear();
+    next.hdri_asset = nullptr;
+
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetEnvironmentLightingCommand>(
+            std::move(next), false, "Remove HDRI Environment"));
+    recordStatus(st, "Removed HDRI map (reverted to studio sky IBL)");
     return st;
 }
 
@@ -477,8 +1564,10 @@ core::Status EditorController::undo() {
             session_.document().scene.findObject(session_.selectedObject()) == nullptr) {
             session_.setSelectedObject({});
         }
+        session_.sanitizeMeshSelection();
+        refreshMaterialPreview();
         const auto active_cam = session_.document().scene.activeCamera();
-        if (active_cam.isValid()) {
+        if (session_.isCameraViewActive() && active_cam.isValid()) {
             if (const auto* cam_obj = session_.document().scene.findObject(active_cam); cam_obj != nullptr) {
                 session_.cameraController().syncFromCameraTransform(
                     cam_obj->local_transform,
@@ -503,8 +1592,10 @@ core::Status EditorController::redo() {
             session_.document().scene.findObject(session_.selectedObject()) == nullptr) {
             session_.setSelectedObject({});
         }
+        session_.sanitizeMeshSelection();
+        refreshMaterialPreview();
         const auto active_cam = session_.document().scene.activeCamera();
-        if (active_cam.isValid()) {
+        if (session_.isCameraViewActive() && active_cam.isValid()) {
             if (const auto* cam_obj = session_.document().scene.findObject(active_cam); cam_obj != nullptr) {
                 session_.cameraController().syncFromCameraTransform(
                     cam_obj->local_transform,
@@ -519,15 +1610,177 @@ core::Status EditorController::redo() {
 core::Status EditorController::newStarterProject() {
     auto st = session_.resetStarterProject();
     spawn_counter_ = 0;
+    selected_material_id_ = scene::MaterialId::invalid();
+    refreshMaterialPreview();
     recordStatus(st, "Reset to starter 3D showcase project");
     return st;
 }
 
+core::Status EditorController::createNewProject(
+    ProjectTemplate tmpl,
+    std::string project_name,
+    std::string author) {
+    if (session_.isGizmoDragging()) {
+        (void)session_.cancelActiveGizmoDrag();
+    }
+
+    const std::string resolved_name =
+        project_name.empty() ? "Untitled 3D Project" : std::move(project_name);
+    const std::string resolved_author =
+        author.empty() ? "Final Effect 3D" : std::move(author);
+
+    if (tmpl == ProjectTemplate::StarterShowcase) {
+        auto st = session_.resetStarterProject();
+        if (!st) {
+            recordStatus(st, {});
+            return st;
+        }
+        if (!project_name.empty() || resolved_name != "Untitled 3D Project") {
+            session_.document().metadata.project_name = resolved_name;
+        }
+        session_.document().metadata.author = resolved_author;
+        spawn_counter_ = 0;
+        selected_material_id_ = scene::MaterialId::invalid();
+        refreshMaterialPreview();
+        recordStatus(core::Status::ok(), "Created project '" + session_.document().metadata.project_name + "'");
+        return core::Status::ok();
+    }
+
+    if (session_.renderer().isInitialized()) {
+        session_.renderer().releaseSceneResources();
+    }
+
+    const auto preserved_ws = session_.workspace().state();
+    project::ProjectDocument fresh{};
+    fresh.metadata.project_name = resolved_name;
+    fresh.metadata.author = resolved_author;
+    fresh.metadata.engine_version = std::string(core::engineVersionString());
+    fresh.workspace = preserved_ws;
+
+    auto& sc = fresh.scene;
+    sc.setName("Scene");
+
+    // Standard studio camera + directional key light for every template, positioned visibly inside the stage.
+    auto cam_res = sc.createObject("MainCamera");
+    if (!cam_res) { recordStatus(core::Status(cam_res.error()), {}); return cam_res.error(); }
+    math::Transform cam_tf{};
+    const math::Vec3 eye{1.55f, 2.05f, 1.95f};
+    const math::Vec3 target{0.0f, 0.72f, 0.0f};
+    const math::Vec3 cam_off = eye - target;
+    const float cam_horiz = std::sqrt(cam_off.x * cam_off.x + cam_off.z * cam_off.z);
+    cam_tf.position = eye;
+    cam_tf.rotation = math::Quat::fromEulerXYZ(
+        {-std::atan2(cam_off.y, cam_horiz), std::atan2(cam_off.x, cam_off.z), 0.0f});
+    (void)sc.setObjectTransform(cam_res.value(), cam_tf);
+    scene::CameraComponent cam_comp{};
+    cam_comp.projection = scene::ProjectionType::Perspective;
+    cam_comp.fov_y_radians = math::degToRad(48.0f);
+    (void)sc.assignCamera(cam_res.value(), cam_comp);
+    (void)sc.setActiveCamera(cam_res.value());
+
+    auto light_res = sc.createObject("SunLight");
+    if (!light_res) { recordStatus(core::Status(light_res.error()), {}); return light_res.error(); }
+    math::Transform light_tf{};
+    light_tf.position = {-1.45f, 2.25f, 0.85f};
+    light_tf.rotation = math::Quat::fromEulerXYZ(
+        {math::degToRad(-42.0f), math::degToRad(-52.0f), 0.0f});
+    (void)sc.setObjectTransform(light_res.value(), light_tf);
+    (void)sc.assignDirectionalLight(
+        light_res.value(),
+        scene::DirectionalLightComponent{.color = {1.0f, 0.98f, 0.94f}, .intensity = 1.65f});
+
+    scene::ObjectId default_selected{};
+    scene::MaterialId default_mat{};
+
+    if (tmpl == ProjectTemplate::MinimalCube) {
+        auto neutral_mat = sc.createMaterial(scene::PbrMaterial{
+            .name = "Studio Clay",
+            .base_color = {0.76f, 0.78f, 0.82f},
+            .metallic = 0.08f,
+            .roughness = 0.42f,
+            .ambient_occlusion = 1.0f,
+        });
+        auto cube_mesh = sc.registerEditableMesh(
+            "CubeMesh", scene::EditableMesh::createCube(1.3f, {0.80f, 0.82f, 0.85f}));
+        auto cube_obj = sc.createObject("Cube");
+        if (cube_mesh && cube_obj) {
+            math::Transform ctf{};
+            ctf.position = {0.0f, 0.65f, 0.0f};
+            (void)sc.setObjectTransform(cube_obj.value(), ctf);
+            (void)sc.assignMesh(cube_obj.value(), cube_mesh.value());
+            if (neutral_mat) {
+                (void)sc.assignMaterial(cube_obj.value(), neutral_mat.value());
+                default_mat = neutral_mat.value();
+            }
+            default_selected = cube_obj.value();
+        }
+    } else if (tmpl == ProjectTemplate::ShaderBall) {
+        auto gold_mat = sc.createMaterial(scene::PbrMaterial{
+            .name = "Brushed Gold",
+            .base_color = {0.96f, 0.76f, 0.28f},
+            .metallic = 0.94f,
+            .roughness = 0.18f,
+            .ambient_occlusion = 1.0f,
+        });
+        (void)sc.createMaterial(scene::PbrMaterial{
+            .name = "Chrome Mirror",
+            .base_color = {0.91f, 0.93f, 0.95f},
+            .metallic = 1.0f,
+            .roughness = 0.06f,
+            .ambient_occlusion = 1.0f,
+        });
+        (void)sc.createMaterial(scene::PbrMaterial{
+            .name = "Ceramic Matte",
+            .base_color = {0.22f, 0.58f, 0.86f},
+            .metallic = 0.05f,
+            .roughness = 0.48f,
+            .ambient_occlusion = 1.0f,
+        });
+
+        auto sphere_mesh = sc.registerEditableMesh(
+            "ShaderSphereMesh",
+            scene::EditableMesh::createUvSphere(0.85f, 18, 32, {0.95f, 0.95f, 0.95f}));
+        auto sphere_obj = sc.createObject("ShaderSphere");
+        if (sphere_mesh && sphere_obj) {
+            math::Transform stf{};
+            stf.position = {0.0f, 0.85f, 0.0f};
+            (void)sc.setObjectTransform(sphere_obj.value(), stf);
+            (void)sc.assignMesh(sphere_obj.value(), sphere_mesh.value());
+            if (gold_mat) {
+                (void)sc.assignMaterial(sphere_obj.value(), gold_mat.value());
+                default_mat = gold_mat.value();
+            }
+            default_selected = sphere_obj.value();
+        }
+    }
+
+    fresh.editor_state.selected_object_id = default_selected;
+    fresh.editor_state.active_material_id = default_mat;
+
+    session_.document() = std::move(fresh);
+    session_.commandStack().clear();
+    session_.restoreFromDocumentState();
+    session_.setRigAnimationEnabled(false);
+    session_.setCameraViewActive(false);
+    math::Transform editor_eye{};
+    editor_eye.position = {0.0f, 2.95f, 6.10f};
+    session_.cameraController().syncFromCameraTransform(editor_eye, {0.0f, 0.80f, 0.0f});
+    spawn_counter_ = 0;
+    selected_material_id_ = default_mat;
+    refreshMaterialPreview();
+    recordStatus(core::Status::ok(), "Created project '" + session_.document().metadata.project_name + "'");
+    return core::Status::ok();
+}
+
 core::Result<std::string> EditorController::exportInlineProjectJson() const {
+    const_cast<StudioSession&>(session_).syncDocumentState(selectedMaterial());
     return project::ProjectSerializer::serializeToString(session_.document(), true);
 }
 
 core::Status EditorController::importInlineProjectJson(std::string_view json_text) {
+    if (session_.isGizmoDragging()) {
+        (void)session_.cancelActiveGizmoDrag();
+    }
     auto loaded = project::ProjectSerializer::deserializeFromString(json_text);
     if (!loaded) {
         core::Status st = loaded.error();
@@ -539,14 +1792,20 @@ core::Status EditorController::importInlineProjectJson(std::string_view json_tex
     }
     session_.document() = std::move(loaded).value();
     session_.commandStack().clear();
-    session_.setSelectedObject({});
+    session_.restoreFromDocumentState();
     session_.setRigAnimationEnabled(false);
-
-    const auto active_cam = session_.document().scene.activeCamera();
-    if (active_cam.isValid()) {
-        if (const auto* cam_obj = session_.document().scene.findObject(active_cam); cam_obj != nullptr) {
-            session_.cameraController().syncFromCameraTransform(cam_obj->local_transform, math::Vec3::zero());
-        }
+    session_.setCameraViewActive(false);
+    math::Transform editor_eye{};
+    editor_eye.position = {0.0f, 2.95f, 6.10f};
+    session_.cameraController().syncFromCameraTransform(editor_eye, {0.0f, 0.80f, 0.0f});
+    selected_material_id_ = session_.document().editor_state.active_material_id;
+    refreshMaterialPreview();
+    for (const auto& warn : session_.document().load_warnings) {
+        console_entries_.push_back(EditorConsoleEntry{
+            .sequence = ++console_seq_,
+            .is_error = false,
+            .message = "[Warning] " + warn,
+        });
     }
     recordStatus(core::Status::ok(), "Loaded project '" + session_.document().metadata.project_name + "'");
     return core::Status::ok();
@@ -555,6 +1814,7 @@ core::Status EditorController::importInlineProjectJson(std::string_view json_tex
 core::Status EditorController::saveBundleProject(
     const std::filesystem::path& fe3d_path,
     platform::IFileSystem& file_system) {
+    session_.syncDocumentState(selectedMaterial());
     auto st = session_.saveProjectBundleToFile(fe3d_path, file_system);
     recordStatus(st, "Exported .fe3d + .fe3dbin binary bundle");
     return st;
@@ -566,431 +1826,17 @@ core::Status EditorController::loadProjectFile(
     auto st = session_.loadProjectFromFile(fe3d_path, file_system);
     if (st) {
         session_.setRigAnimationEnabled(false);
+        selected_material_id_ = session_.document().editor_state.active_material_id;
+        refreshMaterialPreview();
+        for (const auto& warn : session_.document().load_warnings) {
+            console_entries_.push_back(EditorConsoleEntry{
+                .sequence = ++console_seq_,
+                .is_error = false,
+                .message = "[Warning] " + warn,
+            });
+        }
     }
     recordStatus(st, "Loaded project '" + session_.document().metadata.project_name + "'");
-    return st;
-}
-
-std::string EditorController::serializeStateJson() const {
-    using project::JsonArray;
-    using project::JsonObject;
-    using project::JsonValue;
-
-    const auto& doc = session_.document();
-    const auto& scene = doc.scene;
-    const auto& stack = session_.commandStack();
-    const auto stats = session_.collectResourceStats();
-    const auto& caps = session_.renderer().device().capabilities();
-
-    JsonValue root{JsonObject{}};
-    root.setKey("revision", state_revision_);
-
-    JsonValue proj{JsonObject{}};
-    proj.setKey("project_name", doc.metadata.project_name);
-    proj.setKey("author", doc.metadata.author);
-    proj.setKey("description", doc.metadata.description);
-    proj.setKey("engine_version", doc.metadata.engine_version);
-    proj.setKey("scene_name", scene.name());
-    root.setKey("project", std::move(proj));
-
-    JsonValue vp{JsonObject{}};
-    vp.setKey("backend_name", caps.backend_name);
-    vp.setKey("device_name", caps.device_name);
-    vp.setKey("rig_playing", session_.isRigAnimationEnabled());
-    vp.setKey("active_camera_id", scene.activeCamera().value);
-    vp.setKey("selected_object_id", session_.selectedObject().value);
-    vp.setKey("camera_target", vec3ToJson(session_.cameraController().target()));
-    vp.setKey("camera_distance", static_cast<double>(session_.cameraController().distance()));
-    vp.setKey("camera_yaw_deg", static_cast<double>(math::radToDeg(session_.cameraController().yawRadians())));
-    vp.setKey("camera_pitch_deg", static_cast<double>(math::radToDeg(session_.cameraController().pitchRadians())));
-    root.setKey("viewport", std::move(vp));
-
-    JsonValue hist{JsonObject{}};
-    hist.setKey("can_undo", stack.canUndo());
-    hist.setKey("can_redo", stack.canRedo());
-    hist.setKey("undo_count", static_cast<std::uint64_t>(stack.undoCount()));
-    hist.setKey("redo_count", static_cast<std::uint64_t>(stack.redoCount()));
-    hist.setKey("next_undo", std::string(stack.nextUndoDescription()));
-    hist.setKey("next_redo", std::string(stack.nextRedoDescription()));
-    hist.setKey("memory_bytes", static_cast<std::uint64_t>(stack.totalMemoryBytes()));
-    root.setKey("history", std::move(hist));
-
-    JsonValue st_json{JsonObject{}};
-    st_json.setKey("object_count", static_cast<std::uint64_t>(stats.scene_object_count));
-    st_json.setKey("mesh_count", static_cast<std::uint64_t>(stats.mesh_asset_count));
-    st_json.setKey("total_vertices", static_cast<std::uint64_t>(stats.total_cpu_vertices));
-    st_json.setKey("total_triangles", static_cast<std::uint64_t>(stats.total_cpu_indices / 3u));
-    st_json.setKey("cpu_mesh_bytes", static_cast<std::uint64_t>(stats.cpu_mesh_bytes));
-    st_json.setKey("gpu_buffer_count", static_cast<std::uint64_t>(stats.gpu_mesh_buffer_count));
-    st_json.setKey("gpu_mesh_bytes", static_cast<std::uint64_t>(stats.gpu_mesh_bytes));
-    root.setKey("stats", std::move(st_json));
-
-    JsonValue status_obj{JsonObject{}};
-    status_obj.setKey("level", last_status_is_error_ ? "error" : "info");
-    status_obj.setKey("message", last_status_message_);
-    root.setKey("status", std::move(status_obj));
-
-    // Build deterministic hierarchical Outliner tree in pre-order (sorted by ObjectId among siblings).
-    std::vector<const scene::SceneObject*> roots;
-    for (const auto& obj : scene.objects()) {
-        if (!obj.parent_id.isValid() || scene.findObject(obj.parent_id) == nullptr) {
-            roots.push_back(&obj);
-        }
-    }
-    std::sort(roots.begin(), roots.end(), [](const auto* a, const auto* b) { return a->id < b->id; });
-
-    JsonArray outliner_arr;
-    outliner_arr.reserve(scene.objectCount());
-
-    auto appendSubtree = [&](auto& self, const scene::SceneObject* node, std::uint32_t depth) -> void {
-        JsonValue item{JsonObject{}};
-        item.setKey("id", node->id.value);
-        item.setKey("name", node->name);
-        item.setKey("visible", node->visible);
-        item.setKey("parent_id", node->parent_id.value);
-        item.setKey("depth", static_cast<std::uint64_t>(depth));
-        item.setKey("has_mesh", node->mesh_id.has_value());
-        item.setKey("has_camera", node->camera.has_value());
-        item.setKey("has_light", node->directional_light.has_value());
-        item.setKey("is_active_camera", node->id == scene.activeCamera());
-        outliner_arr.push_back(std::move(item));
-
-        std::vector<const scene::SceneObject*> kids;
-        kids.reserve(node->children.size());
-        for (const auto cid : node->children) {
-            if (const auto* child_ptr = scene.findObject(cid); child_ptr != nullptr) {
-                kids.push_back(child_ptr);
-            }
-        }
-        std::sort(kids.begin(), kids.end(), [](const auto* a, const auto* b) { return a->id < b->id; });
-        for (const auto* child_ptr : kids) {
-            self(self, child_ptr, depth + 1u);
-        }
-    };
-
-    for (const auto* r : roots) {
-        appendSubtree(appendSubtree, r, 0u);
-    }
-    root.setKey("objects", std::move(outliner_arr));
-
-    // Populate selected object Inspector payload when valid.
-    if (session_.selectedObject().isValid()) {
-        if (const auto* sel_obj = scene.findObject(session_.selectedObject()); sel_obj != nullptr) {
-            JsonValue insp{JsonObject{}};
-            insp.setKey("id", sel_obj->id.value);
-            insp.setKey("name", sel_obj->name);
-            insp.setKey("visible", sel_obj->visible);
-            insp.setKey("parent_id", sel_obj->parent_id.value);
-            insp.setKey("position", vec3ToJson(sel_obj->local_transform.position));
-
-            const math::Vec3 euler_rad = sel_obj->local_transform.rotation.toEulerXYZ();
-            insp.setKey("rotation_deg", vec3ToJson(math::Vec3{
-                math::radToDeg(euler_rad.x),
-                math::radToDeg(euler_rad.y),
-                math::radToDeg(euler_rad.z),
-            }));
-            insp.setKey("scale", vec3ToJson(sel_obj->local_transform.scale));
-
-            if (sel_obj->mesh_id.has_value()) {
-                if (const auto* mesh_asset = scene.findMesh(sel_obj->mesh_id.value()); mesh_asset != nullptr) {
-                    JsonValue m_json{JsonObject{}};
-                    m_json.setKey("id", mesh_asset->id.value);
-                    m_json.setKey("name", mesh_asset->name);
-                    m_json.setKey("vertex_count", static_cast<std::uint64_t>(mesh_asset->data.vertices.size()));
-                    m_json.setKey(
-                        "triangle_count",
-                        static_cast<std::uint64_t>(mesh_asset->data.indices.size() / 3u));
-                    m_json.setKey("bounds_size", vec3ToJson(mesh_asset->local_bounds.size()));
-                    insp.setKey("mesh", std::move(m_json));
-                }
-            }
-
-            if (sel_obj->camera.has_value()) {
-                const auto& cam = sel_obj->camera.value();
-                JsonValue c_json{JsonObject{}};
-                c_json.setKey(
-                    "projection",
-                    cam.projection == scene::ProjectionType::Perspective ? "perspective" : "orthographic");
-                c_json.setKey("fov_deg", static_cast<double>(math::radToDeg(cam.fov_y_radians)));
-                c_json.setKey("ortho_height", static_cast<double>(cam.orthographic_height));
-                c_json.setKey("near_plane", static_cast<double>(cam.near_plane));
-                c_json.setKey("far_plane", static_cast<double>(cam.far_plane));
-                c_json.setKey("is_active", sel_obj->id == scene.activeCamera());
-                insp.setKey("camera", std::move(c_json));
-            }
-
-            if (sel_obj->directional_light.has_value()) {
-                const auto& lgt = sel_obj->directional_light.value();
-                JsonValue l_json{JsonObject{}};
-                l_json.setKey("color", vec3ToJson(lgt.color));
-                l_json.setKey("intensity", static_cast<double>(lgt.intensity));
-                insp.setKey("light", std::move(l_json));
-            }
-
-            root.setKey("inspector", std::move(insp));
-        } else {
-            root.setKey("inspector", JsonValue{});
-        }
-    } else {
-        root.setKey("inspector", JsonValue{});
-    }
-
-    auto serialized = project::writeJson(root, false);
-    return serialized.hasValue() ? serialized.value() : "{}";
-}
-
-core::Status EditorController::executeActionJson(std::string_view action_json) {
-    auto parsed = project::parseJson(action_json);
-    if (!parsed) {
-        recordStatus(core::Status(parsed.error()), {});
-        return parsed.error();
-    }
-    const auto& cmd = parsed.value();
-    if (!cmd.isObject()) {
-        auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Editor action JSON must be an object");
-        recordStatus(st, {});
-        return st;
-    }
-
-    const auto* action_val = cmd.findKey("action");
-    if (action_val == nullptr || !action_val->isString()) {
-        auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing string 'action' key");
-        recordStatus(st, {});
-        return st;
-    }
-    const std::string& action = action_val->asString();
-
-    if (action == "select_object") {
-        auto id_res = parseJsonId(cmd.findKey("id"), "id");
-        if (!id_res) {
-            recordStatus(core::Status(id_res.error()), {});
-            return id_res.error();
-        }
-        return selectObject(scene::ObjectId{id_res.value()});
-    }
-
-    if (action == "add_preset") {
-        const auto* preset_val = cmd.findKey("preset");
-        if (preset_val == nullptr || !preset_val->isString()) {
-            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing string 'preset'");
-            recordStatus(st, {});
-            return st;
-        }
-        ScenePreset preset = ScenePreset::Cube;
-        const std::string& p_str = preset_val->asString();
-        if (p_str == "cube") preset = ScenePreset::Cube;
-        else if (p_str == "pyramid") preset = ScenePreset::Pyramid;
-        else if (p_str == "plane") preset = ScenePreset::Plane;
-        else if (p_str == "pivot") preset = ScenePreset::EmptyPivot;
-        else if (p_str == "light") preset = ScenePreset::DirectionalLight;
-        else if (p_str == "camera") preset = ScenePreset::Camera;
-        else {
-            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Unknown preset: " + p_str);
-            recordStatus(st, {});
-            return st;
-        }
-
-        scene::ObjectId parent_id{};
-        if (const auto* pv = cmd.findKey("parent_id"); pv != nullptr && pv->isNumber()) {
-            auto pid = parseJsonId(pv, "parent_id");
-            if (!pid) {
-                recordStatus(core::Status(pid.error()), {});
-                return pid.error();
-            }
-            parent_id = scene::ObjectId{pid.value()};
-        }
-        auto res = addPresetObject(preset, parent_id);
-        return res.hasValue() ? core::Status::ok() : core::Status(res.error());
-    }
-
-    if (action == "duplicate_selected") {
-        auto res = duplicateSelectedObject();
-        return res.hasValue() ? core::Status::ok() : core::Status(res.error());
-    }
-
-    if (action == "delete_selected") {
-        return deleteSelectedObject(scene::RemovalMode::Recursive);
-    }
-
-    if (action == "rename_object") {
-        auto id_res = parseJsonId(cmd.findKey("id"), "id");
-        if (!id_res) {
-            recordStatus(core::Status(id_res.error()), {});
-            return id_res.error();
-        }
-        const auto* nv = cmd.findKey("name");
-        if (nv == nullptr || !nv->isString()) {
-            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing string 'name'");
-            recordStatus(st, {});
-            return st;
-        }
-        return renameObject(scene::ObjectId{id_res.value()}, nv->asString());
-    }
-
-    if (action == "set_visibility") {
-        auto id_res = parseJsonId(cmd.findKey("id"), "id");
-        if (!id_res) {
-            recordStatus(core::Status(id_res.error()), {});
-            return id_res.error();
-        }
-        const auto* vv = cmd.findKey("visible");
-        if (vv == nullptr || !vv->isBool()) {
-            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing boolean 'visible'");
-            recordStatus(st, {});
-            return st;
-        }
-        return setObjectVisibility(scene::ObjectId{id_res.value()}, vv->asBool());
-    }
-
-    if (action == "reparent_object") {
-        auto cid = parseJsonId(cmd.findKey("child_id"), "child_id");
-        auto pid = parseJsonId(cmd.findKey("parent_id"), "parent_id");
-        if (!cid) {
-            recordStatus(core::Status(cid.error()), {});
-            return cid.error();
-        }
-        if (!pid) {
-            recordStatus(core::Status(pid.error()), {});
-            return pid.error();
-        }
-        return reparentObject(scene::ObjectId{cid.value()}, scene::ObjectId{pid.value()});
-    }
-
-    if (action == "set_transform") {
-        auto id_res = parseJsonId(cmd.findKey("id"), "id");
-        auto pos_res = parseJsonVec3(cmd.findKey("position"), "position");
-        auto rot_res = parseJsonVec3(cmd.findKey("rotation_deg"), "rotation_deg");
-        auto scl_res = parseJsonVec3(cmd.findKey("scale"), "scale");
-        if (!id_res) { recordStatus(core::Status(id_res.error()), {}); return id_res.error(); }
-        if (!pos_res) { recordStatus(core::Status(pos_res.error()), {}); return pos_res.error(); }
-        if (!rot_res) { recordStatus(core::Status(rot_res.error()), {}); return rot_res.error(); }
-        if (!scl_res) { recordStatus(core::Status(scl_res.error()), {}); return scl_res.error(); }
-
-        bool coalesce = false;
-        if (const auto* cv = cmd.findKey("coalesce"); cv != nullptr && cv->isBool()) {
-            coalesce = cv->asBool();
-        }
-        return setObjectTransformEulerDegrees(
-            scene::ObjectId{id_res.value()},
-            pos_res.value(),
-            rot_res.value(),
-            scl_res.value(),
-            coalesce);
-    }
-
-    if (action == "reset_transform") {
-        auto id_res = parseJsonId(cmd.findKey("id"), "id");
-        if (!id_res) {
-            recordStatus(core::Status(id_res.error()), {});
-            return id_res.error();
-        }
-        return resetObjectTransform(scene::ObjectId{id_res.value()});
-    }
-
-    if (action == "set_camera") {
-        auto id_res = parseJsonId(cmd.findKey("id"), "id");
-        auto fov_res = parseJsonFloat(cmd.findKey("fov_deg"), "fov_deg");
-        auto oh_res = parseJsonFloat(cmd.findKey("ortho_height"), "ortho_height");
-        auto np_res = parseJsonFloat(cmd.findKey("near_plane"), "near_plane");
-        auto fp_res = parseJsonFloat(cmd.findKey("far_plane"), "far_plane");
-        if (!id_res) { recordStatus(core::Status(id_res.error()), {}); return id_res.error(); }
-        if (!fov_res) { recordStatus(core::Status(fov_res.error()), {}); return fov_res.error(); }
-        if (!oh_res) { recordStatus(core::Status(oh_res.error()), {}); return oh_res.error(); }
-        if (!np_res) { recordStatus(core::Status(np_res.error()), {}); return np_res.error(); }
-        if (!fp_res) { recordStatus(core::Status(fp_res.error()), {}); return fp_res.error(); }
-
-        scene::CameraComponent cam{};
-        if (const auto* pv = cmd.findKey("projection"); pv != nullptr && pv->isString()) {
-            cam.projection = (pv->asString() == "orthographic")
-                                 ? scene::ProjectionType::Orthographic
-                                 : scene::ProjectionType::Perspective;
-        }
-        cam.fov_y_radians = math::degToRad(fov_res.value());
-        cam.orthographic_height = oh_res.value();
-        cam.near_plane = np_res.value();
-        cam.far_plane = fp_res.value();
-        return setCameraComponent(scene::ObjectId{id_res.value()}, cam);
-    }
-
-    if (action == "set_active_camera") {
-        auto id_res = parseJsonId(cmd.findKey("id"), "id");
-        if (!id_res) {
-            recordStatus(core::Status(id_res.error()), {});
-            return id_res.error();
-        }
-        return setActiveCamera(scene::ObjectId{id_res.value()});
-    }
-
-    if (action == "set_light") {
-        auto id_res = parseJsonId(cmd.findKey("id"), "id");
-        auto col_res = parseJsonVec3(cmd.findKey("color"), "color");
-        auto int_res = parseJsonFloat(cmd.findKey("intensity"), "intensity");
-        if (!id_res) { recordStatus(core::Status(id_res.error()), {}); return id_res.error(); }
-        if (!col_res) { recordStatus(core::Status(col_res.error()), {}); return col_res.error(); }
-        if (!int_res) { recordStatus(core::Status(int_res.error()), {}); return int_res.error(); }
-
-        bool coalesce = false;
-        if (const auto* cv = cmd.findKey("coalesce"); cv != nullptr && cv->isBool()) {
-            coalesce = cv->asBool();
-        }
-        scene::DirectionalLightComponent lgt{
-            .color = col_res.value(),
-            .intensity = int_res.value(),
-        };
-        return setDirectionalLightComponent(scene::ObjectId{id_res.value()}, lgt, coalesce);
-    }
-
-    if (action == "set_metadata") {
-        const auto* pn = cmd.findKey("project_name");
-        const auto* au = cmd.findKey("author");
-        const auto* sn = cmd.findKey("scene_name");
-        if (pn == nullptr || !pn->isString() || au == nullptr || !au->isString() || sn == nullptr || !sn->isString()) {
-            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Metadata fields must be strings");
-            recordStatus(st, {});
-            return st;
-        }
-        return updateProjectMetadata(pn->asString(), au->asString(), sn->asString());
-    }
-
-    if (action == "frame_selection") {
-        return frameSelectionOrScene();
-    }
-
-    if (action == "set_rig_playing") {
-        const auto* pv = cmd.findKey("playing");
-        if (pv == nullptr || !pv->isBool()) {
-            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing boolean 'playing'");
-            recordStatus(st, {});
-            return st;
-        }
-        setRigAnimationPlaying(pv->asBool());
-        return core::Status::ok();
-    }
-
-    if (action == "undo") {
-        return undo();
-    }
-
-    if (action == "redo") {
-        return redo();
-    }
-
-    if (action == "new_starter_project") {
-        return newStarterProject();
-    }
-
-    if (action == "load_inline_json") {
-        const auto* jv = cmd.findKey("json_text");
-        if (jv == nullptr || !jv->isString()) {
-            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing string 'json_text'");
-            recordStatus(st, {});
-            return st;
-        }
-        return importInlineProjectJson(jv->asString());
-    }
-
-    auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Unknown editor action: " + action);
-    recordStatus(st, {});
     return st;
 }
 

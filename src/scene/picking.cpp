@@ -21,8 +21,21 @@ std::optional<RaycastHit> raycastScene(
     std::optional<RaycastHit> best_hit;
 
     for (const auto& obj : scene.objects()) {
-        if (options.ignore_invisible && !obj.visible) {
-            continue;
+        if (options.ignore_invisible) {
+            ObjectId cur = obj.id;
+            std::size_t guard = 0;
+            bool vis = true;
+            while (cur.isValid() && guard++ <= scene.objectCount()) {
+                const auto* node = scene.findObject(cur);
+                if (node == nullptr || !node->visible) {
+                    vis = false;
+                    break;
+                }
+                cur = node->parent_id;
+            }
+            if (!vis) {
+                continue;
+            }
         }
         if (!obj.mesh_id.has_value()) {
             continue;

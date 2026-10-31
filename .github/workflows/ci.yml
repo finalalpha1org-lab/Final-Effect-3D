@@ -36,7 +36,7 @@ jobs:
             cxx: clang++
             build_type: Release
           - name: macOS AppleClang (Release)
-            os: macos-14
+            os: macos-15
             cc: clang
             cxx: clang++
             build_type: Release
@@ -119,6 +119,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Emscripten SDK
         uses: mymindstorm/setup-emsdk@v14
@@ -141,6 +143,7 @@ jobs:
           test -f build/ci-wasm/finaleffect_web.wasm
           test -f build/ci-wasm/index.html
           test -f build/ci-wasm/editor.css
+          test -f build/ci-wasm/studios.js
           test -f build/ci-wasm/editor.js
 
       - name: Install Playwright & Headless Chromium
@@ -149,9 +152,29 @@ jobs:
           npm install --no-audit --no-fund
           npx playwright install --with-deps chromium
 
+      - name: Capture Stage 5 Baseline Screenshots (Before Stage 5.1 Polish)
+        run: |
+          if git cat-file -e d0c257c^{commit} 2>/dev/null; then
+            mkdir -p build/ci-wasm-before
+            cp build/ci-wasm/finaleffect_web.js build/ci-wasm/finaleffect_web.wasm build/ci-wasm-before/
+            git show d0c257c:web/index.html > build/ci-wasm-before/index.html
+            git show d0c257c:web/editor.css > build/ci-wasm-before/editor.css
+            git show d0c257c:web/studios.js > build/ci-wasm-before/studios.js
+            git show d0c257c:web/editor.js > build/ci-wasm-before/editor.js
+            (cd web/e2e && node capture-baseline.mjs)
+          fi
+
       - name: Verify Connected Studio UI in Real Chromium (WebAssembly + WebGL 2.0)
         working-directory: web/e2e
         env:
           CI: "true"
           FE3D_WEB_DIST_DIR: ../../build/ci-wasm
-        run: npx playwright test --reporter=list
+        run: npx playwright test --reporter=list,github
+
+      - name: Upload Multi-Viewport, Gizmo, Grid & Stage 5.4 Lighting Screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage-5-4-lighting-engine-and-ui-screenshots
+          path: build/ci-screenshots/
+          if-no-files-found: ignore

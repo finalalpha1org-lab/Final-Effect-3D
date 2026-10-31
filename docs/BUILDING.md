@@ -1,4 +1,4 @@
-# Building & Testing Final Effect 3D
+# Building & Testing Final Effect 3D (`v0.4.0`)
 
 ## 1. Requirements
 
@@ -9,7 +9,7 @@
   * macOS: AppleClang (Xcode `>= 15`)
   * Windows: MSVC (Visual Studio 2022 `>= 17.6`)
 * **CMake**: `>= 3.22`
-* **Network access**: **Not required** for core libraries, CPU software renderer, GPU adapter unit tests, or `.fe3d`/`.fe3dbin` tests.
+* **Network access**: **Not required** for core libraries, 3D gizmos, `EditableMesh`, PBR material preview, CPU software renderer, GPU adapter unit tests, or `.fe3d`/`.fe3dbin` tests.
 
 ### Interactive Desktop OpenGL 3.3 Window (Optional)
 
@@ -26,7 +26,7 @@ To build `finaleffect_desktop` with live desktop windowing (`GlfwWindow` + `Open
 
 To compile `finaleffect_web` (`apps/web/main.cpp` + `WebGL2RenderDevice`):
 
-* **Emscripten SDK (`emsdk`)** `>= 3.1.50` (`emcmake` / `em++` with C++20 and WebGL 2.0 support).
+* **Emscripten SDK (`emsdk`)** `>= 3.1.50` (`3.1.68` in CI).
 
 ---
 
@@ -34,40 +34,40 @@ To compile `finaleffect_web` (`apps/web/main.cpp` + `WebGL2RenderDevice`):
 
 | Option | Default | Description |
 | :--- | :--- | :--- |
-| `FINALEFFECT_BUILD_TESTS` | `ON` | Build unit and integration test executables and register them with CTest |
+| `FINALEFFECT_BUILD_TESTS` | `ON` | Build all 15 unit and integration test executables and register them with CTest |
 | `FINALEFFECT_BUILD_RENDERER_DESKTOP` | `ON` | Build `finaleffect_rendering_opengl33`, `finaleffect_desktop`, and optional `finaleffect_window_glfw` |
-| `FINALEFFECT_BUILD_RENDERER_WEBGL2` | `ON` | Build `finaleffect_rendering_webgl2` (OpenGL ES 3.0 / WebGL 2.0 adapter) and its CTest suite |
+| `FINALEFFECT_BUILD_RENDERER_WEBGL2` | `ON` | Build `finaleffect_rendering_webgl2` (OpenGL ES 3.0 / WebGL 2.0 PBR adapter) and its CTest suite |
 | `FINALEFFECT_FETCH_GLFW` | `OFF` | Download pinned GLFW `3.4` via CMake `FetchContent` if system GLFW is not installed |
 | `FINALEFFECT_REQUIRE_GLFW` | `OFF` | Fail CMake configuration if `FINALEFFECT_BUILD_RENDERER_DESKTOP=ON` and GLFW + OpenGL are missing |
 | `FINALEFFECT_WARNINGS_AS_ERRORS` | `OFF` | Enable `-Werror` (GCC/Clang/Emscripten) or `/WX` (MSVC) |
 
-> **Out-of-source builds are enforced.** Running `cmake .` in the repository root will stop with an explicit error so generated files never pollute the source tree.
+> **Out-of-source builds are enforced.** Running `cmake .` in the repository root stops with an explicit error so generated files never pollute the source tree.
 
 ---
 
-## 3. Building with CMake Presets
+## 3. Building with CMake Presets & Running the 15 CTest Suites
 
 `CMakePresets.json` defines five standard presets:
 
-* `core-debug` / `core-release` — Portable core, math, scene, commands, `.fe3d`/`.fe3dbin`, software renderer, and interactive viewport tests (`8` CTest suites).
-* `desktop-debug` / `desktop-release` — Full desktop build + OpenGL 3.3 & WebGL 2.0 adapters + `finaleffect_desktop` (`10` CTest suites).
-* `wasm-release` — Emscripten WebAssembly + WebGL 2.0 browser bundle (`requires EMSDK env variable`).
+* `core-debug` / `core-release` — Portable core, math, scene, commands, gizmos, `EditableMesh`, PBR materials, `WorkspaceManager`, `.fe3d v1.2`/`.fe3dbin`, software renderer, viewport, and `EditorController` tests (`13` CTest suites).
+* `desktop-debug` / `desktop-release` — Full desktop build + OpenGL 3.3 & WebGL 2.0 PBR adapters + `finaleffect_desktop` (`15` CTest suites when both GPU adapter targets are enabled).
+* `wasm-release` — Emscripten WebAssembly + WebGL 2.0 browser Studio bundle (`requires EMSDK env variable`).
 
 ```bash
 # Portable core build & test
 cmake --preset core-debug
 cmake --build --preset core-debug --parallel
-ctest --preset core-debug
+ctest --preset core-debug --output-on-failure
 
 # Desktop + GPU adapter build & test
-cmake --preset desktop-release
+cmake --preset desktop-release -DFINALEFFECT_BUILD_RENDERER_WEBGL2=ON
 cmake --build --preset desktop-release --parallel
-ctest --preset desktop-release
+ctest --preset desktop-release --output-on-failure
 ```
 
 ---
 
-## 4. Building & Serving the WebAssembly Prototype (`finaleffect_web`)
+## 4. Building & Serving the Connected WebAssembly Studio (`finaleffect_web`)
 
 With `emsdk` activated in your shell:
 
@@ -82,11 +82,9 @@ cmake --build build/wasm-release --parallel
 python3 -m http.server 8080 --directory build/wasm-release
 ```
 
-Then open `http://localhost:8080/index.html` in a WebGL 2.0-capable desktop or mobile browser to launch the connected 3-panel Final Effect 3D Studio UI (Scene Outliner, WebGL 2.0 3D Viewport, Property Inspector, Undo/Redo toolbar, and `.fe3d` / `.fe3dbin` project import/export). Because the WebAssembly build runs single-threaded without `SharedArrayBuffer` requirements, it works on standard static HTTP hosts without special COOP/COEP headers.
+Open `http://localhost:8080/index.html` in any WebGL 2.0-capable browser to launch the connected Stage 4 Studio workspace (Mode & Gizmo toolbars, Scene Outliner, WebGL 2.0 PBR 3D Viewport, Mesh Modeling panel, PBR Material Editor with live 96×96 3D sphere preview, Modular Bottom Dock, and `.fe3d v1.2` / `.fe3dbin` import/export). Single-threaded WASM compilation avoids `SharedArrayBuffer` / COOP-COEP hosting restrictions.
 
 ### Automated Real-Browser Chromium E2E Verification (`web/e2e/`)
-
-After building `build/wasm-release` with Emscripten:
 
 ```bash
 cd web/e2e
@@ -95,23 +93,29 @@ npx playwright install --with-deps chromium
 npx playwright test --reporter=list
 ```
 
-This launches Headless Chromium with WebGL 2.0 (`--use-gl=angle --use-angle=swiftshader`) and verifies WebAssembly boot, real GPU 3D pixel rasterization, 3D raycast canvas picking + selection highlight pixels, camera orbit drag, Outliner/Inspector authoring, `<input>` keyboard focus guards, hierarchy cycle protection, Undo/Redo, and `.fe3d` + `.fe3dbin` download/upload round-trips.
+Launches Headless Chromium with WebGL 2.0 (`--use-gl=angle --use-angle=swiftshader`) and runs 7 end-to-end suites verifying WASM boot, WebGL 2.0 PBR rasterization, 3D gizmo hover/drag + coalesced undo, Face/Vertex polygon picking + extrusion + hole boundary fill, live 96×96 3D sphere material preview updates, workspace preset persistence across page reload, and `.fe3d v1.2` + `.fe3dbin` round-trips.
 
 ---
 
-## 5. Running the Desktop Application & Viewport Controls
+## 5. Interactive Viewport & Editing Shortcuts (Desktop GLFW & Browser WebGL2)
 
-### Interactive Viewport Controls (Desktop GLFW & Browser WebGL2)
-
-* **Left Click**: Raycast pick 3D object under cursor
+* **Left Click**: Pick 3D object (`Object` mode) or vertex / edge / polygon face (`Vertex` / `Edge` / `Face` mode); drag hovered 3D Gizmo handle (`Move` / `Rotate` / `Scale`)
+* **`Shift + Left Click`**: Additive/toggle multi-element selection in Mesh Edit modes
+* **`W` / `E` / `R`**: Switch 3D Transform Gizmo between **Move**, **Rotate**, and **Scale**
+* **`1` / `2` / `3` / `4`**: Switch between **Object**, **Vertex**, **Edge**, and **Face** modes (`Tab` toggles Object ↔ Face mode)
+* **`Escape`**: Cancel active 3D gizmo drag and restore exact pre-drag transform/mesh state
 * **Right Drag** / **Middle Drag** / **Alt + Left Drag**: Orbit camera around focus target
 * **Shift + Middle/Right Drag**: Pan camera target in view plane
 * **Mouse Wheel**: Exponential dolly zoom
 * **`F`**: Frame selected object bounds (or entire scene if nothing is selected)
-* **`Delete` / `Backspace`**: Delete selected object (recorded on Undo stack)
-* **`Ctrl+Z` / `Ctrl+Y` (or `Ctrl+Shift+Z`)**: Undo / Redo scene commands
-* **`Space`**: Pause / resume showcase rig rotation
-* **`Escape`**: Close desktop window
+* **`Delete` / `Backspace`**: Delete selected mesh elements (in Mesh Edit mode) or selected object (in Object mode)
+* **`Ctrl+Z` / `Ctrl+Y` (or `Ctrl+Shift+Z`)**: Undo / Redo commands
+* **`Space`**: Pause / resume showcase rig animation
+* **Touch / Mobile & Stylus Gestures (Browser 3D Studio)**:
+  * **1-Finger Tap**: Select 3D object (`Object` mode) or mesh element (`Vertex` / `Edge` / `Face` mode; toggle `+Multi` pill for additive multi-selection)
+  * **1-Finger Drag on Gizmo Handle**: Interactive 3D Move / Rotate / Scale manipulation
+  * **1-Finger Drag on Empty/Scene Area**: Camera Orbit (or Pan / Zoom via top-right Touch Nav cluster)
+  * **2-Finger Pinch & Drag**: Simultaneous dolly zoom and view-plane camera pan
 
 ### Headless CLI Mode (Works Anywhere, Including Headless Servers/CI)
 

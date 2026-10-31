@@ -26,6 +26,12 @@ public:
         std::uint32_t subdivisions = 4,
         const math::Vec3& color_a = math::Vec3{0.22f, 0.24f, 0.27f},
         const math::Vec3& color_b = math::Vec3{0.31f, 0.34f, 0.38f});
+
+    [[nodiscard]] static MeshData createUvSphere(
+        float radius = 0.75f,
+        std::uint32_t rings = 16,
+        std::uint32_t sectors = 24,
+        const math::Vec3& base_color = math::Vec3{0.82f, 0.85f, 0.90f});
 };
 
 } // namespace finaleffect::scene

@@ -7,8 +7,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <initializer_list>
 #include <limits>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace finaleffect::project {
 
@@ -33,6 +35,35 @@ JsonValue encodeQuat(const math::Quat& q) {
         JsonValue(static_cast<double>(q.z)),
         JsonValue(static_cast<double>(q.w)),
     };
+}
+
+void appendExtraFields(JsonValue& target_obj, const JsonObject& extra) {
+    for (const auto& [k, v] : extra) {
+        if (target_obj.findKey(k) == nullptr) {
+            target_obj.setKey(k, v);
+        }
+    }
+}
+
+void captureUnknownFields(
+    const JsonValue& source_obj,
+    std::initializer_list<std::string_view> known_keys,
+    std::string_view scope_label,
+    JsonObject& out_extra,
+    std::vector<std::string>* out_warnings) {
+    if (!source_obj.isObject()) {
+        return;
+    }
+    const std::unordered_set<std::string_view> known(known_keys.begin(), known_keys.end());
+    for (const auto& [k, v] : source_obj.asObject()) {
+        if (!known.contains(k)) {
+            out_extra.emplace_back(k, v);
+            if (out_warnings != nullptr) {
+                out_warnings->push_back(
+                    "Preserved unrecognized field '" + std::string(scope_label) + "." + k + "'");
+            }
+        }
+    }
 }
 
 core::Result<std::uint64_t> decodeUint64(const JsonValue* val, std::string_view field_name) {
@@ -131,6 +162,40 @@ core::Result<math::Quat> decodeQuat(const JsonValue* val, std::string_view field
     return core::Result<math::Quat>::ok(q.normalized());
 }
 
+core::Result<std::vector<std::uint32_t>> decodeUint32Array(
+    const JsonValue* val,
+    std::string_view field_name) {
+    if (val == nullptr || !val->isArray()) {
+        return core::Result<std::vector<std::uint32_t>>::fail(
+            core::ErrorCode::ValidationError,
+            "Expected integer array",
+            std::string(field_name));
+    }
+    std::vector<std::uint32_t> out;
+    out.reserve(val->asArray().size());
+    for (const auto& entry : val->asArray()) {
+        auto v = decodeUint64(&entry, field_name);
+        if (!v) return v.error();
+        if (v.value() > static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max())) {
+            return core::Result<std::vector<std::uint32_t>>::fail(
+                core::ErrorCode::ValidationError,
+                "Element index exceeds uint32_t range",
+                std::string(field_name));
+        }
+        out.push_back(static_cast<std::uint32_t>(v.value()));
+    }
+    return core::Result<std::vector<std::uint32_t>>::ok(std::move(out));
+}
+
+JsonArray encodeUint32Array(std::span<const std::uint32_t> values) {
+    JsonArray arr;
+    arr.reserve(values.size());
+    for (const std::uint32_t v : values) {
+        arr.emplace_back(static_cast<std::uint64_t>(v));
+    }
+    return arr;
+}
+
 bool isSafeCompanionFilename(std::string_view uri) noexcept {
     if (uri.empty() || uri == "." || uri == "..") {
         return false;
@@ -144,10 +209,402 @@ bool isSafeCompanionFilename(std::string_view uri) noexcept {
     return true;
 }
 
+std::string_view editModeSlug(scene::EditMode mode) noexcept {
+    switch (mode) {
+        case scene::EditMode::Object: return "object";
+        case scene::EditMode::Vertex: return "vertex";
+        case scene::EditMode::Edge:   return "edge";
+        case scene::EditMode::Face:   return "face";
+    }
+    return "object";
+}
+
+core::Result<scene::EditMode> parseEditModeSlug(std::string_view s) {
+    if (s == "object") return core::Result<scene::EditMode>::ok(scene::EditMode::Object);
+    if (s == "vertex") return core::Result<scene::EditMode>::ok(scene::EditMode::Vertex);
+    if (s == "edge")   return core::Result<scene::EditMode>::ok(scene::EditMode::Edge);
+    if (s == "face")   return core::Result<scene::EditMode>::ok(scene::EditMode::Face);
+    return core::Result<scene::EditMode>::fail(
+        core::ErrorCode::ValidationError,
+        "Unknown editor_state.edit_mode: " + std::string(s));
+}
+
+JsonValue encodeEditableMesh(const scene::EditableMesh& em) {
+    JsonValue em_json{JsonObject{}};
+
+    JsonArray verts_arr;
+    verts_arr.reserve(em.vertices().size());
+    for (const auto& ev : em.vertices()) {
+        JsonValue v_obj{JsonObject{}};
+        v_obj.setKey("position", encodeVec3(ev.position));
+        v_obj.setKey("color", encodeVec3(ev.color));
+        verts_arr.push_back(std::move(v_obj));
+    }
+    em_json.setKey("vertices", std::move(verts_arr));
+
+    JsonArray faces_arr;
+    faces_arr.reserve(em.faces().size());
+    for (const auto& ef : em.faces()) {
+        JsonValue f_obj{JsonObject{}};
+        JsonArray corners_arr;
+        corners_arr.reserve(ef.corners.size());
+        for (const auto& c : ef.corners) {
+            JsonValue c_obj{JsonObject{}};
+            c_obj.setKey("vertex", static_cast<std::uint64_t>(c.vertex));
+            c_obj.setKey("uv", encodeVec2(c.uv));
+            corners_arr.push_back(std::move(c_obj));
+        }
+        f_obj.setKey("corners", std::move(corners_arr));
+        f_obj.setKey("color", encodeVec3(ef.color));
+        f_obj.setKey("material_id", ef.material_id.value);
+        f_obj.setKey("smooth_shading", ef.smooth_shading);
+        faces_arr.push_back(std::move(f_obj));
+    }
+    em_json.setKey("faces", std::move(faces_arr));
+    return em_json;
+}
+
+core::Result<scene::EditableMesh> decodeEditableMesh(const JsonValue& em_json) {
+    if (!em_json.isObject()) {
+        return core::Result<scene::EditableMesh>::fail(
+            core::ErrorCode::ValidationError,
+            "'mesh.editable_mesh' must be an object");
+    }
+    const auto* verts_val = em_json.findKey("vertices");
+    const auto* faces_val = em_json.findKey("faces");
+    if (verts_val == nullptr || !verts_val->isArray() || faces_val == nullptr || !faces_val->isArray()) {
+        return core::Result<scene::EditableMesh>::fail(
+            core::ErrorCode::ValidationError,
+            "'mesh.editable_mesh' requires 'vertices' and 'faces' arrays");
+    }
+
+    std::vector<scene::EditVertex> edit_verts;
+    edit_verts.reserve(verts_val->asArray().size());
+    for (const auto& v_json : verts_val->asArray()) {
+        if (!v_json.isObject()) {
+            return core::Result<scene::EditableMesh>::fail(
+                core::ErrorCode::ValidationError,
+                "'editable_mesh.vertices[]' entry must be an object");
+        }
+        auto pos = decodeVec3(v_json.findKey("position"), "editable_mesh.vertex.position");
+        if (!pos) return pos.error();
+        math::Vec3 col{1.0f, 1.0f, 1.0f};
+        if (const auto* col_val = v_json.findKey("color"); col_val != nullptr) {
+            auto c_res = decodeVec3(col_val, "editable_mesh.vertex.color");
+            if (!c_res) return c_res.error();
+            col = c_res.value();
+        }
+        edit_verts.push_back(scene::EditVertex{.position = pos.value(), .normal = {}, .color = col});
+    }
+
+    std::vector<scene::EditFace> edit_faces;
+    edit_faces.reserve(faces_val->asArray().size());
+    for (const auto& f_json : faces_val->asArray()) {
+        if (!f_json.isObject()) {
+            return core::Result<scene::EditableMesh>::fail(
+                core::ErrorCode::ValidationError,
+                "'editable_mesh.faces[]' entry must be an object");
+        }
+        const auto* corners_val = f_json.findKey("corners");
+        if (corners_val == nullptr || !corners_val->isArray()) {
+            return core::Result<scene::EditableMesh>::fail(
+                core::ErrorCode::ValidationError,
+                "'editable_mesh.face.corners' must be an array");
+        }
+        scene::EditFace ef;
+        ef.corners.reserve(corners_val->asArray().size());
+        for (const auto& c_json : corners_val->asArray()) {
+            if (!c_json.isObject()) {
+                return core::Result<scene::EditableMesh>::fail(
+                    core::ErrorCode::ValidationError,
+                    "'editable_mesh.face.corners[]' must be an object");
+            }
+            auto v_idx = decodeUint64(c_json.findKey("vertex"), "editable_mesh.corner.vertex");
+            auto uv_res = decodeVec2(c_json.findKey("uv"), "editable_mesh.corner.uv");
+            if (!v_idx) return v_idx.error();
+            if (!uv_res) return uv_res.error();
+            if (v_idx.value() > static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max())) {
+                return core::Result<scene::EditableMesh>::fail(
+                    core::ErrorCode::ValidationError,
+                    "EditableMesh corner vertex index exceeds uint32_t range");
+            }
+            ef.corners.push_back(scene::FaceCorner{
+                .vertex = static_cast<std::uint32_t>(v_idx.value()),
+                .uv = uv_res.value(),
+            });
+        }
+        if (const auto* col_val = f_json.findKey("color"); col_val != nullptr) {
+            auto c_res = decodeVec3(col_val, "editable_mesh.face.color");
+            if (!c_res) return c_res.error();
+            ef.color = c_res.value();
+        }
+        if (const auto* mid_val = f_json.findKey("material_id"); mid_val != nullptr && !mid_val->isNull()) {
+            auto m_res = decodeUint64(mid_val, "editable_mesh.face.material_id");
+            if (!m_res) return m_res.error();
+            ef.material_id = scene::MaterialId{m_res.value()};
+        }
+        if (const auto* sm_val = f_json.findKey("smooth_shading"); sm_val != nullptr) {
+            if (!sm_val->isBool()) {
+                return core::Result<scene::EditableMesh>::fail(
+                    core::ErrorCode::ValidationError,
+                    "'editable_mesh.face.smooth_shading' must be a boolean");
+            }
+            ef.smooth_shading = sm_val->asBool();
+        }
+        edit_faces.push_back(std::move(ef));
+    }
+
+    scene::EditableMesh result(std::move(edit_verts), std::move(edit_faces));
+    auto st = result.validateAndRebuild();
+    if (!st) {
+        return st.error();
+    }
+    return core::Result<scene::EditableMesh>::ok(std::move(result));
+}
+
+std::string encodeBase64(std::span<const std::uint8_t> data) {
+    static constexpr char kTable[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    out.reserve(((data.size() + 2u) / 3u) * 4u);
+    std::size_t i = 0;
+    while (i + 2u < data.size()) {
+        const std::uint32_t triple =
+            (static_cast<std::uint32_t>(data[i]) << 16u) |
+            (static_cast<std::uint32_t>(data[i + 1u]) << 8u) |
+            static_cast<std::uint32_t>(data[i + 2u]);
+        out.push_back(kTable[(triple >> 18u) & 0x3Fu]);
+        out.push_back(kTable[(triple >> 12u) & 0x3Fu]);
+        out.push_back(kTable[(triple >> 6u) & 0x3Fu]);
+        out.push_back(kTable[triple & 0x3Fu]);
+        i += 3u;
+    }
+    if (i < data.size()) {
+        std::uint32_t triple = static_cast<std::uint32_t>(data[i]) << 16u;
+        out.push_back(kTable[(triple >> 18u) & 0x3Fu]);
+        if (i + 1u < data.size()) {
+            triple |= static_cast<std::uint32_t>(data[i + 1u]) << 8u;
+            out.push_back(kTable[(triple >> 12u) & 0x3Fu]);
+            out.push_back(kTable[(triple >> 6u) & 0x3Fu]);
+            out.push_back('=');
+        } else {
+            out.push_back(kTable[(triple >> 12u) & 0x3Fu]);
+            out.push_back('=');
+            out.push_back('=');
+        }
+    }
+    return out;
+}
+
+core::Result<std::vector<std::uint8_t>> decodeBase64(std::string_view text) {
+    auto charVal = [](unsigned char c) -> int {
+        if (c >= 'A' && c <= 'Z') return static_cast<int>(c - 'A');
+        if (c >= 'a' && c <= 'z') return static_cast<int>(c - 'a') + 26;
+        if (c >= '0' && c <= '9') return static_cast<int>(c - '0') + 52;
+        if (c == '+') return 62;
+        if (c == '/') return 63;
+        return -1;
+    };
+
+    std::vector<std::uint8_t> out;
+    out.reserve((text.size() / 4u) * 3u);
+    std::uint32_t buf = 0;
+    int bits = 0;
+    bool pad_seen = false;
+    for (const char ch : text) {
+        const auto uc = static_cast<unsigned char>(ch);
+        if (uc == ' ' || uc == '\n' || uc == '\r' || uc == '\t') {
+            continue;
+        }
+        if (uc == '=') {
+            pad_seen = true;
+            continue;
+        }
+        if (pad_seen) {
+            return core::Result<std::vector<std::uint8_t>>::fail(
+                core::ErrorCode::ValidationError,
+                "Invalid Base64 data after '=' padding");
+        }
+        const int v = charVal(uc);
+        if (v < 0) {
+            return core::Result<std::vector<std::uint8_t>>::fail(
+                core::ErrorCode::ValidationError,
+                "Invalid character in Base64 payload");
+        }
+        buf = (buf << 6u) | static_cast<std::uint32_t>(v);
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out.push_back(static_cast<std::uint8_t>((buf >> static_cast<unsigned>(bits)) & 0xFFu));
+        }
+    }
+    return core::Result<std::vector<std::uint8_t>>::ok(std::move(out));
+}
+
+JsonValue encodeShadowSettings(const scene::LightShadowSettings& s) {
+    JsonValue obj{JsonObject{}};
+    obj.setKey("enabled", s.enabled);
+    obj.setKey("strength", static_cast<double>(s.strength));
+    obj.setKey("quality", std::string(scene::shadowQualitySlug(s.quality)));
+    obj.setKey("filter", std::string(scene::shadowFilterModeSlug(s.filter)));
+    obj.setKey("bias", static_cast<double>(s.bias));
+    obj.setKey("normal_bias", static_cast<double>(s.normal_bias));
+    obj.setKey("softness", static_cast<double>(s.softness));
+    return obj;
+}
+
+core::Status decodeShadowSettings(
+    const JsonValue* val,
+    scene::LightShadowSettings& out,
+    std::string_view prefix) {
+    if (val == nullptr || val->isNull()) {
+        return core::Status::ok();
+    }
+    if (!val->isObject()) {
+        return core::Status::fail(
+            core::ErrorCode::ValidationError,
+            "'" + std::string(prefix) + ".shadow' must be an object");
+    }
+    if (const auto* en = val->findKey("enabled"); en != nullptr) {
+        if (!en->isBool()) {
+            return core::Status::fail(
+                core::ErrorCode::ValidationError,
+                "'" + std::string(prefix) + ".shadow.enabled' must be a boolean");
+        }
+        out.enabled = en->asBool();
+    }
+    if (const auto* st = val->findKey("strength"); st != nullptr) {
+        auto v = decodeFloat(st, std::string(prefix) + ".shadow.strength");
+        if (!v) return v.error();
+        out.strength = v.value();
+    }
+    if (const auto* ql = val->findKey("quality"); ql != nullptr) {
+        if (!ql->isString()) {
+            return core::Status::fail(
+                core::ErrorCode::ValidationError,
+                "'" + std::string(prefix) + ".shadow.quality' must be a string");
+        }
+        const auto parsed_q = scene::parseShadowQualitySlug(ql->asString());
+        if (!parsed_q.has_value()) {
+            return core::Status::fail(
+                core::ErrorCode::ValidationError,
+                "Unknown shadow quality: " + ql->asString());
+        }
+        out.quality = parsed_q.value();
+    }
+    if (const auto* fl = val->findKey("filter"); fl != nullptr) {
+        if (!fl->isString()) {
+            return core::Status::fail(
+                core::ErrorCode::ValidationError,
+                "'" + std::string(prefix) + ".shadow.filter' must be a string");
+        }
+        const auto parsed_f = scene::parseShadowFilterModeSlug(fl->asString());
+        if (!parsed_f.has_value()) {
+            return core::Status::fail(
+                core::ErrorCode::ValidationError,
+                "Unknown shadow filter: " + fl->asString());
+        }
+        out.filter = parsed_f.value();
+    }
+    if (const auto* bi = val->findKey("bias"); bi != nullptr) {
+        auto v = decodeFloat(bi, std::string(prefix) + ".shadow.bias");
+        if (!v) return v.error();
+        out.bias = v.value();
+    }
+    if (const auto* nb = val->findKey("normal_bias"); nb != nullptr) {
+        auto v = decodeFloat(nb, std::string(prefix) + ".shadow.normal_bias");
+        if (!v) return v.error();
+        out.normal_bias = v.value();
+    }
+    if (const auto* sf = val->findKey("softness"); sf != nullptr) {
+        auto v = decodeFloat(sf, std::string(prefix) + ".shadow.softness");
+        if (!v) return v.error();
+        out.softness = v.value();
+    }
+    return out.validate();
+}
+
+JsonValue encodeLightLinking(const scene::LightLinkingSettings& link) {
+    JsonValue obj{JsonObject{}};
+    obj.setKey("mode", std::string(scene::lightLinkModeSlug(link.mode)));
+    obj.setKey("include_descendants", link.include_descendants);
+    std::vector<std::uint64_t> sorted_ids;
+    sorted_ids.reserve(link.linked_objects.size());
+    for (const auto id : link.linked_objects) {
+        if (id.isValid()) {
+            sorted_ids.push_back(id.value);
+        }
+    }
+    std::sort(sorted_ids.begin(), sorted_ids.end());
+    sorted_ids.erase(std::unique(sorted_ids.begin(), sorted_ids.end()), sorted_ids.end());
+
+    JsonArray arr;
+    arr.reserve(sorted_ids.size());
+    for (const auto raw_id : sorted_ids) {
+        arr.emplace_back(raw_id);
+    }
+    obj.setKey("object_ids", std::move(arr));
+    return obj;
+}
+
+core::Status decodeLightLinking(
+    const JsonValue* val,
+    scene::LightLinkingSettings& out,
+    std::string_view prefix) {
+    if (val == nullptr || val->isNull()) {
+        return core::Status::ok();
+    }
+    if (!val->isObject()) {
+        return core::Status::fail(
+            core::ErrorCode::ValidationError,
+            "'" + std::string(prefix) + ".linking' must be an object");
+    }
+    if (const auto* md = val->findKey("mode"); md != nullptr) {
+        if (!md->isString()) {
+            return core::Status::fail(
+                core::ErrorCode::ValidationError,
+                "'" + std::string(prefix) + ".linking.mode' must be a string");
+        }
+        const auto parsed_m = scene::parseLightLinkModeSlug(md->asString());
+        if (!parsed_m.has_value()) {
+            return core::Status::fail(
+                core::ErrorCode::ValidationError,
+                "Unknown light linking mode: " + md->asString());
+        }
+        out.mode = parsed_m.value();
+    }
+    if (const auto* inc_d = val->findKey("include_descendants"); inc_d != nullptr) {
+        if (!inc_d->isBool()) {
+            return core::Status::fail(
+                core::ErrorCode::ValidationError,
+                "'" + std::string(prefix) + ".linking.include_descendants' must be a boolean");
+        }
+        out.include_descendants = inc_d->asBool();
+    }
+    out.linked_objects.clear();
+    if (const auto* ids = val->findKey("object_ids"); ids != nullptr && !ids->isNull()) {
+        if (!ids->isArray()) {
+            return core::Status::fail(
+                core::ErrorCode::ValidationError,
+                "'" + std::string(prefix) + ".linking.object_ids' must be an array");
+        }
+        for (const auto& entry : ids->asArray()) {
+            auto id_res = decodeUint64(&entry, std::string(prefix) + ".linking.object_ids[]");
+            if (!id_res) return id_res.error();
+            if (id_res.value() != 0) {
+                out.linked_objects.push_back(scene::ObjectId{id_res.value()});
+            }
+        }
+        out.normalize();
+    }
+    return core::Status::ok();
+}
+
 core::Result<std::string> serializeDocumentImpl(
     const ProjectDocument& document,
     std::string_view binary_bundle_uri,
     BinaryAssetBuilder* binary_builder,
+    bool prefer_external_hdri_paths,
     bool pretty) {
     JsonValue root{JsonObject{}};
     root.setKey("format", std::string(ProjectSerializer::kFormatIdentifier));
@@ -163,13 +620,45 @@ core::Result<std::string> serializeDocumentImpl(
     meta.setKey("author", document.metadata.author);
     meta.setKey("description", document.metadata.description);
     meta.setKey("engine_version", document.metadata.engine_version);
+    appendExtraFields(meta, document.preserved_fields.metadata_extra);
     root.setKey("metadata", std::move(meta));
 
     JsonValue scene_json{JsonObject{}};
     scene_json.setKey("name", document.scene.name());
     scene_json.setKey("active_camera_id", document.scene.activeCamera().value);
 
-    // Sort meshes by MeshId for deterministic output.
+    // 1. Sort and serialize PBR materials deterministically by MaterialId.
+    std::vector<const scene::PbrMaterial*> sorted_materials;
+    sorted_materials.reserve(document.scene.materials().size());
+    for (const auto& mat : document.scene.materials()) {
+        sorted_materials.push_back(&mat);
+    }
+    std::sort(sorted_materials.begin(), sorted_materials.end(), [](const auto* a, const auto* b) {
+        return a->id < b->id;
+    });
+
+    JsonArray materials_arr;
+    materials_arr.reserve(sorted_materials.size());
+    for (const auto* mat : sorted_materials) {
+        JsonValue mat_obj{JsonObject{}};
+        mat_obj.setKey("id", mat->id.value);
+        mat_obj.setKey("name", mat->name);
+        mat_obj.setKey("base_color", encodeVec3(mat->base_color));
+        mat_obj.setKey("metallic", static_cast<double>(mat->metallic));
+        mat_obj.setKey("roughness", static_cast<double>(mat->roughness));
+        mat_obj.setKey("ambient_occlusion", static_cast<double>(mat->ambient_occlusion));
+        mat_obj.setKey("emissive_color", encodeVec3(mat->emissive_color));
+        mat_obj.setKey("emissive_strength", static_cast<double>(mat->emissive_strength));
+        mat_obj.setKey("opacity", static_cast<double>(mat->opacity));
+        if (const auto it = document.preserved_fields.material_extra.find(mat->id);
+            it != document.preserved_fields.material_extra.end()) {
+            appendExtraFields(mat_obj, it->second);
+        }
+        materials_arr.push_back(std::move(mat_obj));
+    }
+    scene_json.setKey("materials", std::move(materials_arr));
+
+    // 2. Sort and serialize meshes by MeshId.
     std::vector<const scene::MeshAsset*> sorted_meshes;
     sorted_meshes.reserve(document.scene.meshes().size());
     for (const auto& m : document.scene.meshes()) {
@@ -216,11 +705,20 @@ core::Result<std::string> serializeDocumentImpl(
             mesh_obj.setKey("indices", std::move(idx_arr));
         }
 
+        if (mesh->editable_mesh.has_value()) {
+            mesh_obj.setKey("editable_mesh", encodeEditableMesh(mesh->editable_mesh.value()));
+        }
+
+        if (const auto it = document.preserved_fields.mesh_extra.find(mesh->id);
+            it != document.preserved_fields.mesh_extra.end()) {
+            appendExtraFields(mesh_obj, it->second);
+        }
+
         meshes_arr.push_back(std::move(mesh_obj));
     }
     scene_json.setKey("meshes", std::move(meshes_arr));
 
-    // Sort objects by ObjectId for deterministic output.
+    // 3. Sort and serialize objects by ObjectId.
     std::vector<const scene::SceneObject*> sorted_objects;
     sorted_objects.reserve(document.scene.objects().size());
     for (const auto& obj : document.scene.objects()) {
@@ -248,6 +746,9 @@ core::Result<std::string> serializeDocumentImpl(
         if (obj->mesh_id.has_value()) {
             obj_json.setKey("mesh_id", obj->mesh_id->value);
         }
+        if (obj->material_id.has_value()) {
+            obj_json.setKey("material_id", obj->material_id->value);
+        }
 
         if (obj->camera.has_value()) {
             const auto& cam = obj->camera.value();
@@ -267,14 +768,117 @@ core::Result<std::string> serializeDocumentImpl(
             JsonValue light_json{JsonObject{}};
             light_json.setKey("color", encodeVec3(light.color));
             light_json.setKey("intensity", static_cast<double>(light.intensity));
+            light_json.setKey("enabled", light.enabled);
+            light_json.setKey("shadow", encodeShadowSettings(light.shadow));
+            light_json.setKey("linking", encodeLightLinking(light.linking));
             obj_json.setKey("directional_light", std::move(light_json));
+        }
+        if (obj->point_light.has_value()) {
+            const auto& light = obj->point_light.value();
+            JsonValue light_json{JsonObject{}};
+            light_json.setKey("color", encodeVec3(light.color));
+            light_json.setKey("intensity", static_cast<double>(light.intensity));
+            light_json.setKey("range", static_cast<double>(light.range));
+            light_json.setKey("attenuation", static_cast<double>(light.attenuation));
+            light_json.setKey("falloff", std::string(scene::lightFalloffModeSlug(light.falloff)));
+            light_json.setKey("source_radius", static_cast<double>(light.source_radius));
+            light_json.setKey("enabled", light.enabled);
+            light_json.setKey("shadow", encodeShadowSettings(light.shadow));
+            light_json.setKey("linking", encodeLightLinking(light.linking));
+            obj_json.setKey("point_light", std::move(light_json));
+        }
+        if (obj->spot_light.has_value()) {
+            const auto& light = obj->spot_light.value();
+            JsonValue light_json{JsonObject{}};
+            light_json.setKey("color", encodeVec3(light.color));
+            light_json.setKey("intensity", static_cast<double>(light.intensity));
+            light_json.setKey("range", static_cast<double>(light.range));
+            light_json.setKey("attenuation", static_cast<double>(light.attenuation));
+            light_json.setKey("falloff", std::string(scene::lightFalloffModeSlug(light.falloff)));
+            light_json.setKey("inner_cone_radians", static_cast<double>(light.inner_cone_radians));
+            light_json.setKey("outer_cone_radians", static_cast<double>(light.outer_cone_radians));
+            light_json.setKey("cone_falloff", static_cast<double>(light.cone_falloff));
+            light_json.setKey("enabled", light.enabled);
+            light_json.setKey("shadow", encodeShadowSettings(light.shadow));
+            light_json.setKey("linking", encodeLightLinking(light.linking));
+            obj_json.setKey("spot_light", std::move(light_json));
+        }
+        if (obj->area_light.has_value()) {
+            const auto& light = obj->area_light.value();
+            JsonValue light_json{JsonObject{}};
+            light_json.setKey("shape", std::string(scene::areaLightShapeSlug(light.shape)));
+            light_json.setKey("color", encodeVec3(light.color));
+            light_json.setKey("intensity", static_cast<double>(light.intensity));
+            light_json.setKey("width", static_cast<double>(light.width));
+            light_json.setKey("height", static_cast<double>(light.height));
+            light_json.setKey("range", static_cast<double>(light.range));
+            light_json.setKey("two_sided", light.two_sided);
+            light_json.setKey("sample_quality", static_cast<std::uint64_t>(light.sample_quality));
+            light_json.setKey("enabled", light.enabled);
+            light_json.setKey("shadow", encodeShadowSettings(light.shadow));
+            light_json.setKey("linking", encodeLightLinking(light.linking));
+            obj_json.setKey("area_light", std::move(light_json));
+        }
+
+        if (const auto it = document.preserved_fields.object_extra.find(obj->id);
+            it != document.preserved_fields.object_extra.end()) {
+            appendExtraFields(obj_json, it->second);
         }
 
         objects_arr.push_back(std::move(obj_json));
     }
     scene_json.setKey("objects", std::move(objects_arr));
+
+    // 3b. Serialize Scene Environment / HDRI & IBL settings (v1.3).
+    {
+        const auto& env = document.scene.environment();
+        JsonValue env_json{JsonObject{}};
+        env_json.setKey("enabled", env.enabled);
+        env_json.setKey("intensity", static_cast<double>(env.intensity));
+        env_json.setKey("rotation_radians", static_cast<double>(env.rotation_radians));
+        env_json.setKey("diffuse_ibl_scale", static_cast<double>(env.diffuse_ibl_scale));
+        env_json.setKey("specular_ibl_scale", static_cast<double>(env.specular_ibl_scale));
+        env_json.setKey("fallback_zenith_color", encodeVec3(env.fallback_zenith_color));
+        env_json.setKey("fallback_horizon_color", encodeVec3(env.fallback_horizon_color));
+        env_json.setKey("source_path", env.source_path);
+        if (env.hasHdri() && env.hdri_asset != nullptr) {
+            env_json.setKey("asset_name", env.hdri_asset->name);
+            const bool embed_portable =
+                !env.hdri_asset->portable_hdr_bytes.empty() &&
+                (!prefer_external_hdri_paths || env.source_path.empty());
+            if (embed_portable) {
+                env_json.setKey(
+                    "embedded_hdr_base64",
+                    encodeBase64(env.hdri_asset->portable_hdr_bytes));
+            }
+        }
+        scene_json.setKey("environment", std::move(env_json));
+    }
+
+    appendExtraFields(scene_json, document.preserved_fields.scene_extra);
     root.setKey("scene", std::move(scene_json));
 
+    // 4. Serialize Stage 4 editor_state & workspace layout.
+    JsonValue ed_json{JsonObject{}};
+    ed_json.setKey("edit_mode", std::string(editModeSlug(document.editor_state.edit_mode)));
+    ed_json.setKey("gizmo_tool", document.editor_state.gizmo_tool);
+    ed_json.setKey("gizmo_space", document.editor_state.gizmo_space);
+    ed_json.setKey("selected_object_id", document.editor_state.selected_object_id.value);
+    ed_json.setKey("active_material_id", document.editor_state.active_material_id.value);
+
+    JsonValue sel_json{JsonObject{}};
+    sel_json.setKey("vertices", encodeUint32Array(document.editor_state.mesh_selection.vertices));
+    sel_json.setKey("edges", encodeUint32Array(document.editor_state.mesh_selection.edges));
+    sel_json.setKey("faces", encodeUint32Array(document.editor_state.mesh_selection.faces));
+    ed_json.setKey("mesh_selection", std::move(sel_json));
+    appendExtraFields(ed_json, document.preserved_fields.editor_state_extra);
+    root.setKey("editor_state", std::move(ed_json));
+
+    root.setKey(
+        "workspace",
+        ProjectSerializer::encodeWorkspaceJson(document.workspace, document.preserved_fields.workspace_extra));
+
+    appendExtraFields(root, document.preserved_fields.root_extra);
     return writeJson(root, pretty);
 }
 
@@ -332,6 +936,12 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
     }
 
     ProjectDocument doc;
+    captureUnknownFields(
+        root,
+        {"format", "schema_version", "coordinate_system", "metadata", "scene", "editor_state", "workspace"},
+        "root",
+        doc.preserved_fields.root_extra,
+        &doc.load_warnings);
 
     if (const JsonValue* meta_val = root.findKey("metadata"); meta_val != nullptr) {
         if (!meta_val->isObject()) {
@@ -356,6 +966,12 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
         if (const auto* ev = meta_val->findKey("engine_version"); ev != nullptr && ev->isString()) {
             doc.metadata.engine_version = ev->asString();
         }
+        captureUnknownFields(
+            *meta_val,
+            {"project_name", "author", "description", "engine_version"},
+            "metadata",
+            doc.preserved_fields.metadata_extra,
+            &doc.load_warnings);
     }
 
     const JsonValue* scene_val = root.findKey("scene");
@@ -373,11 +989,94 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
         }
         doc.scene.setName(sn->asString());
     }
+    captureUnknownFields(
+        *scene_val,
+        {"name", "active_camera_id", "materials", "meshes", "objects", "environment"},
+        "scene",
+        doc.preserved_fields.scene_extra,
+        &doc.load_warnings);
+
+    // 1. Load PBR materials FIRST so mesh face assignments and object assignments validate against them.
+    if (const JsonValue* mats_val = scene_val->findKey("materials"); mats_val != nullptr && !mats_val->isNull()) {
+        if (!mats_val->isArray()) {
+            return core::Result<ProjectDocument>::fail(
+                core::ErrorCode::ValidationError,
+                "'scene.materials' must be an array");
+        }
+        for (const auto& mat_json : mats_val->asArray()) {
+            if (!mat_json.isObject()) {
+                return core::Result<ProjectDocument>::fail(
+                    core::ErrorCode::ValidationError,
+                    "Each entry in 'scene.materials' must be an object");
+            }
+            auto id_res = decodeUint64(mat_json.findKey("id"), "material.id");
+            if (!id_res) return id_res.error();
+            const scene::MaterialId mat_id{id_res.value()};
+
+            const auto* m_name = mat_json.findKey("name");
+            if (m_name == nullptr || !m_name->isString() || m_name->asString().empty()) {
+                return core::Result<ProjectDocument>::fail(
+                    core::ErrorCode::ValidationError,
+                    "Material 'name' must be a non-empty string");
+            }
+            auto base_col = decodeVec3(mat_json.findKey("base_color"), "material.base_color");
+            auto metallic = decodeFloat(mat_json.findKey("metallic"), "material.metallic");
+            auto roughness = decodeFloat(mat_json.findKey("roughness"), "material.roughness");
+            if (!base_col) return base_col.error();
+            if (!metallic) return metallic.error();
+            if (!roughness) return roughness.error();
+
+            scene::PbrMaterial mat{
+                .id = mat_id,
+                .name = m_name->asString(),
+                .base_color = base_col.value(),
+                .metallic = metallic.value(),
+                .roughness = roughness.value(),
+            };
+            if (const auto* ao_val = mat_json.findKey("ambient_occlusion"); ao_val != nullptr) {
+                auto ao = decodeFloat(ao_val, "material.ambient_occlusion");
+                if (!ao) return ao.error();
+                mat.ambient_occlusion = ao.value();
+            }
+            if (const auto* ec_val = mat_json.findKey("emissive_color"); ec_val != nullptr) {
+                auto ec = decodeVec3(ec_val, "material.emissive_color");
+                if (!ec) return ec.error();
+                mat.emissive_color = ec.value();
+            }
+            if (const auto* es_val = mat_json.findKey("emissive_strength"); es_val != nullptr) {
+                auto es = decodeFloat(es_val, "material.emissive_strength");
+                if (!es) return es.error();
+                mat.emissive_strength = es.value();
+            }
+            if (const auto* op_val = mat_json.findKey("opacity"); op_val != nullptr) {
+                auto op = decodeFloat(op_val, "material.opacity");
+                if (!op) return op.error();
+                mat.opacity = op.value();
+            }
+
+            auto create_st = doc.scene.createMaterialWithId(mat_id, std::move(mat));
+            if (!create_st) {
+                return create_st.error();
+            }
+
+            JsonObject mat_extra;
+            captureUnknownFields(
+                mat_json,
+                {"id", "name", "base_color", "metallic", "roughness",
+                 "ambient_occlusion", "emissive_color", "emissive_strength", "opacity"},
+                "scene.materials[" + std::to_string(mat_id.value) + "]",
+                mat_extra,
+                &doc.load_warnings);
+            if (!mat_extra.empty()) {
+                doc.preserved_fields.material_extra.emplace(mat_id, std::move(mat_extra));
+            }
+        }
+    }
 
     // Cache decoded .fe3dbin archives per companion filename during load.
     std::unordered_map<std::string, BinaryAssetArchive> archive_cache;
 
-    // 1. Load and validate meshes.
+    // 2. Load and validate meshes (supporting both triangulated v1.0/v1.1 and editable_mesh v1.2).
     if (const JsonValue* meshes_val = scene_val->findKey("meshes"); meshes_val != nullptr) {
         if (!meshes_val->isArray()) {
             return core::Result<ProjectDocument>::fail(
@@ -392,6 +1091,7 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
             }
             auto id_res = decodeUint64(m_json.findKey("id"), "mesh.id");
             if (!id_res) return id_res.error();
+            const scene::MeshId mesh_id{id_res.value()};
 
             const auto* m_name = m_json.findKey("name");
             if (m_name == nullptr || !m_name->isString() || m_name->asString().empty()) {
@@ -400,9 +1100,12 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
                     "Mesh 'name' must be a non-empty string");
             }
 
+            // Always validate companion binary_chunk or inline triangulated data if present so corrupted archives fail cleanly!
             scene::MeshData mesh_data;
+            bool has_tri_payload = false;
             if (const auto* chunk_val = m_json.findKey("binary_chunk");
                 chunk_val != nullptr && !chunk_val->isNull()) {
+                has_tri_payload = true;
                 if (file_system == nullptr) {
                     return core::Result<ProjectDocument>::fail(
                         core::ErrorCode::ValidationError,
@@ -451,7 +1154,8 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
                     return extracted.error();
                 }
                 mesh_data = std::move(extracted.value());
-            } else {
+            } else if (m_json.findKey("vertices") != nullptr || m_json.findKey("indices") != nullptr) {
+                has_tri_payload = true;
                 const auto* verts_val = m_json.findKey("vertices");
                 const auto* idx_val = m_json.findKey("indices");
                 if (verts_val == nullptr || !verts_val->isArray() || idx_val == nullptr || !idx_val->isArray()) {
@@ -496,17 +1200,47 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
                 }
             }
 
-            auto reg_status = doc.scene.registerMeshWithId(
-                scene::MeshId{id_res.value()},
-                m_name->asString(),
-                std::move(mesh_data));
-            if (!reg_status) {
-                return reg_status.error();
+            if (const auto* em_val = m_json.findKey("editable_mesh"); em_val != nullptr && !em_val->isNull()) {
+                auto em_res = decodeEditableMesh(*em_val);
+                if (!em_res) {
+                    return em_res.error();
+                }
+                auto reg_st = doc.scene.registerEditableMeshWithId(
+                    mesh_id,
+                    m_name->asString(),
+                    std::move(em_res.value()));
+                if (!reg_st) {
+                    return reg_st.error();
+                }
+            } else {
+                if (!has_tri_payload) {
+                    return core::Result<ProjectDocument>::fail(
+                        core::ErrorCode::ValidationError,
+                        "Mesh requires 'vertices'+'indices', 'binary_chunk', or 'editable_mesh'");
+                }
+                auto reg_status = doc.scene.registerMeshWithId(
+                    mesh_id,
+                    m_name->asString(),
+                    std::move(mesh_data));
+                if (!reg_status) {
+                    return reg_status.error();
+                }
+            }
+
+            JsonObject mesh_extra;
+            captureUnknownFields(
+                m_json,
+                {"id", "name", "vertices", "indices", "binary_chunk", "editable_mesh"},
+                "scene.meshes[" + std::to_string(mesh_id.value) + "]",
+                mesh_extra,
+                &doc.load_warnings);
+            if (!mesh_extra.empty()) {
+                doc.preserved_fields.mesh_extra.emplace(mesh_id, std::move(mesh_extra));
             }
         }
     }
 
-    // 2. Load objects in two passes so parent/child order in JSON is order-independent and cycle-checked.
+    // 3. Load objects in two passes so parent/child order in JSON is order-independent and cycle-checked.
     const JsonValue* objects_val = scene_val->findKey("objects");
     if (objects_val == nullptr || !objects_val->isArray()) {
         return core::Result<ProjectDocument>::fail(
@@ -601,6 +1335,21 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
             }
         }
 
+        if (const auto* mat_id_val = obj_json.findKey("material_id");
+            mat_id_val != nullptr && !mat_id_val->isNull()) {
+            auto mat_res = decodeUint64(mat_id_val, "object.material_id");
+            if (!mat_res) return mat_res.error();
+            if (mat_res.value() != 0) {
+                auto mat_st = doc.scene.assignMaterial(obj_id, scene::MaterialId{mat_res.value()});
+                if (!mat_st) {
+                    return core::Result<ProjectDocument>::fail(
+                        core::ErrorCode::ValidationError,
+                        mat_st.error().message,
+                        mat_st.error().context);
+                }
+            }
+        }
+
         if (const auto* cam_val = obj_json.findKey("camera"); cam_val != nullptr && !cam_val->isNull()) {
             if (!cam_val->isObject()) {
                 return core::Result<ProjectDocument>::fail(
@@ -658,8 +1407,396 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
                 .color = col.value(),
                 .intensity = inten.value(),
             };
+            if (const auto* en = light_val->findKey("enabled"); en != nullptr) {
+                if (!en->isBool()) {
+                    return core::Result<ProjectDocument>::fail(
+                        core::ErrorCode::ValidationError,
+                        "'directional_light.enabled' must be a boolean");
+                }
+                light.enabled = en->asBool();
+            }
+            if (auto st = decodeShadowSettings(light_val->findKey("shadow"), light.shadow, "directional_light"); !st) {
+                return st.error();
+            }
+            if (auto st = decodeLightLinking(light_val->findKey("linking"), light.linking, "directional_light"); !st) {
+                return st.error();
+            }
             auto l_st = doc.scene.assignDirectionalLight(obj_id, light);
             if (!l_st) return l_st.error();
+        }
+
+        if (const auto* light_val = obj_json.findKey("point_light");
+            light_val != nullptr && !light_val->isNull()) {
+            if (!light_val->isObject()) {
+                return core::Result<ProjectDocument>::fail(
+                    core::ErrorCode::ValidationError,
+                    "'object.point_light' must be an object");
+            }
+            auto col = decodeVec3(light_val->findKey("color"), "point_light.color");
+            auto inten = decodeFloat(light_val->findKey("intensity"), "point_light.intensity");
+            if (!col) return col.error();
+            if (!inten) return inten.error();
+
+            scene::PointLightComponent light{
+                .color = col.value(),
+                .intensity = inten.value(),
+            };
+            if (const auto* rg = light_val->findKey("range"); rg != nullptr) {
+                auto v = decodeFloat(rg, "point_light.range");
+                if (!v) return v.error();
+                light.range = v.value();
+            }
+            if (const auto* at = light_val->findKey("attenuation"); at != nullptr) {
+                auto v = decodeFloat(at, "point_light.attenuation");
+                if (!v) return v.error();
+                light.attenuation = v.value();
+            } else if (const auto* fe = light_val->findKey("falloff_exponent"); fe != nullptr) {
+                auto v = decodeFloat(fe, "point_light.falloff_exponent");
+                if (!v) return v.error();
+                light.attenuation = v.value();
+            }
+            if (const auto* fo = light_val->findKey("falloff"); fo != nullptr) {
+                if (!fo->isString()) {
+                    return core::Result<ProjectDocument>::fail(
+                        core::ErrorCode::ValidationError,
+                        "'point_light.falloff' must be a string");
+                }
+                const auto parsed_fo = scene::parseLightFalloffModeSlug(fo->asString());
+                if (!parsed_fo.has_value()) {
+                    return core::Result<ProjectDocument>::fail(
+                        core::ErrorCode::ValidationError,
+                        "Unknown point_light falloff: " + fo->asString());
+                }
+                light.falloff = parsed_fo.value();
+            }
+            if (const auto* sr = light_val->findKey("source_radius"); sr != nullptr) {
+                auto v = decodeFloat(sr, "point_light.source_radius");
+                if (!v) return v.error();
+                light.source_radius = v.value();
+            }
+            if (const auto* en = light_val->findKey("enabled"); en != nullptr) {
+                if (!en->isBool()) {
+                    return core::Result<ProjectDocument>::fail(
+                        core::ErrorCode::ValidationError,
+                        "'point_light.enabled' must be a boolean");
+                }
+                light.enabled = en->asBool();
+            }
+            if (auto st = decodeShadowSettings(light_val->findKey("shadow"), light.shadow, "point_light"); !st) {
+                return st.error();
+            }
+            if (auto st = decodeLightLinking(light_val->findKey("linking"), light.linking, "point_light"); !st) {
+                return st.error();
+            }
+            auto l_st = doc.scene.assignPointLight(obj_id, light);
+            if (!l_st) return l_st.error();
+        }
+
+        if (const auto* light_val = obj_json.findKey("spot_light");
+            light_val != nullptr && !light_val->isNull()) {
+            if (!light_val->isObject()) {
+                return core::Result<ProjectDocument>::fail(
+                    core::ErrorCode::ValidationError,
+                    "'object.spot_light' must be an object");
+            }
+            auto col = decodeVec3(light_val->findKey("color"), "spot_light.color");
+            auto inten = decodeFloat(light_val->findKey("intensity"), "spot_light.intensity");
+            if (!col) return col.error();
+            if (!inten) return inten.error();
+
+            scene::SpotLightComponent light{
+                .color = col.value(),
+                .intensity = inten.value(),
+            };
+            if (const auto* rg = light_val->findKey("range"); rg != nullptr) {
+                auto v = decodeFloat(rg, "spot_light.range");
+                if (!v) return v.error();
+                light.range = v.value();
+            }
+            if (const auto* at = light_val->findKey("attenuation"); at != nullptr) {
+                auto v = decodeFloat(at, "spot_light.attenuation");
+                if (!v) return v.error();
+                light.attenuation = v.value();
+            } else if (const auto* fe = light_val->findKey("falloff_exponent"); fe != nullptr) {
+                auto v = decodeFloat(fe, "spot_light.falloff_exponent");
+                if (!v) return v.error();
+                light.attenuation = v.value();
+            }
+            if (const auto* fo = light_val->findKey("falloff"); fo != nullptr) {
+                if (!fo->isString()) {
+                    return core::Result<ProjectDocument>::fail(
+                        core::ErrorCode::ValidationError,
+                        "'spot_light.falloff' must be a string");
+                }
+                const auto parsed_fo = scene::parseLightFalloffModeSlug(fo->asString());
+                if (!parsed_fo.has_value()) {
+                    return core::Result<ProjectDocument>::fail(
+                        core::ErrorCode::ValidationError,
+                        "Unknown spot_light falloff: " + fo->asString());
+                }
+                light.falloff = parsed_fo.value();
+            }
+            if (const auto* ic = light_val->findKey("inner_cone_radians"); ic != nullptr) {
+                auto v = decodeFloat(ic, "spot_light.inner_cone_radians");
+                if (!v) return v.error();
+                light.inner_cone_radians = v.value();
+            }
+            if (const auto* oc = light_val->findKey("outer_cone_radians"); oc != nullptr) {
+                auto v = decodeFloat(oc, "spot_light.outer_cone_radians");
+                if (!v) return v.error();
+                light.outer_cone_radians = v.value();
+            }
+            if (const auto* cf = light_val->findKey("cone_falloff"); cf != nullptr) {
+                auto v = decodeFloat(cf, "spot_light.cone_falloff");
+                if (!v) return v.error();
+                light.cone_falloff = v.value();
+            }
+            if (const auto* en = light_val->findKey("enabled"); en != nullptr) {
+                if (!en->isBool()) {
+                    return core::Result<ProjectDocument>::fail(
+                        core::ErrorCode::ValidationError,
+                        "'spot_light.enabled' must be a boolean");
+                }
+                light.enabled = en->asBool();
+            }
+            if (auto st = decodeShadowSettings(light_val->findKey("shadow"), light.shadow, "spot_light"); !st) {
+                return st.error();
+            }
+            if (auto st = decodeLightLinking(light_val->findKey("linking"), light.linking, "spot_light"); !st) {
+                return st.error();
+            }
+            auto l_st = doc.scene.assignSpotLight(obj_id, light);
+            if (!l_st) return l_st.error();
+        }
+
+        if (const auto* light_val = obj_json.findKey("area_light");
+            light_val != nullptr && !light_val->isNull()) {
+            if (!light_val->isObject()) {
+                return core::Result<ProjectDocument>::fail(
+                    core::ErrorCode::ValidationError,
+                    "'object.area_light' must be an object");
+            }
+            auto col = decodeVec3(light_val->findKey("color"), "area_light.color");
+            auto inten = decodeFloat(light_val->findKey("intensity"), "area_light.intensity");
+            if (!col) return col.error();
+            if (!inten) return inten.error();
+
+            scene::AreaLightComponent light{
+                .color = col.value(),
+                .intensity = inten.value(),
+            };
+            if (const auto* sh = light_val->findKey("shape"); sh != nullptr) {
+                if (!sh->isString()) {
+                    return core::Result<ProjectDocument>::fail(
+                        core::ErrorCode::ValidationError,
+                        "'area_light.shape' must be a string");
+                }
+                const auto parsed_sh = scene::parseAreaLightShapeSlug(sh->asString());
+                if (!parsed_sh.has_value()) {
+                    return core::Result<ProjectDocument>::fail(
+                        core::ErrorCode::ValidationError,
+                        "Unknown area_light shape: " + sh->asString());
+                }
+                light.shape = parsed_sh.value();
+            }
+            if (const auto* wd = light_val->findKey("width"); wd != nullptr) {
+                auto v = decodeFloat(wd, "area_light.width");
+                if (!v) return v.error();
+                light.width = v.value();
+            }
+            if (const auto* ht = light_val->findKey("height"); ht != nullptr) {
+                auto v = decodeFloat(ht, "area_light.height");
+                if (!v) return v.error();
+                light.height = v.value();
+            }
+            if (const auto* rg = light_val->findKey("range"); rg != nullptr) {
+                auto v = decodeFloat(rg, "area_light.range");
+                if (!v) return v.error();
+                light.range = v.value();
+            }
+            if (const auto* ts = light_val->findKey("two_sided"); ts != nullptr) {
+                if (!ts->isBool()) {
+                    return core::Result<ProjectDocument>::fail(
+                        core::ErrorCode::ValidationError,
+                        "'area_light.two_sided' must be a boolean");
+                }
+                light.two_sided = ts->asBool();
+            }
+            if (const auto* sq = light_val->findKey("sample_quality"); sq != nullptr) {
+                auto v = decodeUint64(sq, "area_light.sample_quality");
+                if (!v) return v.error();
+                light.sample_quality = static_cast<std::uint32_t>(std::clamp<std::uint64_t>(v.value(), 1u, 3u));
+            }
+            if (const auto* en = light_val->findKey("enabled"); en != nullptr) {
+                if (!en->isBool()) {
+                    return core::Result<ProjectDocument>::fail(
+                        core::ErrorCode::ValidationError,
+                        "'area_light.enabled' must be a boolean");
+                }
+                light.enabled = en->asBool();
+            }
+            if (auto st = decodeShadowSettings(light_val->findKey("shadow"), light.shadow, "area_light"); !st) {
+                return st.error();
+            }
+            if (auto st = decodeLightLinking(light_val->findKey("linking"), light.linking, "area_light"); !st) {
+                return st.error();
+            }
+            auto l_st = doc.scene.assignAreaLight(obj_id, light);
+            if (!l_st) return l_st.error();
+        }
+
+        JsonObject obj_extra;
+        captureUnknownFields(
+            obj_json,
+            {"id", "name", "visible", "parent_id", "local_transform",
+             "mesh_id", "material_id", "camera",
+             "directional_light", "point_light", "spot_light", "area_light"},
+            "scene.objects[" + std::to_string(obj_id.value) + "]",
+            obj_extra,
+            &doc.load_warnings);
+        if (!obj_extra.empty()) {
+            doc.preserved_fields.object_extra.emplace(obj_id, std::move(obj_extra));
+        }
+    }
+
+    // Sanitize Light Linking target lists so references to deleted/missing ObjectIds never dangle.
+    {
+        std::vector<scene::ObjectId> light_ids;
+        for (const auto& obj : doc.scene.objects()) {
+            if (obj.hasAnyLight()) {
+                light_ids.push_back(obj.id);
+            }
+        }
+        for (const auto lid : light_ids) {
+            const auto* obj = doc.scene.findObject(lid);
+            if (obj == nullptr) continue;
+            const auto* link = obj->lightLinking();
+            if (link == nullptr || link->linked_objects.empty()) continue;
+
+            scene::LightLinkingSettings cleaned = *link;
+            cleaned.linked_objects.clear();
+            for (const auto target_id : link->linked_objects) {
+                if (doc.scene.findObject(target_id) != nullptr) {
+                    cleaned.linked_objects.push_back(target_id);
+                } else {
+                    doc.load_warnings.push_back(
+                        "Pruned missing light-linking target id=" + std::to_string(target_id.value) +
+                        " on light '" + obj->name + "'");
+                }
+            }
+            cleaned.normalize();
+            if (cleaned.linked_objects.size() != link->linked_objects.size()) {
+                scene::AnyLightComponent updated = obj->anyLightComponent();
+                if (auto* d = std::get_if<scene::DirectionalLightComponent>(&updated)) d->linking = std::move(cleaned);
+                else if (auto* p = std::get_if<scene::PointLightComponent>(&updated)) p->linking = std::move(cleaned);
+                else if (auto* s = std::get_if<scene::SpotLightComponent>(&updated)) s->linking = std::move(cleaned);
+                else if (auto* a = std::get_if<scene::AreaLightComponent>(&updated)) a->linking = std::move(cleaned);
+                (void)doc.scene.assignAnyLight(lid, updated);
+            }
+        }
+    }
+
+    // Decode optional Stage 5.4 scene.environment (HDRI & Image-Based Lighting).
+    if (const auto* env_val = scene_val->findKey("environment"); env_val != nullptr && !env_val->isNull()) {
+        if (!env_val->isObject()) {
+            return core::Result<ProjectDocument>::fail(
+                core::ErrorCode::ValidationError,
+                "'scene.environment' must be an object");
+        }
+        scene::EnvironmentLighting env = doc.scene.environment();
+        if (const auto* en = env_val->findKey("enabled"); en != nullptr) {
+            if (!en->isBool()) {
+                return core::Result<ProjectDocument>::fail(
+                    core::ErrorCode::ValidationError,
+                    "'scene.environment.enabled' must be a boolean");
+            }
+            env.enabled = en->asBool();
+        }
+        if (const auto* inten = env_val->findKey("intensity"); inten != nullptr) {
+            auto v = decodeFloat(inten, "scene.environment.intensity");
+            if (!v) return v.error();
+            env.intensity = v.value();
+        }
+        if (const auto* rot = env_val->findKey("rotation_radians"); rot != nullptr) {
+            auto v = decodeFloat(rot, "scene.environment.rotation_radians");
+            if (!v) return v.error();
+            env.rotation_radians = v.value();
+        }
+        if (const auto* diff = env_val->findKey("diffuse_ibl_scale"); diff != nullptr) {
+            auto v = decodeFloat(diff, "scene.environment.diffuse_ibl_scale");
+            if (!v) return v.error();
+            env.diffuse_ibl_scale = v.value();
+        }
+        if (const auto* spec = env_val->findKey("specular_ibl_scale"); spec != nullptr) {
+            auto v = decodeFloat(spec, "scene.environment.specular_ibl_scale");
+            if (!v) return v.error();
+            env.specular_ibl_scale = v.value();
+        }
+        if (const auto* zen = env_val->findKey("fallback_zenith_color"); zen != nullptr) {
+            auto v = decodeVec3(zen, "scene.environment.fallback_zenith_color");
+            if (!v) return v.error();
+            env.fallback_zenith_color = v.value();
+        }
+        if (const auto* hor = env_val->findKey("fallback_horizon_color"); hor != nullptr) {
+            auto v = decodeVec3(hor, "scene.environment.fallback_horizon_color");
+            if (!v) return v.error();
+            env.fallback_horizon_color = v.value();
+        }
+        std::string asset_name = "Environment.hdr";
+        if (const auto* an = env_val->findKey("asset_name"); an != nullptr && an->isString() && !an->asString().empty()) {
+            asset_name = an->asString();
+        }
+        if (const auto* sp = env_val->findKey("source_path"); sp != nullptr) {
+            if (!sp->isString()) {
+                return core::Result<ProjectDocument>::fail(
+                    core::ErrorCode::ValidationError,
+                    "'scene.environment.source_path' must be a string");
+            }
+            env.source_path = sp->asString();
+        }
+
+        const auto* embedded_b64 = env_val->findKey("embedded_hdr_base64");
+        if (!env.source_path.empty() && file_system != nullptr) {
+            const std::filesystem::path raw_p(env.source_path);
+            const std::filesystem::path resolved =
+                (raw_p.is_absolute() || base_dir.empty()) ? raw_p : (base_dir / raw_p);
+            auto hdri_res = scene::HdriEnvironmentAsset::loadFromFile(resolved, *file_system);
+            if (hdri_res.hasValue()) {
+                env.hdri_asset = std::move(hdri_res.value());
+            } else {
+                doc.load_warnings.push_back(
+                    "External HDRI environment '" + env.source_path + "' could not be loaded (" +
+                    hdri_res.error().message + "); falling back to studio sky environment.");
+                env.hdri_asset = nullptr;
+            }
+        } else if (embedded_b64 != nullptr && embedded_b64->isString() && !embedded_b64->asString().empty()) {
+            auto bytes_res = decodeBase64(embedded_b64->asString());
+            if (!bytes_res) {
+                doc.load_warnings.push_back(
+                    "Embedded HDRI Base64 payload invalid (" + bytes_res.error().message +
+                    "); falling back to studio sky environment.");
+                env.hdri_asset = nullptr;
+            } else {
+                auto hdri_res = scene::HdriEnvironmentAsset::loadFromMemory(bytes_res.value(), asset_name);
+                if (hdri_res.hasValue()) {
+                    env.hdri_asset = std::move(hdri_res.value());
+                } else {
+                    doc.load_warnings.push_back(
+                        "Embedded HDRI environment '" + asset_name + "' invalid (" +
+                        hdri_res.error().message + "); falling back to studio sky environment.");
+                    env.hdri_asset = nullptr;
+                }
+            }
+        } else if (!env.source_path.empty()) {
+            doc.load_warnings.push_back(
+                "External HDRI environment '" + env.source_path +
+                "' unavailable without filesystem context; falling back to studio sky environment.");
+            env.hdri_asset = nullptr;
+        }
+
+        auto env_st = doc.scene.setEnvironment(std::move(env));
+        if (!env_st) {
+            return env_st.error();
         }
     }
 
@@ -689,13 +1826,259 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
         }
     }
 
+    // 4. Decode optional Stage 4 editor_state.
+    if (const JsonValue* ed_val = root.findKey("editor_state"); ed_val != nullptr && !ed_val->isNull()) {
+        if (!ed_val->isObject()) {
+            return core::Result<ProjectDocument>::fail(
+                core::ErrorCode::ValidationError,
+                "'editor_state' must be an object");
+        }
+        if (const auto* em_s = ed_val->findKey("edit_mode"); em_s != nullptr) {
+            if (!em_s->isString()) {
+                return core::Result<ProjectDocument>::fail(
+                    core::ErrorCode::ValidationError,
+                    "'editor_state.edit_mode' must be a string");
+            }
+            auto em_res = parseEditModeSlug(em_s->asString());
+            if (!em_res) return em_res.error();
+            doc.editor_state.edit_mode = em_res.value();
+        }
+        if (const auto* gt = ed_val->findKey("gizmo_tool"); gt != nullptr) {
+            if (!gt->isString() ||
+                (gt->asString() != "translate" && gt->asString() != "rotate" && gt->asString() != "scale")) {
+                return core::Result<ProjectDocument>::fail(
+                    core::ErrorCode::ValidationError,
+                    "'editor_state.gizmo_tool' must be 'translate', 'rotate', or 'scale'");
+            }
+            doc.editor_state.gizmo_tool = gt->asString();
+        }
+        if (const auto* gs = ed_val->findKey("gizmo_space"); gs != nullptr) {
+            if (!gs->isString() || (gs->asString() != "world" && gs->asString() != "local")) {
+                return core::Result<ProjectDocument>::fail(
+                    core::ErrorCode::ValidationError,
+                    "'editor_state.gizmo_space' must be 'world' or 'local'");
+            }
+            doc.editor_state.gizmo_space = gs->asString();
+        }
+        if (const auto* so = ed_val->findKey("selected_object_id"); so != nullptr && !so->isNull()) {
+            auto so_res = decodeUint64(so, "editor_state.selected_object_id");
+            if (!so_res) return so_res.error();
+            const scene::ObjectId cand{so_res.value()};
+            if (!cand.isValid() || doc.scene.findObject(cand) != nullptr) {
+                doc.editor_state.selected_object_id = cand;
+            }
+        }
+        if (const auto* am = ed_val->findKey("active_material_id"); am != nullptr && !am->isNull()) {
+            auto am_res = decodeUint64(am, "editor_state.active_material_id");
+            if (!am_res) return am_res.error();
+            const scene::MaterialId cand{am_res.value()};
+            if (!cand.isValid() || doc.scene.findMaterial(cand) != nullptr) {
+                doc.editor_state.active_material_id = cand;
+            }
+        }
+        if (const auto* ms = ed_val->findKey("mesh_selection"); ms != nullptr && !ms->isNull()) {
+            if (!ms->isObject()) {
+                return core::Result<ProjectDocument>::fail(
+                    core::ErrorCode::ValidationError,
+                    "'editor_state.mesh_selection' must be an object");
+            }
+            if (const auto* sv = ms->findKey("vertices"); sv != nullptr) {
+                auto v_res = decodeUint32Array(sv, "mesh_selection.vertices");
+                if (!v_res) return v_res.error();
+                doc.editor_state.mesh_selection.vertices = std::move(v_res.value());
+            }
+            if (const auto* se = ms->findKey("edges"); se != nullptr) {
+                auto e_res = decodeUint32Array(se, "mesh_selection.edges");
+                if (!e_res) return e_res.error();
+                doc.editor_state.mesh_selection.edges = std::move(e_res.value());
+            }
+            if (const auto* sf = ms->findKey("faces"); sf != nullptr) {
+                auto f_res = decodeUint32Array(sf, "mesh_selection.faces");
+                if (!f_res) return f_res.error();
+                doc.editor_state.mesh_selection.faces = std::move(f_res.value());
+            }
+
+            // Sanitize element selection against selected object's EditableMesh counts if present.
+            if (const auto* sel_obj = doc.scene.findObject(doc.editor_state.selected_object_id);
+                sel_obj != nullptr && sel_obj->mesh_id.has_value()) {
+                if (const auto* ma = doc.scene.findMesh(sel_obj->mesh_id.value());
+                    ma != nullptr && ma->editable_mesh.has_value()) {
+                    doc.editor_state.mesh_selection.sanitizeForCounts(
+                        ma->editable_mesh->vertexCount(),
+                        ma->editable_mesh->edgeCount(),
+                        ma->editable_mesh->faceCount());
+                }
+            }
+        }
+        captureUnknownFields(
+            *ed_val,
+            {"edit_mode", "gizmo_tool", "gizmo_space", "selected_object_id", "active_material_id", "mesh_selection"},
+            "editor_state",
+            doc.preserved_fields.editor_state_extra,
+            &doc.load_warnings);
+    }
+
+    // 5. Decode optional Stage 4 workspace state.
+    if (const JsonValue* ws_val = root.findKey("workspace"); ws_val != nullptr && !ws_val->isNull()) {
+        auto ws_res = ProjectSerializer::decodeWorkspaceJson(
+            *ws_val,
+            &doc.preserved_fields.workspace_extra,
+            &doc.load_warnings);
+        if (!ws_res) {
+            return ws_res.error();
+        }
+        doc.workspace = std::move(ws_res.value());
+    }
+
     return core::Result<ProjectDocument>::ok(std::move(doc));
 }
 
 } // namespace
 
+JsonValue ProjectSerializer::encodeWorkspaceJson(
+    const WorkspaceState& state,
+    const JsonObject& extra_fields) {
+    JsonValue ws{JsonObject{}};
+    ws.setKey("layout_name", state.layout_name);
+    ws.setKey("focused_panel", std::string(workspacePanelSlug(state.focused_panel)));
+    ws.setKey("left_dock_width_ratio", static_cast<double>(state.left_dock_width_ratio));
+    ws.setKey("right_dock_width_ratio", static_cast<double>(state.right_dock_width_ratio));
+    ws.setKey("bottom_dock_height_ratio", static_cast<double>(state.bottom_dock_height_ratio));
+
+    JsonArray panels_arr;
+    panels_arr.reserve(state.panels.size());
+    for (const auto& p : state.panels) {
+        JsonValue p_obj{JsonObject{}};
+        p_obj.setKey("id", std::string(workspacePanelSlug(p.id)));
+        p_obj.setKey("visible", p.visible);
+        p_obj.setKey("dock_region", std::string(dockRegionSlug(p.dock_region)));
+        p_obj.setKey("tab_order", static_cast<std::uint64_t>(p.tab_order));
+        panels_arr.push_back(std::move(p_obj));
+    }
+    ws.setKey("panels", std::move(panels_arr));
+    appendExtraFields(ws, extra_fields);
+    return ws;
+}
+
+core::Result<WorkspaceState> ProjectSerializer::decodeWorkspaceJson(
+    const JsonValue& json,
+    JsonObject* out_extra_fields,
+    std::vector<std::string>* out_warnings) {
+    if (!json.isObject()) {
+        return core::Result<WorkspaceState>::fail(
+            core::ErrorCode::ValidationError,
+            "'workspace' must be a JSON object");
+    }
+
+    WorkspaceState ws{};
+    if (const auto* ln = json.findKey("layout_name"); ln != nullptr) {
+        if (!ln->isString() || ln->asString().empty()) {
+            return core::Result<WorkspaceState>::fail(
+                core::ErrorCode::ValidationError,
+                "'workspace.layout_name' must be a non-empty string");
+        }
+        ws.layout_name = ln->asString();
+    }
+    if (const auto* fp = json.findKey("focused_panel"); fp != nullptr) {
+        if (!fp->isString()) {
+            return core::Result<WorkspaceState>::fail(
+                core::ErrorCode::ValidationError,
+                "'workspace.focused_panel' must be a string");
+        }
+        const auto parsed_fp = parseWorkspacePanelSlug(fp->asString());
+        if (!parsed_fp.has_value()) {
+            return core::Result<WorkspaceState>::fail(
+                core::ErrorCode::ValidationError,
+                "Unknown workspace panel id: " + fp->asString());
+        }
+        ws.focused_panel = parsed_fp.value();
+    }
+    if (const auto* lw = json.findKey("left_dock_width_ratio"); lw != nullptr) {
+        auto v = decodeFloat(lw, "workspace.left_dock_width_ratio");
+        if (!v) return v.error();
+        ws.left_dock_width_ratio = std::clamp(v.value(), 0.08f, 0.45f);
+    }
+    if (const auto* rw = json.findKey("right_dock_width_ratio"); rw != nullptr) {
+        auto v = decodeFloat(rw, "workspace.right_dock_width_ratio");
+        if (!v) return v.error();
+        ws.right_dock_width_ratio = std::clamp(v.value(), 0.08f, 0.45f);
+    }
+    if (const auto* bh = json.findKey("bottom_dock_height_ratio"); bh != nullptr) {
+        auto v = decodeFloat(bh, "workspace.bottom_dock_height_ratio");
+        if (!v) return v.error();
+        ws.bottom_dock_height_ratio = std::clamp(v.value(), 0.08f, 0.50f);
+    }
+
+    if (const auto* panels_val = json.findKey("panels"); panels_val != nullptr) {
+        if (!panels_val->isArray()) {
+            return core::Result<WorkspaceState>::fail(
+                core::ErrorCode::ValidationError,
+                "'workspace.panels' must be an array");
+        }
+        for (const auto& p_json : panels_val->asArray()) {
+            if (!p_json.isObject()) {
+                return core::Result<WorkspaceState>::fail(
+                    core::ErrorCode::ValidationError,
+                    "Each entry in 'workspace.panels' must be an object");
+            }
+            const auto* id_val = p_json.findKey("id");
+            if (id_val == nullptr || !id_val->isString()) {
+                return core::Result<WorkspaceState>::fail(
+                    core::ErrorCode::ValidationError,
+                    "'workspace.panels[].id' must be a string");
+            }
+            const auto pid = parseWorkspacePanelSlug(id_val->asString());
+            if (!pid.has_value()) {
+                return core::Result<WorkspaceState>::fail(
+                    core::ErrorCode::ValidationError,
+                    "Unknown workspace panel slug: " + id_val->asString());
+            }
+            auto& slot = ws.panels[static_cast<std::size_t>(pid.value())];
+            if (const auto* vis = p_json.findKey("visible"); vis != nullptr) {
+                if (!vis->isBool()) {
+                    return core::Result<WorkspaceState>::fail(
+                        core::ErrorCode::ValidationError,
+                        "'workspace.panels[].visible' must be a boolean");
+                }
+                slot.visible = vis->asBool();
+            }
+            if (const auto* dr = p_json.findKey("dock_region"); dr != nullptr) {
+                if (!dr->isString()) {
+                    return core::Result<WorkspaceState>::fail(
+                        core::ErrorCode::ValidationError,
+                        "'workspace.panels[].dock_region' must be a string");
+                }
+                const auto reg = parseDockRegionSlug(dr->asString());
+                if (!reg.has_value()) {
+                    return core::Result<WorkspaceState>::fail(
+                        core::ErrorCode::ValidationError,
+                        "Unknown dock region: " + dr->asString());
+                }
+                slot.dock_region = reg.value();
+            }
+            if (const auto* ord = p_json.findKey("tab_order"); ord != nullptr) {
+                auto o_res = decodeUint64(ord, "workspace.panels[].tab_order");
+                if (!o_res) return o_res.error();
+                slot.tab_order = static_cast<std::uint32_t>(std::min<std::uint64_t>(o_res.value(), 1000u));
+            }
+        }
+    }
+
+    if (out_extra_fields != nullptr) {
+        captureUnknownFields(
+            json,
+            {"layout_name", "focused_panel", "left_dock_width_ratio",
+             "right_dock_width_ratio", "bottom_dock_height_ratio", "panels"},
+            "workspace",
+            *out_extra_fields,
+            out_warnings);
+    }
+
+    return core::Result<WorkspaceState>::ok(std::move(ws));
+}
+
 core::Result<std::string> ProjectSerializer::serializeToString(const ProjectDocument& document, bool pretty) {
-    return serializeDocumentImpl(document, {}, nullptr, pretty);
+    return serializeDocumentImpl(document, {}, nullptr, false, pretty);
 }
 
 core::Result<ProjectDocument> ProjectSerializer::deserializeFromString(std::string_view json_text) {
@@ -706,7 +2089,7 @@ core::Status ProjectSerializer::saveToFile(
     const ProjectDocument& document,
     const std::filesystem::path& path,
     platform::IFileSystem& file_system) {
-    auto json_res = serializeToString(document, true);
+    auto json_res = serializeDocumentImpl(document, {}, nullptr, true, true);
     if (!json_res) {
         return json_res.error();
     }
@@ -724,7 +2107,7 @@ core::Status ProjectSerializer::saveBundleToFile(
                                                : (fe3d_path.parent_path() / bin_filename);
 
     BinaryAssetBuilder builder;
-    auto json_res = serializeDocumentImpl(document, bin_filename, &builder, true);
+    auto json_res = serializeDocumentImpl(document, bin_filename, &builder, true, true);
     if (!json_res) {
         return json_res.error();
     }
