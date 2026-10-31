@@ -43,6 +43,10 @@ EM_JS(int, fe3d_is_text_input_focused, (), {
     return 0;
 });
 
+EM_JS(int, fe3d_is_js_shortcut_router_active, (), {
+    return (typeof window !== "undefined" && window.__FE3D_MAYA_SHORTCUT_ROUTER__) ? 1 : 0;
+});
+
 EM_JS(void, fe3d_get_viewport_css_size, (double* out_w, double* out_h), {
     const stage = document.getElementById("viewport-stage") || document.getElementById("fe3d-canvas");
     if (!stage) {
@@ -96,12 +100,20 @@ finaleffect::platform::KeyCode translateDomKeyCode(std::string_view code) noexce
     if (code == "Delete") return KeyCode::Delete;
     if (code == "Backspace") return KeyCode::Backspace;
     if (code == "Space") return KeyCode::Space;
+    if (code == "KeyQ") return KeyCode::Q;
     if (code == "KeyF") return KeyCode::F;
     if (code == "KeyZ") return KeyCode::Z;
     if (code == "KeyY") return KeyCode::Y;
     if (code == "KeyW") return KeyCode::W;
     if (code == "KeyE") return KeyCode::E;
     if (code == "KeyR") return KeyCode::R;
+    if (code == "KeyT") return KeyCode::T;
+    if (code == "KeyG") return KeyCode::G;
+    if (code == "KeyP") return KeyCode::P;
+    if (code == "KeyH") return KeyCode::H;
+    if (code == "KeyX") return KeyCode::X;
+    if (code == "KeyC") return KeyCode::C;
+    if (code == "KeyV") return KeyCode::V;
     if (code == "KeyA") return KeyCode::A;
     if (code == "KeyS") return KeyCode::S;
     if (code == "KeyD") return KeyCode::D;
@@ -110,6 +122,14 @@ finaleffect::platform::KeyCode translateDomKeyCode(std::string_view code) noexce
     if (code == "Digit2") return KeyCode::Digit2;
     if (code == "Digit3") return KeyCode::Digit3;
     if (code == "Digit4") return KeyCode::Digit4;
+    if (code == "Digit5") return KeyCode::Digit5;
+    if (code == "Digit6") return KeyCode::Digit6;
+    if (code == "Digit7") return KeyCode::Digit7;
+    if (code == "F8") return KeyCode::F8;
+    if (code == "F9") return KeyCode::F9;
+    if (code == "F10") return KeyCode::F10;
+    if (code == "F11") return KeyCode::F11;
+    if (code == "F12") return KeyCode::F12;
     if (code == "ShiftLeft" || code == "ShiftRight") return KeyCode::LeftShift;
     if (code == "ControlLeft" || code == "ControlRight") return KeyCode::LeftControl;
     if (code == "AltLeft" || code == "AltRight") return KeyCode::LeftAlt;
@@ -351,6 +371,10 @@ private:
         if (code == finaleffect::platform::KeyCode::Unknown) {
             return EM_FALSE;
         }
+        if (fe3d_is_js_shortcut_router_active() != 0 &&
+            code != finaleffect::platform::KeyCode::Escape) {
+            return EM_FALSE;
+        }
         finaleffect::platform::KeyAction action = finaleffect::platform::KeyAction::Press;
         if (event_type == EMSCRIPTEN_EVENT_KEYUP) {
             action = finaleffect::platform::KeyAction::Release;
@@ -397,9 +421,16 @@ struct WebHostContext {
 
 WebHostContext* g_web_ctx = nullptr;
 
+EM_JS(int, fe3d_is_home_view_occluding, (), {
+    return (document.body && document.body.dataset && document.body.dataset.appView === "home") ? 1 : 0;
+});
+
 void onBrowserFrame(void* user_data) {
     auto* ctx = static_cast<WebHostContext*>(user_data);
     if (ctx == nullptr || ctx->ready_state != 1) {
+        return;
+    }
+    if (fe3d_is_home_view_occluding() != 0) {
         return;
     }
     if (ctx->window.shouldClose()) {

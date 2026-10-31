@@ -183,6 +183,8 @@ core::Status DeleteObjectCommand::execute(Scene& scene) {
     deleted_snapshots_.clear();
     reparented_children_.clear();
     removed_light_links_.clear();
+    previous_display_layers_ = scene.displayLayers();
+    previous_animation_tracks_ = scene.animationTracks();
     previous_active_camera_ = scene.activeCamera();
 
     auto makeSnapshot = [](const SceneObject& obj) -> ObjectSnapshot {
@@ -196,6 +198,10 @@ core::Status DeleteObjectCommand::execute(Scene& scene) {
             .material_id = obj.material_id,
             .camera = obj.camera,
             .light = obj.anyLightComponent(),
+            .locked = obj.locked,
+            .locked_channels_mask = obj.locked_channels_mask,
+            .pivot_offset = obj.pivot_offset,
+            .custom_attributes = obj.custom_attributes,
         };
     };
 
@@ -261,7 +267,14 @@ core::Status DeleteObjectCommand::undo(Scene& scene) {
         if (!std::holds_alternative<std::monostate>(snap.light)) {
             if (auto l_st = scene.assignAnyLight(snap.id, snap.light); !l_st) return l_st;
         }
+        (void)scene.setObjectLocked(snap.id, snap.locked);
+        (void)scene.setObjectChannelLocks(snap.id, snap.locked_channels_mask);
+        (void)scene.setObjectPivotOffset(snap.id, snap.pivot_offset);
+        (void)scene.setObjectCustomAttributes(snap.id, snap.custom_attributes);
     }
+
+    (void)scene.setDisplayLayers(previous_display_layers_);
+    (void)scene.setAnimationTracks(previous_animation_tracks_);
 
     // Restore external light-linking references that pointed to the restored objects.
     for (const auto& ref : removed_light_links_) {
@@ -839,6 +852,157 @@ core::Status CompoundTransactionCommand::undo(Scene& scene) {
             return st;
         }
     }
+    return core::Status::ok();
+}
+
+// -----------------------------------------------------------------------------
+// SetObjectMetadataCommand
+// -----------------------------------------------------------------------------
+SetObjectMetadataCommand::SetObjectMetadataCommand(
+    ObjectId object_id,
+    MetadataState new_state,
+    std::string label,
+    bool allow_coalesce,
+    std::uint64_t coalesce_group)
+    : object_id_(object_id),
+      new_state_(std::move(new_state)),
+      label_(std::move(label)),
+      allow_coalesce_(allow_coalesce),
+      coalesce_group_(coalesce_group) {}
+
+std::size_t SetObjectMetadataCommand::estimatedBytes() const noexcept {
+    return sizeof(*this) + label_.capacity() +
+           (new_state_.custom_attributes.capacity() + previous_state_.custom_attributes.capacity()) *
+               sizeof(CustomAttribute);
+}
+
+core::Status SetObjectMetadataCommand::execute(Scene& scene) {
+    const auto* obj = scene.findObject(object_id_);
+    if (obj == nullptr) {
+        return core::Status::fail(core::ErrorCode::NotFound, "SetObjectMetadataCommand target object not found");
+    }
+    if (!captured_previous_) {
+        previous_state_ = MetadataState{
+            .locked = obj->locked,
+            .locked_channels_mask = obj->locked_channels_mask,
+            .pivot_offset = obj->pivot_offset,
+            .custom_attributes = obj->custom_attributes,
+        };
+        captured_previous_ = true;
+    }
+    if (auto st = scene.setObjectLocked(object_id_, new_state_.locked); !st) return st;
+    if (auto st = scene.setObjectChannelLocks(object_id_, new_state_.locked_channels_mask); !st) return st;
+    if (auto st = scene.setObjectPivotOffset(object_id_, new_state_.pivot_offset); !st) return st;
+    return scene.setObjectCustomAttributes(object_id_, new_state_.custom_attributes);
+}
+
+core::Status SetObjectMetadataCommand::undo(Scene& scene) {
+    if (!captured_previous_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "SetObjectMetadataCommand was never executed");
+    }
+    if (auto st = scene.setObjectLocked(object_id_, previous_state_.locked); !st) return st;
+    if (auto st = scene.setObjectChannelLocks(object_id_, previous_state_.locked_channels_mask); !st) return st;
+    if (auto st = scene.setObjectPivotOffset(object_id_, previous_state_.pivot_offset); !st) return st;
+    return scene.setObjectCustomAttributes(object_id_, previous_state_.custom_attributes);
+}
+
+bool SetObjectMetadataCommand::tryCoalesceWith(const ISceneCommand& incoming) noexcept {
+    if (!allow_coalesce_) {
+        return false;
+    }
+    const auto* next_cmd = dynamic_cast<const SetObjectMetadataCommand*>(&incoming);
+    if (next_cmd == nullptr || !next_cmd->allow_coalesce_ ||
+        next_cmd->object_id_ != object_id_ ||
+        next_cmd->coalesce_group_ != coalesce_group_) {
+        return false;
+    }
+    new_state_ = next_cmd->new_state_;
+    return true;
+}
+
+// -----------------------------------------------------------------------------
+// SetDisplayLayersCommand
+// -----------------------------------------------------------------------------
+SetDisplayLayersCommand::SetDisplayLayersCommand(
+    std::vector<DisplayLayer> new_layers,
+    std::string label)
+    : new_layers_(std::move(new_layers)), label_(std::move(label)) {}
+
+std::size_t SetDisplayLayersCommand::estimatedBytes() const noexcept {
+    return sizeof(*this) + label_.capacity() +
+           (new_layers_.capacity() + previous_layers_.capacity()) * sizeof(DisplayLayer);
+}
+
+core::Status SetDisplayLayersCommand::execute(Scene& scene) {
+    if (!captured_previous_) {
+        previous_layers_ = scene.displayLayers();
+        captured_previous_ = true;
+    }
+    return scene.setDisplayLayers(new_layers_);
+}
+
+core::Status SetDisplayLayersCommand::undo(Scene& scene) {
+    if (!captured_previous_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "SetDisplayLayersCommand was never executed");
+    }
+    return scene.setDisplayLayers(previous_layers_);
+}
+
+// -----------------------------------------------------------------------------
+// SetAnimationTracksCommand
+// -----------------------------------------------------------------------------
+SetAnimationTracksCommand::SetAnimationTracksCommand(
+    std::vector<ObjectAnimationTrack> new_tracks,
+    std::string label)
+    : new_tracks_(std::move(new_tracks)), label_(std::move(label)) {}
+
+std::size_t SetAnimationTracksCommand::estimatedBytes() const noexcept {
+    std::size_t bytes = sizeof(*this) + label_.capacity();
+    for (const auto& tr : new_tracks_) {
+        bytes += sizeof(ObjectAnimationTrack) + tr.keyframes.capacity() * sizeof(TransformKeyframe);
+    }
+    for (const auto& tr : previous_tracks_) {
+        bytes += sizeof(ObjectAnimationTrack) + tr.keyframes.capacity() * sizeof(TransformKeyframe);
+    }
+    return bytes;
+}
+
+core::Status SetAnimationTracksCommand::execute(Scene& scene) {
+    if (!captured_previous_) {
+        previous_tracks_ = scene.animationTracks();
+        previous_poses_.clear();
+        for (const auto& obj : scene.objects()) {
+            previous_poses_.push_back(PoseSnapshot{
+                .id = obj.id,
+                .local_transform = obj.local_transform,
+                .visible = obj.visible,
+            });
+        }
+        captured_previous_ = true;
+    }
+    auto st = scene.setAnimationTracks(new_tracks_);
+    if (!st) {
+        return st;
+    }
+    scene.evaluateAnimationAtFrame(scene.timeline().current_frame);
+    return core::Status::ok();
+}
+
+core::Status SetAnimationTracksCommand::undo(Scene& scene) {
+    if (!captured_previous_) {
+        return core::Status::fail(core::ErrorCode::InvalidState, "SetAnimationTracksCommand was never executed");
+    }
+    auto st = scene.setAnimationTracks(previous_tracks_);
+    if (!st) {
+        return st;
+    }
+    for (const auto& snap : previous_poses_) {
+        if (scene.findObject(snap.id) != nullptr) {
+            (void)scene.setObjectTransform(snap.id, snap.local_transform);
+            (void)scene.setObjectVisible(snap.id, snap.visible);
+        }
+    }
+    scene.evaluateAnimationAtFrame(scene.timeline().current_frame);
     return core::Status::ok();
 }
 

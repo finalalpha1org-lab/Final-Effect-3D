@@ -47,6 +47,34 @@ enum class ViewportViewPreset : std::uint8_t {
 [[nodiscard]] std::string_view viewportViewPresetSlug(ViewportViewPreset preset) noexcept;
 [[nodiscard]] std::string_view viewportViewPresetLabel(ViewportViewPreset preset) noexcept;
 
+enum class MayaActiveTool : std::uint8_t {
+    Select = 0,
+    Move = 1,
+    Rotate = 2,
+    Scale = 3,
+    ShowManipulator = 4,
+    UniversalManipulator = 5,
+    PivotEdit = 6,
+};
+
+[[nodiscard]] std::string_view mayaActiveToolSlug(MayaActiveTool tool) noexcept;
+[[nodiscard]] std::optional<MayaActiveTool> parseMayaActiveToolSlug(std::string_view slug) noexcept;
+
+struct ObjectSelectionMask {
+    bool meshes{true};
+    bool lights{true};
+    bool cameras{true};
+    bool transforms{true};
+};
+
+struct MayaSnappingState {
+    bool snap_grid{false};
+    float grid_step{0.5f};
+    bool snap_curve{false};
+    bool snap_point{false};
+    bool snap_surface{false};
+};
+
 struct StudioSessionConfig {
     bool animate_showcase_rig{true};
     float rig_angular_speed_radians{0.65f};
@@ -94,6 +122,7 @@ public:
 
     // Frames selectedObject() (or the entire visible scene when nothing is selected) in the active camera.
     [[nodiscard]] core::Status frameSelectionOrScene();
+    [[nodiscard]] core::Status frameAllScene();
 
     // Direct camera & gizmo hit-test helpers for touch/stylus/multi-pointer hosts.
     [[nodiscard]] core::Status orbitViewportCamera(float delta_pixels_x, float delta_pixels_y);
@@ -102,7 +131,41 @@ public:
     [[nodiscard]] bool hitTestGizmoAtScreenPosition(float screen_x, float screen_y) const noexcept;
 
     [[nodiscard]] scene::ObjectId selectedObject() const noexcept { return selected_object_; }
+    [[nodiscard]] const std::vector<scene::ObjectId>& selectedObjects() const noexcept { return selected_objects_; }
     void setSelectedObject(scene::ObjectId id) noexcept;
+    void setSelectedObjects(std::span<const scene::ObjectId> ids) noexcept;
+    void toggleObjectInSelection(scene::ObjectId id) noexcept;
+    void sanitizeObjectSelection() noexcept;
+
+    // Maya Active Tool & Last-Tool system (Select Q, Move W, Rotate E, Scale R, Show Manipulator T, Universal, Pivot D, Last Y).
+    [[nodiscard]] MayaActiveTool activeTool() const noexcept { return active_tool_; }
+    [[nodiscard]] MayaActiveTool lastTool() const noexcept { return last_tool_; }
+    void setActiveTool(MayaActiveTool tool) noexcept;
+    void activateLastTool() noexcept;
+
+    // UV & Multi-Component submodes alongside C++ Vertex/Edge/Face EditMode.
+    [[nodiscard]] bool isUvComponentMode() const noexcept { return uv_component_mode_; }
+    void setUvComponentMode(bool enabled) noexcept { uv_component_mode_ = enabled; ++interaction_revision_; }
+    [[nodiscard]] bool isMultiComponentMode() const noexcept { return multi_component_mode_; }
+    void setMultiComponentMode(bool enabled) noexcept { multi_component_mode_ = enabled; ++interaction_revision_; }
+
+    // Maya Status Line Object Selection Masks & Snapping Modes.
+    [[nodiscard]] const ObjectSelectionMask& selectionMask() const noexcept { return selection_mask_; }
+    void setSelectionMask(const ObjectSelectionMask& mask) noexcept { selection_mask_ = mask; ++interaction_revision_; }
+    [[nodiscard]] const MayaSnappingState& snapping() const noexcept { return snapping_; }
+    void setSnapping(const MayaSnappingState& snap) noexcept { snapping_ = snap; ++interaction_revision_; }
+    [[nodiscard]] math::Vec3 applyWorldSnapping(const math::Vec3& world_pos, scene::ObjectId exclude_id) const noexcept;
+
+    // Maya Viewport Display Options (4/5/6/7 shading & lighting, 1/2/3 smoothness, X-Ray, Isolate Select).
+    [[nodiscard]] const rendering::ViewportDisplayOptions& viewportDisplay() const noexcept {
+        return viewport_display_;
+    }
+    void setViewportDisplay(rendering::ViewportDisplayOptions opts) noexcept;
+    void setIsolateSelect(bool enabled) noexcept;
+
+    // Maya Real-Time Keyframe Timeline Playback.
+    [[nodiscard]] bool isTimelinePlaying() const noexcept { return timeline_playing_; }
+    void setTimelinePlaying(bool playing) noexcept { timeline_playing_ = playing; ++interaction_revision_; }
 
     // Editor Mode (Object / Vertex / Edge / Face) & Mesh Element Selection.
     [[nodiscard]] scene::EditMode editorMode() const noexcept { return editor_mode_; }
@@ -194,8 +257,10 @@ private:
         None = 0,
         Orbit,
         Pan,
+        Dolly,
         PendingLeftClick,
         GizmoObject,
+        GizmoPivot,
         GizmoMeshElements,
     };
 
@@ -239,6 +304,19 @@ private:
     WorkspaceManager workspace_{};
 
     scene::ObjectId selected_object_{};
+    std::vector<scene::ObjectId> selected_objects_{};
+    MayaActiveTool active_tool_{MayaActiveTool::Move};
+    MayaActiveTool last_tool_{MayaActiveTool::Move};
+    bool uv_component_mode_{false};
+    bool multi_component_mode_{false};
+    ObjectSelectionMask selection_mask_{};
+    MayaSnappingState snapping_{};
+    rendering::ViewportDisplayOptions viewport_display_{};
+    bool timeline_playing_{false};
+    int timeline_oscillate_dir_{1};
+    math::Vec3 gizmo_drag_initial_pivot_{0.0f, 0.0f, 0.0f};
+    math::Vec3 gizmo_drag_latest_pivot_{0.0f, 0.0f, 0.0f};
+
     scene::EditMode editor_mode_{scene::EditMode::Object};
     scene::MeshElementSelection mesh_selection_{};
     bool text_input_focused_{false};

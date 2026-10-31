@@ -47,6 +47,23 @@
     draw2d: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 13.5l2.8-.6 7.6-7.6a1.4 1.4 0 0 0-2-2L3.3 10.9l-.8 2.6z"/></svg>',
     sculpt: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7.4" cy="8.6" r="4.8"/><path d="M10.5 2.2l3.3 3.3-3.2 3.2"/></svg>',
     shade: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="5.2" cy="5.2" r="2.4"/><circle cx="11.2" cy="10.8" r="2.4"/><path d="M7.6 5.2h1.2v5.6h1"/></svg>',
+    cylinder: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><ellipse cx="8" cy="3.6" rx="4.8" ry="1.8"/><path d="M3.2 3.6v8.8c0 1 2.15 1.8 4.8 1.8s4.8-.8 4.8-1.8V3.6"/></svg>',
+    cone: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.2L3 12.2c0 1 2.24 1.8 5 1.8s5-.8 5-1.8L8 2.2z"/><ellipse cx="8" cy="12.2" rx="5" ry="1.6" stroke-opacity="0.5"/></svg>',
+    torus: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><ellipse cx="8" cy="8" rx="6" ry="3.8"/><ellipse cx="8" cy="8" rx="2.3" ry="1.2"/></svg>',
+    snapGrid: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 5.5h12M2 10.5h12M5.5 2v12M10.5 2v12"/><circle cx="10.5" cy="5.5" r="2" fill="currentColor"/></svg>',
+    snapCurve: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.2 13C3 6 13 10 13.8 3"/><circle cx="8" cy="8" r="2.1" fill="currentColor"/></svg>',
+    snapPoint: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.4" fill="currentColor"/><path d="M8 2v3M8 11v3M2 8h3M11 8h3"/></svg>',
+    snapSurface: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4.5 3.5v4a3.5 3.5 0 0 0 7 0v-4"/><line x1="3.5" y1="5.5" x2="6" y2="5.5"/><line x1="10" y1="5.5" x2="12.5" y2="5.5"/></svg>',
+    lock: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3.4" y="7.2" width="9.2" height="6.4" rx="1"/><path d="M5.4 7.2V5a2.6 2.6 0 0 1 5.2 0v2.2"/></svg>',
+    unlock: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3.4" y="7.2" width="9.2" height="6.4" rx="1"/><path d="M5.4 7.2V4.8a2.6 2.6 0 0 1 4.9-1.2"/></svg>',
+    layers: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><polygon points="8 2.2 14.2 5.4 8 8.6 1.8 5.4"/><polyline points="1.8 8.4 8 11.6 14.2 8.4"/><polyline points="1.8 11.2 8 14.4 14.2 11.2"/></svg>',
+    channelBox: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2.2" width="12" height="11.6" rx="1"/><line x1="7.5" y1="2.2" x2="7.5" y2="13.8"/><line x1="2" y1="6" x2="14" y2="6"/><line x1="2" y1="9.8" x2="14" y2="9.8"/></svg>',
+    keyframe: '<svg viewBox="0 0 16 16" fill="currentColor"><polygon points="8 2.2 13.4 8 8 13.8 2.6 8"/></svg>',
+    universal: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.2" y="3.2" width="9.6" height="9.6" stroke-dasharray="2 1.2"/><path d="M8 1.4v13.2M1.4 8h13.2"/><circle cx="8" cy="8" r="1.8" fill="currentColor"/></svg>',
+    showManip: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.2"/><line x1="8" y1="2.8" x2="8" y2="8"/><line x1="8" y1="8" x2="12.2" y2="10.4"/><circle cx="8" cy="8" r="1.5" fill="currentColor"/></svg>',
+    xray: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.4" y="4.4" width="7.2" height="7.2"/><rect x="6.4" y="2.4" width="7.2" height="7.2" stroke-dasharray="1.8 1.2"/></svg>',
+    isolate: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.6"/><circle cx="8" cy="8" r="2.2" fill="currentColor"/></svg>',
+    renderFrame: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.8" y="3" width="12.4" height="10" rx="1"/><circle cx="8" cy="8" r="2.8"/><circle cx="12" cy="5" r="0.8" fill="currentColor"/></svg>',
   };
 
   // Extensible Studio Registry (Part 2.2) — Only 3D Studio is operational in Stage 5.

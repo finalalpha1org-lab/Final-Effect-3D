@@ -893,8 +893,29 @@ std::optional<scene::RaycastHit> pickSceneOrViewportHelper(
         if (!obj.camera.has_value() && !obj.hasAnyLight()) {
             continue;
         }
+        if (obj.camera.has_value() && !obj.hasAnyLight() && !options.allow_cameras) {
+            continue;
+        }
+        if (obj.hasAnyLight() && !obj.camera.has_value() && !options.allow_lights) {
+            continue;
+        }
         if (options.ignore_invisible && !isObjectVisibleInHierarchy(scene, obj.id)) {
             continue;
+        }
+        if (options.respect_display_layers) {
+            if (const auto* layer = scene.findObjectDisplayLayer(obj.id);
+                layer != nullptr &&
+                (!layer->visible || layer->display_type != scene::DisplayLayerType::Normal)) {
+                continue;
+            }
+        }
+        if (options.isolated_objects != nullptr) {
+            if (std::find(
+                    options.isolated_objects->begin(),
+                    options.isolated_objects->end(),
+                    obj.id) == options.isolated_objects->end()) {
+                continue;
+            }
         }
         auto world_res = scene.computeWorldMatrix(obj.id);
         if (!world_res) {

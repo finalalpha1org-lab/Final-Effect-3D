@@ -37,6 +37,9 @@ enum class ScenePreset : std::uint8_t {
     PointLight = 7,
     SpotLight = 8,
     AreaLight = 9,
+    Cylinder = 10,
+    Cone = 11,
+    Torus = 12,
 };
 
 enum class ProjectTemplate : std::uint8_t {
@@ -64,8 +67,15 @@ public:
 
     // Selection, editor mode, gizmo & viewport operations.
     [[nodiscard]] core::Status selectObject(scene::ObjectId id);
+    [[nodiscard]] core::Status selectObjects(std::span<const scene::ObjectId> ids);
+    [[nodiscard]] core::Status toggleSelectObject(scene::ObjectId id);
+    [[nodiscard]] core::Status selectAllObjects();
+    [[nodiscard]] core::Status invertSelection();
+    [[nodiscard]] core::Status selectHierarchy();
+    [[nodiscard]] core::Status selectSimilar();
     [[nodiscard]] std::optional<scene::RaycastHit> pickViewportPixel(float x, float y);
     [[nodiscard]] core::Status frameSelectionOrScene();
+    [[nodiscard]] core::Status frameAllScene();
     void setRigAnimationPlaying(bool playing) noexcept;
     void setCameraViewActive(bool active) noexcept;
     void setEditorHelpersVisible(bool visible) noexcept;
@@ -75,6 +85,64 @@ public:
     void setViewportProjection(scene::ProjectionType projection) noexcept;
     void toggleViewportProjection() noexcept;
     [[nodiscard]] core::Status orbitEditorObserverCamera(float delta_pixels_x, float delta_pixels_y);
+
+    // Maya Toolbox, Snapping, Selection Masks & Viewport Shading/Display (4/5/6/7, 1/2/3, X-Ray, Isolate).
+    void setActiveTool(MayaActiveTool tool) noexcept;
+    void activateLastTool() noexcept;
+    void setViewportDisplay(rendering::ViewportDisplayOptions opts) noexcept;
+    void setIsolateSelect(bool enabled) noexcept;
+    void setSnapping(const MayaSnappingState& snap) noexcept;
+    void setSelectionMask(const ObjectSelectionMask& mask) noexcept;
+
+    // Maya Hierarchy, Transform, Channel Lock, Pivot & Custom Attribute Operations (all undoable).
+    [[nodiscard]] core::Result<scene::ObjectId> groupSelectedObjects(std::string group_name = {});
+    [[nodiscard]] core::Status parentSelectedObjects();
+    [[nodiscard]] core::Status unparentSelectedObjects();
+    [[nodiscard]] core::Status freezeObjectTransforms(scene::ObjectId id);
+    [[nodiscard]] core::Status centerObjectPivot(scene::ObjectId id);
+    [[nodiscard]] core::Status setObjectLocked(scene::ObjectId id, bool locked);
+    [[nodiscard]] core::Status setObjectChannelLocks(scene::ObjectId id, std::uint16_t mask);
+    [[nodiscard]] core::Status setObjectPivotOffset(
+        scene::ObjectId id,
+        const math::Vec3& pivot_offset,
+        bool allow_coalesce = false);
+    [[nodiscard]] core::Status addCustomAttribute(
+        scene::ObjectId id,
+        scene::CustomAttribute attr);
+    [[nodiscard]] core::Status setCustomAttributeValue(
+        scene::ObjectId id,
+        std::string_view attr_name,
+        double value,
+        bool allow_coalesce = false);
+    [[nodiscard]] core::Status deleteCustomAttribute(
+        scene::ObjectId id,
+        std::string_view attr_name);
+
+    // Maya Display Layer Editor Operations (all undoable, non-destructive).
+    [[nodiscard]] core::Result<std::uint32_t> createDisplayLayer(
+        std::string layer_name = {},
+        bool assign_selected = false);
+    [[nodiscard]] core::Status renameDisplayLayer(std::uint32_t layer_id, std::string new_name);
+    [[nodiscard]] core::Status deleteDisplayLayer(std::uint32_t layer_id);
+    [[nodiscard]] core::Status updateDisplayLayer(
+        std::uint32_t layer_id,
+        bool visible,
+        bool playback_visible,
+        scene::DisplayLayerType display_type,
+        const math::Vec3& color);
+    [[nodiscard]] core::Status assignSelectedToDisplayLayer(std::uint32_t layer_id);
+    [[nodiscard]] core::Status removeSelectedFromDisplayLayer(std::uint32_t layer_id);
+    [[nodiscard]] core::Status selectDisplayLayerObjects(std::uint32_t layer_id);
+
+    // Maya Timeline, Keyframes & Auto Key Operations.
+    void setTimelineSettings(const scene::TimelineSettings& settings) noexcept;
+    void setCurrentFrame(float frame) noexcept;
+    void setTimelinePlaying(bool playing) noexcept;
+    [[nodiscard]] core::Status setKeyframeOnSelected(std::optional<float> frame_opt = std::nullopt);
+    [[nodiscard]] core::Status deleteKeyframeOnSelected(std::optional<float> frame_opt = std::nullopt);
+
+    // Safe, structured Maya/FE3D Command Line execution (never uses eval or shell execution).
+    [[nodiscard]] core::Status executeCommandLine(std::string_view command_text);
 
     [[nodiscard]] core::Status setEditorMode(scene::EditMode mode);
     void setGizmoMode(GizmoMode mode) noexcept;

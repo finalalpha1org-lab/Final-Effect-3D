@@ -23,6 +23,7 @@ export default defineConfig({
       args: [
         "--use-gl=angle",
         "--use-angle=swiftshader",
+        "--enable-unsafe-swiftshader",
         "--enable-webgl",
         "--ignore-gpu-blocklist",
       ],
