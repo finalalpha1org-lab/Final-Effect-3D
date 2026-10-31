@@ -97,6 +97,44 @@ finaleffect::app        (TransformGizmo, WorkspaceManager, OrbitCameraController
 
 ---
 
+## 4b. Autodesk Maya-Style Interface Architecture (Stage 1 Redesign)
+
+### A. UI State Ownership
+
+JavaScript never owns scene data. `web/editor.js` is a **pure renderer of the engine state snapshot** produced by `EditorController::serializeStateJson()` and every mutation is a JSON action dispatched through `fe3d_dispatch_action` into the C++ `EditorController`/`StudioSession`/`Scene`/`CommandStack` pipeline:
+
+- Selection (`select_object`, `additive`), hierarchy (`group_selected`, `parent_selected`, `unparent_selected`, `reparent_object`), rename, lock (`set_object_lock`), channel locks (`set_channel_locks`), custom attributes (`add/update/delete_custom_attribute`).
+- Toolbox & Menu Sets (`set_active_tool`, `activate_last_tool`, `set_menu_set`), selection masks (`set_selection_masks`), snapping (`set_snap_settings`), display modes (`set_viewport_display`), isolate select and X-Ray.
+- Display Layers (`create/delete/rename/set_display_layer_state/assign_display_layer/select_display_layer`) mapped to `StudioSession::DisplayLayer` and applied by `renderer::ViewportDisplayOptions` (hidden / template wireframe / reference) without ever deleting geometry.
+- Real keyframe animation (`timeline_set_frame`, `timeline_set_ranges`, `timeline_set_playing`, `timeline_step`, `timeline_jump_key`, `timeline_set_fps`, `timeline_set_loop_mode`, `timeline_set_auto_key`, `timeline_set_key`, `timeline_delete_key`) evaluated by `StudioSession::evaluateTimelineAtCurrentFrame()` (position lerp, quaternion slerp, scale lerp) directly onto `SceneObject::local_transform`.
+- Safe Command Line (`execute_command_line`) implemented as a structured tokenizer + command table in `EditorController::executeCommandLine` — **no JavaScript evaluation, no shell, no file-system access**.
+
+`EditorController::serializeStateJson()` additionally exposes `editor.menu_set`, `editor.active_tool`, `editor.selection_masks`, `editor.snap`, `viewport.shading_mode`, `viewport.xray_enabled`, `viewport.isolate_select`, per-object `locked`/`display_layer_id`/`is_selected`, `display_layers`, `timeline` and `command_history` so the Maya panels are fully engine-driven.
+
+### B. Window Region Model
+
+```
+┌ Menu Set select │ File Edit Create Select Modify Display Windows [Mesh EditMesh ...] Help │ workspace tabs ┐
+├ Status Line: masks │ template/reference │ snaps │ create/dup/del/frame/render │ command search │ toggles ┤
+├ Shelf tabs (General … FX) + executable shelf items                                                          ┤
+├ Tool Box │ Outliner + Tool Settings │ Viewport Panel Bar + WebGL 2.0 Viewport │ Channel Box + Layers ┤
+│          │                         │  (HUD, nav cluster, 3D view gizmo, marking menu, Hotbox)  │ Attribute Editor ┤
+├─────────────────────── Time Slider + Range Slider + bottom editors ──────────────────────────────────────────┤
+├ Command Line (structured parser) │ Help Line + engine telemetry ────────────────────────────────────────────┤
+```
+
+Left/right/bottom docks (and the Channel Box vs Attribute Editor split) are resizable, collapsible, switchable between *stacked / Channel-Box-only / Attribute-Editor-only*, and can be undocked into floating windows. Shelf commands, custom shelves and hotkey overrides persist in `localStorage` through `FE3D_REGISTRY` and are completely independent of `.fe3d` scene files.
+
+### C. Shortcut & Input Routing
+
+- `platform::KeyCode` now covers `Q W E R T Y A S D F G H P X C V`, `Insert`, `1–7`, `F2–F6`, `F8–F12`, `Space`, `Delete`, `Backspace`, `Escape`, and modifiers.
+- `StudioSession::processInputEvent` maps them to Maya semantics: `Q` Select, `W` Move, `E` Rotate, `R` Scale, `T` Show Manipulator, `Y` Last Tool, `D`/`Insert` Edit Pivot, `A` Frame All, `F` Frame Selected, `H` Hide, `X`/`V`/`C` grid/point/curve snapping, `Tab`/`F8` object↔component, `F9/F10/F11/F12` vertex/edge/face/UV, `1/2/3` display smoothness, `4/5/6/7` wireframe/shaded/textured/all-lights, and \(Ctrl+Z / Ctrl+Y\) Undo/Redo.
+- Alt+LMB orbit, Alt+MMB pan, Alt+RMB dolly, MMB pan and RMB orbit preserve the Stage 5 viewport navigation contract; `Alt+RMB` zoom was added as a `DragMode::Zoom` path.
+- `Space` is claimed for the **Hotbox** (the C++ key handler consults `window.__FE3D_IS_KEY_OVERRIDDEN__`), while the showcase turntable keeps its toolbar toggle and `timeline_toggle_play` hotkey. Keys are never delivered while an `<input>`, `<textarea>`, `<select>`, content-editable element, modal or non-Studio view has focus.
+- The Hotkey Editor rewrites the shortcut map; remapped combinations are reported to the WebAssembly key handler so a key is never executed twice.
+
+---
+
 ## 5. Project Format (`.fe3d` Schema `1.2`) & Binary Asset Container (`.fe3dbin` `1.0`)
 
 * **Schema Version**: `{ "major": 1, "minor": 2 }` while maintaining full backward compatibility when loading `.fe3d` `1.0` and `1.1` files and `.fe3dbin` `1.0` binary geometry bundles.
