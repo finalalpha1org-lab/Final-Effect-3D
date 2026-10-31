@@ -2885,7 +2885,644 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await assertNoHorizontalOverflow(page);
     await context.close();
   });
+
+  test("13. Maya-Classic Workstation Part A: Main Menu Bar & Menu Sets, Status Line masks/snapping, Customizable Multi-Shelf with persistence, Toolbox Q/W/E/R/T/Y/D shortcuts, Spacebar Hotbox, and Command Search", async ({
+    browser,
+  }) => {
+    test.setTimeout(180_000);
+    const outDir =
+      process.env.FE3D_SCREENSHOT_DIR ||
+      path.resolve(process.cwd(), "../../build/ci-screenshots/maya-stage1");
+    await fs.mkdir(outDir, { recursive: true });
+
+    const context = await browser.newContext({ viewport: { width: 1920, height: 1080 }, hasTouch: true });
+    const page = await context.newPage();
+    await bootDirectStudioReady(page);
+    await page.getByTestId("btn-toggle-rig").click();
+
+    const readState = async () => page.evaluate(() => window.__FE3D_STUDIO__.getState());
+
+    // ---- 1. Every Maya-Classic window region exists and is visible ----
+    for (const region of [
+      "maya-menubar",
+      "maya-status-line",
+      "maya-shelf-bar",
+      "tool-shelf",
+      "viewport-stage",
+      "dock-left",
+      "panel-outliner",
+      "dock-right",
+      "panel-channel-box",
+      "panel-layer-editor",
+      "panel-attribute-editor",
+      "dock-bottom",
+      "maya-time-slider",
+      "maya-command-bar",
+      "maya-help-line",
+    ]) {
+      await expect(page.getByTestId(region), `region ${region}`).toBeVisible();
+    }
+    const menubarTriggerCount = await page.getByTestId("maya-menubar").locator(".menu-trigger").count();
+    expect(menubarTriggerCount).toBeGreaterThanOrEqual(12);
+    await assertNoHorizontalOverflow(page);
+    await page.screenshot({ path: path.join(outDir, "01-maya-classic-workspace-1920x1080.png") });
+
+    // ---- 2. Menu Sets switch without touching scene, selection or Undo history ----
+    const beforeMenuSets = await page.evaluate(() => {
+      const s = window.__FE3D_STUDIO__.getState();
+      return {
+        objects: s.stats.object_count,
+        selected: s.viewport.selected_object_id,
+        undo: s.history.undo_count,
+        materials: s.stats.material_count,
+      };
+    });
+
+    const menuSetExpectations = [
+      ["modeling", ["Mesh", "Edit Mesh", "Mesh Display", "UV"]],
+      ["rigging", ["Grouping", "Pivot", "Node"]],
+      ["animation", ["Keyframes", "Playback", "Showcase Rig"]],
+      ["fx", ["Emitters", "Viewport"]],
+      ["rendering", ["Lights", "Environment", "Cameras", "Render"]],
+    ];
+
+    for (const [slug, expectedMenus] of menuSetExpectations) {
+      await page.getByTestId("maya-menuset-select").selectOption(slug);
+      await expect
+        .poll(async () => (await readState()).editor.menu_set)
+        .toBe(slug);
+      const labels = await page.locator("#maya-dynamic-menus .menu-trigger").allTextContents();
+      for (const menu of expectedMenus) {
+        expect(labels, `menu set ${slug} contains ${menu}`).toContain(menu);
+      }
+      const snap = await page.evaluate(() => {
+        const s = window.__FE3D_STUDIO__.getState();
+        return {
+          objects: s.stats.object_count,
+          selected: s.viewport.selected_object_id,
+          undo: s.history.undo_count,
+          materials: s.stats.material_count,
+        };
+      });
+      expect(snap).toEqual(beforeMenuSets);
+    }
+
+    // ---- 3. Main menus execute real commands; unavailable items are disabled ----
+    await page.getByTestId("maya-menuset-select").selectOption("modeling");
+    const objectsBeforeMenuCreate = (await readState()).stats.object_count;
+    await page.getByTestId("menu-add").click();
+    await page.getByTestId("menu-create-cylinder").click();
+    await expect
+      .poll(async () => (await readState()).stats.object_count)
+      .toBe(objectsBeforeMenuCreate + 1);
+    await expect(page.getByTestId("outliner-item-Cylinder")).toBeVisible();
+    await page.getByTestId("btn-undo").click();
+    await expect
+      .poll(async () => (await readState()).stats.object_count)
+      .toBe(objectsBeforeMenuCreate);
+
+    // Redo becomes available after Undo and the real Edit menu reflects it
+    const editMenuUndo = page.locator('[data-menu-cmd="redo"]');
+    await expect(editMenuUndo).toBeEnabled();
+    await page.getByTestId("menu-edit").click();
+    await page.locator('[data-menu-cmd="redo"]').click();
+    await expect
+      .poll(async () => (await readState()).stats.object_count)
+      .toBe(objectsBeforeMenuCreate + 1);
+    await page.getByTestId("btn-undo").click();
+
+    // Dismissing selection disables selection-dependent menu commands
+    await page.getByTestId("btn-clear-selection").click();
+    await expect.poll(async () => (await readState()).inspector).toBeNull();
+    await expect(page.locator('[data-menu-cmd="delete_obj"]')).toBeDisabled();
+    await expect(page.locator('[data-menu-cmd="freeze_transforms"]')).toBeDisabled();
+    await page.getByTestId("outliner-item-HeroCube").click();
+    await expect(page.locator('[data-menu-cmd="delete_obj"]')).toBeEnabled();
+
+    // ---- 4. Status Line selection masks + snapping drive real engine state ----
+    await page.getByTestId("mask-lights").click();
+    await expect.poll(async () => (await readState()).editor.selection_masks.lights).toBe(false);
+    await page.getByTestId("mask-lights").click();
+    await expect.poll(async () => (await readState()).editor.selection_masks.lights).toBe(true);
+
+    await page.getByTestId("btn-snap-grid").click();
+    await expect.poll(async () => (await readState()).editor.snap.grid).toBe(true);
+    await page.getByTestId("btn-snap-point").click();
+    await expect.poll(async () => (await readState()).editor.snap.point).toBe(true);
+    await page.getByTestId("btn-snap-grid").click();
+    await page.getByTestId("btn-snap-point").click();
+
+    // Reference / Template display states are driven by the active Display Layer
+    await page.getByTestId("btn-status-template").click();
+    await expect
+      .poll(async () => (await readState()).display_layers.layers[0].mode)
+      .toBe("template");
+    await expect(page.getByTestId("btn-status-template")).toHaveClass(/is-active/);
+    await page.getByTestId("btn-status-template").click();
+    await expect
+      .poll(async () => (await readState()).display_layers.layers[0].mode)
+      .toBe("normal");
+    await page.getByTestId("btn-status-reference").click();
+    await expect
+      .poll(async () => (await readState()).display_layers.layers[0].mode)
+      .toBe("reference");
+    await page.getByTestId("btn-status-reference").click();
+    await expect
+      .poll(async () => (await readState()).display_layers.layers[0].mode)
+      .toBe("normal");
+
+    // ---- 5. Shelf system: 9 default shelves execute real commands ----
+    await expect(page.locator("#maya-shelf-tabs .maya-shelf-tab")).toHaveCount(9);
+    for (const shelf of ["general", "poly_modeling", "sculpting", "rigging", "animation", "uv_editing", "shading", "rendering", "fx"]) {
+      await expect(page.getByTestId(`shelf-tab-${shelf}`)).toBeVisible();
+    }
+    await page.getByTestId("shelf-tab-poly_modeling").click();
+    await expect(page.getByTestId("shelf-tab-poly_modeling")).toHaveClass(/is-active/);
+    const objectsBeforeShelf = (await readState()).stats.object_count;
+    await page.getByTestId("shelf-item-pm_torus").click();
+    await expect
+      .poll(async () => (await readState()).stats.object_count)
+      .toBe(objectsBeforeShelf + 1);
+    await expect(page.getByTestId("outliner-item-Torus")).toBeVisible();
+    await page.getByTestId("btn-undo").click();
+
+    // ---- 6. Shelf customization: create, rename, add tool, reorder, remove, restore ----
+    await page.getByTestId("btn-shelf-gear").click();
+    await page.getByTestId("shelf-op-new_shelf").click();
+    await page.getByTestId("shelf-modal-input").fill("Kitbash");
+    await page.getByTestId("shelf-modal-ok").click();
+    await expect(page.locator("#maya-shelf-tabs .maya-shelf-tab")).toHaveCount(10);
+    await expect(page.locator("#maya-shelf-tabs .maya-shelf-tab", { hasText: "Kitbash" })).toBeVisible();
+
+    await page.getByTestId("btn-shelf-add-item").click();
+    await page.getByTestId("shelf-tool-select").selectOption("preset_cone");
+    await page.getByTestId("shelf-add-confirm").click();
+    await expect(page.locator("#maya-shelf-items .maya-shelf-item")).toHaveCount(1);
+
+    const sceneBeforeShelfCommand = (await readState()).stats.object_count;
+    await page.locator("#maya-shelf-items .maya-shelf-item").first().click();
+    await expect
+      .poll(async () => (await readState()).stats.object_count)
+      .toBe(sceneBeforeShelfCommand + 1);
+    await expect(page.getByTestId("outliner-item-Cone")).toBeVisible();
+
+    await page.locator("#maya-shelf-items .maya-shelf-item").first().click({ button: "right" });
+    await expect(page.getByTestId("shelf-item-ctx-menu")).toBeVisible();
+    await page.getByTestId("shelf-item-remove").click();
+    await expect(page.locator("#maya-shelf-items .maya-shelf-item")).toHaveCount(0);
+
+    await page.getByTestId("btn-shelf-gear").click();
+    await page.getByTestId("shelf-op-rename_shelf").click();
+    await page.getByTestId("shelf-modal-input").fill("Kitbash Renamed");
+    await page.getByTestId("shelf-modal-ok").click();
+    await expect(page.locator("#maya-shelf-tabs .maya-shelf-tab", { hasText: "Kitbash Renamed" })).toBeVisible();
+
+    // Custom shelves persist across a full browser reload
+    await page.goto("/index.html?view=studio");
+    await expect(page.getByTestId("splash-screen")).toBeHidden({ timeout: 25_000 });
+    await expect(page.getByTestId("studio-shell")).toBeVisible();
+    await expect(page.locator("#maya-shelf-tabs .maya-shelf-tab", { hasText: "Kitbash Renamed" })).toBeVisible();
+
+    // Restore factory shelves
+    await page.getByTestId("btn-shelf-gear").click();
+    await page.getByTestId("shelf-op-restore_defaults").click();
+    await expect(page.locator("#maya-shelf-tabs .maya-shelf-tab")).toHaveCount(9);
+
+    // ---- 7. Toolbox shortcuts operate the real C++ tool system ----
+    await page.locator('[data-testid="viewport-canvas"]').click({ position: { x: 40, y: 40 } });
+    const shortcutExpectations = [
+      ["q", "select"],
+      ["w", "move"],
+      ["e", "rotate"],
+      ["r", "scale"],
+      ["t", "show_manipulator"],
+    ];
+    for (const [key, tool] of shortcutExpectations) {
+      await page.keyboard.press(key);
+      await expect
+        .poll(async () => (await readState()).editor.active_tool)
+        .toBe(tool);
+    }
+    await page.keyboard.press("y");
+    await expect.poll(async () => (await readState()).editor.active_tool).toBe("show_manipulator");
+
+    await page.getByTestId("outliner-item-HeroCube").click();
+    await page.keyboard.press("e");
+    await page.keyboard.press("d");
+    await expect.poll(async () => (await readState()).editor.active_tool).toBe("pivot");
+    await page.keyboard.press("d");
+    await page.keyboard.press("w");
+    await expect.poll(async () => (await readState()).editor.active_tool).toBe("move");
+
+    // Component / shading shortcut matrix
+    await page.keyboard.press("f8");
+    await expect.poll(async () => (await readState()).editor.mode).toBe("face");
+    await page.keyboard.press("f9");
+    await expect.poll(async () => (await readState()).editor.mode).toBe("vertex");
+    await page.keyboard.press("f10");
+    await expect.poll(async () => (await readState()).editor.mode).toBe("edge");
+    await page.keyboard.press("f11");
+    await expect.poll(async () => (await readState()).editor.mode).toBe("face");
+    await page.keyboard.press("f8");
+    await expect.poll(async () => (await readState()).editor.mode).toBe("object");
+
+    await page.keyboard.press("4");
+    await expect.poll(async () => (await readState()).viewport.shading_mode).toBe("wireframe");
+    await page.keyboard.press("5");
+    await expect.poll(async () => (await readState()).viewport.shading_mode).toBe("shaded");
+    await page.keyboard.press("6");
+    await expect.poll(async () => (await readState()).viewport.shading_mode).toBe("textured");
+    await page.keyboard.press("7");
+    await expect.poll(async () => (await readState()).viewport.default_lighting).toBe(false);
+    await page.keyboard.press("a");
+    await page.keyboard.press("f");
+
+    // Typing into a text field must never trigger viewport shortcuts
+    await page.getByTestId("outliner-filter").click();
+    await page.keyboard.type("WERQ478");
+    await expect.poll(async () => (await readState()).editor.active_tool).toBe("move");
+    await expect.poll(async () => (await readState()).viewport.shading_mode).toBe("textured");
+    await expect(page.getByTestId("outliner-item-HeroCube")).toHaveCount(0);
+    await page.getByTestId("outliner-filter").fill("");
+    await expect(page.getByTestId("outliner-item-HeroCube")).toBeVisible();
+
+    // ---- 8. Spacebar Hotbox opens, switches menu sets, and closes on release ----
+    await page.keyboard.down("Space");
+    await expect(page.getByTestId("maya-hotbox")).toBeVisible();
+    await page.getByTestId("hotbox-persp").click();
+    await expect(page.getByTestId("maya-hotbox")).toBeHidden();
+    await page.keyboard.up("Space");
+
+    await page.keyboard.down("Space");
+    await expect(page.getByTestId("maya-hotbox")).toBeVisible();
+    await page.locator('[data-hotbox-cmd="menuset_rendering"]').click();
+    await expect.poll(async () => (await readState()).editor.menu_set).toBe("rendering");
+    await page.keyboard.up("Space");
+    await expect(page.getByTestId("maya-hotbox")).toBeHidden();
+
+    // ---- 9. Status-line command search executes real commands ----
+    const objectsBeforeSearch = (await readState()).stats.object_count;
+    await page.getByTestId("status-command-search").fill("cube");
+    await expect(page.getByTestId("cmd-search-preset_cube")).toBeVisible();
+    await page.getByTestId("cmd-search-preset_cube").click();
+    await expect
+      .poll(async () => (await readState()).stats.object_count)
+      .toBe(objectsBeforeSearch + 1);
+
+    // ---- 10. Configurable hotkeys route through the Maya shortcut map ----
+    await page.getByTestId("menu-workspace").click();
+    await page.getByTestId("menu-cmd-hotkeys").click();
+    await expect(page.getByTestId("hotkey-modal")).toBeVisible();
+    await page.getByTestId("hotkey-input-duplicate_selected").fill("Ctrl+Shift+K");
+    await page.getByTestId("btn-save-hotkeys").click();
+    await expect(page.getByTestId("hotkey-modal")).toBeHidden();
+
+    await page.getByTestId("outliner-item-HeroCube").click();
+    const objectsBeforeCustomHotkey = (await readState()).stats.object_count;
+    await page.keyboard.press("Control+Shift+K");
+    await expect
+      .poll(async () => (await readState()).stats.object_count)
+      .toBe(objectsBeforeCustomHotkey + 1);
+    await page.getByTestId("btn-undo").click();
+
+    // Reload resets to the built-in engine keyboard map only if the user restores defaults
+    await page.getByTestId("menu-workspace").click();
+    await page.getByTestId("menu-cmd-hotkeys").click();
+    await page.getByTestId("btn-reset-hotkeys").click();
+    await expect(page.getByTestId("hotkey-input-duplicate_selected")).toHaveValue("Ctrl+D");
+    await page.getByTestId("btn-close-hotkeys").click();
+
+    await page.screenshot({ path: path.join(outDir, "02-maya-shelves-hotbox-and-menus-1920x1080.png") });
+    await assertNoHorizontalOverflow(page);
+    await context.close();
+  });
+
+  test("14. Maya-Classic Workstation Part B: Hierarchical Outliner (expand/rename/multiselect/drag-reparent/lock), Channel Box & channel locks, Layer Editor, tabbed Attribute Editor node targeting, Time Slider keyframes, safe Command Line, workspace docking persistence, and responsive overlap safety", async ({
+    browser,
+  }) => {
+    test.setTimeout(180_000);
+    const outDir =
+      process.env.FE3D_SCREENSHOT_DIR ||
+      path.resolve(process.cwd(), "../../build/ci-screenshots/maya-stage1");
+    await fs.mkdir(outDir, { recursive: true });
+
+    const context = await browser.newContext({ viewport: { width: 1920, height: 1080 }, hasTouch: true });
+    const page = await context.newPage();
+    await bootDirectStudioReady(page);
+    await page.getByTestId("btn-toggle-rig").click();
+
+    const readState = async () => page.evaluate(() => window.__FE3D_STUDIO__.getState());
+
+    // ---- 1. Outliner hierarchy, collapse/expand, multi-select, rename, lock ----
+    await expect(page.getByTestId("outliner-item-HeroCube")).toBeVisible();
+    await expect(page.getByTestId("outliner-item-AccentPyramid")).toBeVisible();
+    await expect(page.getByTestId("panel-outliner").locator(".outliner-row")).toHaveCount(5);
+
+    await page.getByTestId("outliner-item-RigPivot").locator(".outliner-twisty").click();
+    await expect(page.getByTestId("outliner-item-HeroCube")).toHaveCount(0);
+    await page.getByTestId("outliner-item-RigPivot").locator(".outliner-twisty").click();
+    await expect(page.getByTestId("outliner-item-HeroCube")).toBeVisible();
+
+    await page.getByTestId("outliner-item-HeroCube").click();
+    await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: HeroCube");
+    await page.getByTestId("outliner-item-AccentPyramid").click({ modifiers: ["Shift"] });
+    await expect
+      .poll(async () => (await readState()).viewport.selected_object_ids.length)
+      .toBe(2);
+    await expect(page.getByTestId("outliner-item-HeroCube")).toHaveClass(/is-selected/);
+    await expect(page.getByTestId("outliner-item-AccentPyramid")).toHaveClass(/is-selected/);
+    await page.getByTestId("outliner-item-AccentPyramid").click();
+    await expect
+      .poll(async () => (await readState()).viewport.selected_object_ids.length)
+      .toBe(1);
+
+    await page.getByTestId("outliner-item-AccentPyramid").locator(".outliner-name").dblclick();
+    await page.getByTestId("outliner-rename-input").fill("RenamedOrb");
+    await page.getByTestId("outliner-rename-input").press("Enter");
+    await expect(page.getByTestId("outliner-item-RenamedOrb")).toBeVisible();
+    await expect(page.getByTestId("cb-node-title")).toHaveText("RenamedOrb");
+
+    await page.getByTestId("toggle-lock-RenamedOrb").click();
+    await expect.poll(async () => (await readState()).inspector.locked).toBe(true);
+    const objectsBeforeLockedDelete = (await readState()).stats.object_count;
+    await page.getByTestId("btn-delete").click();
+    await expect
+      .poll(async () => (await readState()).stats.object_count)
+      .toBe(objectsBeforeLockedDelete);
+    await expect(page.getByTestId("status-message")).toContainText("locked");
+    await page.getByTestId("toggle-lock-RenamedOrb").click();
+    await expect.poll(async () => (await readState()).inspector.locked).toBe(false);
+
+    // Outliner node context menu executes real commands on the right-clicked node
+    const objectsBeforeOlCtx = (await readState()).stats.object_count;
+    await page.getByTestId("outliner-item-HeroCube").click({ button: "right" });
+    await expect(page.getByTestId("outliner-ctx-menu")).toBeVisible();
+    await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: HeroCube");
+    await page.getByTestId("ol-cmd-duplicate").click();
+    await expect
+      .poll(async () => (await readState()).stats.object_count)
+      .toBe(objectsBeforeOlCtx + 1);
+    await page.getByTestId("btn-undo").click();
+    await expect
+      .poll(async () => (await readState()).stats.object_count)
+      .toBe(objectsBeforeOlCtx);
+
+    // Drag & drop hierarchy change: RenamedOrb -> RigPivot
+    await page.getByTestId("outliner-item-RenamedOrb").dragTo(page.getByTestId("outliner-item-RigPivot"));
+    await expect
+      .poll(async () =>
+        page.evaluate(() => {
+          const s = window.__FE3D_STUDIO__.getState();
+          const child = s.objects.find((o) => o.name === "RenamedOrb");
+          const parent = s.objects.find((o) => o.name === "RigPivot");
+          return child && parent ? child.parent_id === parent.id : false;
+        })
+      )
+      .toBe(true);
+
+    // ---- 2. Channel Box edits drive the real C++ transform and stay in sync with the Attribute Editor ----
+    await page.getByTestId("outliner-item-HeroCube").click();
+    await expect(page.getByTestId("cb-node-title")).toHaveText("HeroCube");
+    const originalY = Number(await page.getByTestId("cb-ty").inputValue());
+    const originalTxValue = (await readState()).inspector.position[0];
+    const originalTxText = String(Number(originalTxValue.toFixed(3)));
+    await setControlValueAndCommit(page.getByTestId("cb-ty"), "1.75");
+    await expect
+      .poll(async () => (await readState()).inspector.position[1])
+      .toBeCloseTo(1.75, 2);
+    await expect(page.getByTestId("tf-pos-y")).toHaveValue("1.75");
+    await expect(page.getByTestId("cb-tx")).toHaveValue(originalTxText);
+
+    await page.getByTestId("btn-undo").click();
+    await expect
+      .poll(async () => (await readState()).inspector.position[1])
+      .toBeCloseTo(originalY, 2);
+
+    // Channel lock prevents mutation on a single axis while other axes still move
+    await page.getByTestId("cb-lock-tx").click();
+    await expect
+      .poll(async () => (await readState()).inspector.locked_channels & 1)
+      .toBe(1);
+    const lockedX = (await readState()).inspector.position[0];
+    await setControlValueAndCommit(page.getByTestId("cb-tx"), "4.5");
+    await setControlValueAndCommit(page.getByTestId("cb-tz"), "1.25");
+    await expect
+      .poll(async () => (await readState()).inspector.position[0])
+      .toBeCloseTo(lockedX, 3);
+    await expect
+      .poll(async () => (await readState()).inspector.position[2])
+      .toBeCloseTo(1.25, 2);
+    await page.getByTestId("cb-lock-tx").click();
+    await expect
+      .poll(async () => (await readState()).inspector.locked_channels & 1)
+      .toBe(0);
+
+    // ---- 3. Attribute Editor always targets the currently selected node ----
+    await page.getByTestId("outliner-item-MainCamera").click();
+    await expect(page.getByTestId("panel-channel-box").locator("#cb-node-title")).toHaveText("MainCamera");
+    await expect(page.locator("#card-camera")).toBeVisible();
+    await expect(page.locator("#card-light")).toBeHidden();
+    await expect(page.locator("#card-mesh")).toBeHidden();
+
+    await page.getByTestId("outliner-item-SunLight").click();
+    await expect(page.locator("#card-light")).toBeVisible();
+    await expect(page.locator("#card-camera")).toBeHidden();
+    await expect(page.getByTestId("light-type")).toHaveValue("directional");
+
+    await page.getByTestId("outliner-item-HeroCube").click();
+    await expect(page.locator("#card-light")).toBeHidden();
+    await expect(page.locator("#card-camera")).toBeHidden();
+    await expect(page.locator("#card-mesh")).toBeVisible();
+    await expect(page.getByTestId("ae-node-transform")).toBeVisible();
+
+    // ---- 4. Display Layers: create from selection, template state, no object deletion ----
+    const layerRowsBefore = await page.getByTestId("layer-editor-list").locator(".layer-row").count();
+    await page.getByTestId("btn-layer-create-selected").click();
+    await expect
+      .poll(async () => page.getByTestId("layer-editor-list").locator(".layer-row").count())
+      .toBe(layerRowsBefore + 1);
+    const layerInfo = await page.evaluate(() => {
+      const s = window.__FE3D_STUDIO__.getState();
+      const layers = s.display_layers.layers;
+      const created = layers[layers.length - 1];
+      const hero = s.objects.find((o) => o.name === "HeroCube");
+      return { id: created.id, mode: created.mode, visible: created.visible, heroLayer: hero.display_layer_id, objectCount: s.stats.object_count };
+    });
+    expect(layerInfo.heroLayer).toBe(layerInfo.id);
+    expect(layerInfo.mode).toBe("normal");
+    expect(layerInfo.objectCount).toBe(5);
+
+    await page.getByTestId(`layer-mode-${layerInfo.id}`).click();
+    await expect
+      .poll(async () => (await readState()).display_layers.layers.slice(-1)[0].mode)
+      .toBe("template");
+    await page.getByTestId(`layer-vis-${layerInfo.id}`).click();
+    await expect
+      .poll(async () => (await readState()).display_layers.layers.slice(-1)[0].visible)
+      .toBe(false);
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("5 / 2");
+    await page.getByTestId(`layer-vis-${layerInfo.id}`).click();
+    await page.getByTestId(`layer-mode-${layerInfo.id}`).click();
+    await page.getByTestId(`layer-mode-${layerInfo.id}`).click();
+
+    // ---- 5. Time Slider: real frame scrubbing, keyframes, and playback ----
+    await page.getByTestId("outliner-item-HeroCube").click();
+    await page.evaluate(() => {
+      const slider = document.getElementById("timeline-scrubber");
+      slider.value = "12";
+      slider.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await expect.poll(async () => Math.round((await readState()).timeline.current_frame)).toBe(12);
+    await expect(page.getByTestId("timeline-frame-num")).toHaveValue("12");
+
+    await page.getByTestId("btn-tl-set-key").click();
+    await expect
+      .poll(async () => (await readState()).timeline.selected_object_keys.length)
+      .toBe(1);
+    await expect(page.locator("#maya-keyframe-ticks .maya-key-tick")).toHaveCount(1);
+
+    await page.getByTestId("btn-tl-autokey").click();
+    await expect.poll(async () => (await readState()).timeline.auto_key).toBe(true);
+    await page.getByTestId("btn-tl-autokey").click();
+
+    await page.getByTestId("btn-timeline-play").click();
+    await expect.poll(async () => (await readState()).timeline.playing).toBe(true);
+    const frameAtPlay = (await readState()).timeline.current_frame;
+    await expect
+      .poll(async () => (await readState()).timeline.current_frame)
+      .toBeGreaterThan(frameAtPlay);
+    await page.getByTestId("btn-timeline-play").click();
+    await expect.poll(async () => (await readState()).timeline.playing).toBe(false);
+    await page.screenshot({ path: path.join(outDir, "03-maya-timeline-and-channel-box-1920x1080.png") });
+
+    // ---- 6. Command Line executes structured Maya-style commands, rejects invalid input safely ----
+    await page.getByTestId("maya-command-input").fill("polyTorus");
+    await page.getByTestId("maya-command-input").press("Enter");
+    await expect(page.getByTestId("outliner-item-Torus")).toBeVisible();
+    await expect(page.getByTestId("maya-command-feedback")).toContainText("Created 'Torus'");
+
+    await page.getByTestId("maya-command-input").fill("move 0 2 0");
+    await page.getByTestId("maya-command-input").press("Enter");
+    await expect
+      .poll(async () => (await readState()).inspector.position[1])
+      .toBeCloseTo(2, 2);
+
+    await page.getByTestId("maya-command-input").fill("group");
+    await page.getByTestId("maya-command-input").press("Enter");
+    await expect(page.getByTestId("maya-command-feedback")).toContainText("Grouped");
+
+    await page.getByTestId("maya-command-input").fill("help");
+    await page.getByTestId("maya-command-input").press("Enter");
+    await expect(page.getByTestId("maya-command-feedback")).toContainText("Commands:");
+
+    await page.getByTestId("maya-command-input").fill("window.alert('x')");
+    await page.getByTestId("maya-command-input").press("Enter");
+    await expect(page.getByTestId("maya-command-feedback")).toHaveClass(/is-error/);
+    await expect(page.getByTestId("maya-command-feedback")).toContainText("Unknown command");
+
+    // ---- 7. Docking: collapse/restore left, right and bottom regions plus splitter resizing ----
+    const leftWidthBefore = (await page.getByTestId("dock-left").boundingBox()).width;
+    const leftSplitter = page.getByTestId("splitter-left");
+    const lsBox = await leftSplitter.boundingBox();
+    await page.mouse.move(lsBox.x + lsBox.width / 2, lsBox.y + lsBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(lsBox.x + lsBox.width / 2 + 40, lsBox.y + lsBox.height / 2, { steps: 5 });
+    await page.mouse.up();
+    const leftWidthAfter = (await page.getByTestId("dock-left").boundingBox()).width;
+    expect(Math.abs(leftWidthAfter - leftWidthBefore)).toBeGreaterThan(15);
+
+    await page.getByTestId("menu-view").click();
+    await page.locator('[data-menu-cmd="toggle_left_dock"]').click();
+    await expect(page.getByTestId("dock-left")).toBeHidden();
+    await page.getByTestId("menu-view").click();
+    await page.locator('[data-menu-cmd="toggle_left_dock"]').click();
+    await expect(page.getByTestId("dock-left")).toBeVisible();
+
+    await page.locator("#btn-collapse-bottom").click();
+    await expect(page.getByTestId("dock-bottom")).toHaveClass(/is-collapsed/);
+    await page.locator("#btn-collapse-bottom").click();
+    await expect(page.getByTestId("dock-bottom")).not.toHaveClass(/is-collapsed/);
+
+    await page.getByTestId("btn-collapse-right").click();
+    await expect(page.getByTestId("dock-right")).toBeHidden();
+    await page.getByTestId("btn-vp-restore-right").click();
+    await expect(page.getByTestId("dock-right")).toBeVisible();
+
+    // Workspace save / restore keeps the active workspace and never mutates scene data
+    const sceneBeforeWorkspace = await page.evaluate(() => {
+      const s = window.__FE3D_STUDIO__.getState();
+      return { objects: s.stats.object_count, undo: s.history.undo_count, selected: s.viewport.selected_object_id };
+    });
+    await page.getByTestId("ws-tab-modeling").click();
+    await expect(page.getByTestId("dock-bottom")).toBeHidden();
+    await page.getByTestId("btn-studio-settings").click();
+    await page.getByTestId("btn-pref-save-layout").click();
+    await page.getByTestId("btn-close-settings").click();
+    await page.getByTestId("ws-tab-layout").click();
+    await expect(page.getByTestId("dock-bottom")).toBeVisible();
+    await page.getByTestId("btn-studio-settings").click();
+    await page.getByTestId("btn-pref-restore-layout").click();
+    await page.getByTestId("btn-close-settings").click();
+    await expect(page.getByTestId("ws-tab-modeling")).toHaveClass(/is-active/);
+    await expect(page.getByTestId("dock-bottom")).toBeHidden();
+    const sceneAfterWorkspace = await page.evaluate(() => {
+      const s = window.__FE3D_STUDIO__.getState();
+      return { objects: s.stats.object_count, undo: s.history.undo_count, selected: s.viewport.selected_object_id };
+    });
+    expect(sceneAfterWorkspace).toEqual(sceneBeforeWorkspace);
+
+    // ---- 8. Marking menu opens on stationary RMB, preserves selection, and runs real commands ----
+    await page.getByTestId("ws-tab-layout").click();
+    await expect(page.getByTestId("outliner-item-HeroCube")).toBeVisible();
+    await page.getByTestId("outliner-item-HeroCube").click();
+    const stageRect = await page.getByTestId("viewport-stage").boundingBox();
+    await page.mouse.click(stageRect.x + stageRect.width * 0.5, stageRect.y + stageRect.height * 0.5, {
+      button: "right",
+    });
+    await expect(page.getByTestId("viewport-context-menu")).toBeVisible();
+    await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: HeroCube");
+    await page.getByTestId("mm-vertex").click();
+    await expect.poll(async () => (await readState()).editor.mode).toBe("vertex");
+    await expect(page.getByTestId("vp-selection-pill")).toHaveText("Selected: HeroCube");
+    await page.getByTestId("btn-mode-object").click();
+
+    // ---- 9. Project save/load round-trip preserves the Maya scene graph ----
+    const savedProject = await page.evaluate(() => window.__FE3D_STUDIO__.exportInlineProject());
+    const beforeReloadObjects = (await readState()).stats.object_count;
+    await page.getByTestId("menu-file").click();
+    await page.getByTestId("btn-new-project").click();
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("5 / 2");
+    await page.evaluate((json) => window.__FE3D_STUDIO__.importInlineProject(json), savedProject);
+    await expect
+      .poll(async () => (await readState()).stats.object_count)
+      .toBe(beforeReloadObjects);
+    await expect(page.getByTestId("outliner-item-RenamedOrb")).toBeVisible();
+
+    // ---- 10. Responsive overlap safety across desktop, landscape and portrait ----
+    const boxesOverlap = (a, b) =>
+      a && b && a.x + 1 < b.x + b.width && a.x + a.width - 1 > b.x && a.y + 1 < b.y + b.height && a.y + a.height - 1 > b.y;
+
+    for (const viewport of [
+      { width: 1920, height: 1080, mode: "desktop" },
+      { width: 1366, height: 768, mode: "desktop" },
+      { width: 844, height: 390, mode: "landscape" },
+      { width: 390, height: 844, mode: "portrait" },
+    ]) {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await expect(page.locator("body")).toHaveAttribute("data-layout-mode", viewport.mode);
+      await assertNoHorizontalOverflow(page);
+      const hud = await page.getByTestId("viewport-hud-top").boundingBox();
+      const nav = await page.locator(".viewport-nav-cluster").boundingBox();
+      const gizmo = await page.getByTestId("viewport-view-gizmo").boundingBox();
+      const shelf = await page.getByTestId("tool-shelf").boundingBox();
+      expect(boxesOverlap(hud, nav), `hud/nav ${viewport.width}x${viewport.height}`).toBe(false);
+      expect(boxesOverlap(gizmo, nav), `gizmo/nav ${viewport.width}x${viewport.height}`).toBe(false);
+      expect(boxesOverlap(gizmo, hud), `gizmo/hud ${viewport.width}x${viewport.height}`).toBe(false);
+      expect(boxesOverlap(shelf, hud), `shelf/hud ${viewport.width}x${viewport.height}`).toBe(false);
+    }
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.screenshot({ path: path.join(outDir, "04-maya-outliner-layers-and-attribute-editor-1920x1080.png") });
+    await context.close();
+  });
+
 });
-
-
-
