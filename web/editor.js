@@ -3006,6 +3006,14 @@
         });
       });
 
+      row.addEventListener("contextmenu", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        closeAllDropdownMenus();
+        closeShelfMenus();
+        openOutlinerCtxMenu(obj, ev.clientX, ev.clientY);
+      });
+
       row.addEventListener("pointerdown", (ev) => {
         if (ev.button !== 0) return;
         beginOutlinerDrag(obj.id, ev.clientX, ev.clientY);
@@ -4582,7 +4590,7 @@
   }
 
   function restoreWorkspaceFromStorage() {
-    if (!wasmApi) return;
+    if (!wasmApi) return false;
     try {
       const saved = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
       if (saved && saved.trim().startsWith("{")) {
@@ -4591,8 +4599,10 @@
         syncWorkspaceTabFromLayoutName(wsObj.layout_name);
         dispatch({ action: "import_workspace_json", json_text: saved });
         applyDockRatiosCss(wsObj);
+        return true;
       }
     } catch (_) {}
+    return false;
   }
 
   function saveNamedCustomWorkspace() {
@@ -5074,6 +5084,19 @@
         closeAllDropdownMenus();
         if (!wasmApi) return;
         executeEditorCommand(cmd);
+      });
+    });
+
+    // ---------------- Quick create presets (Status Line & Create menu) ----------------
+    document.querySelectorAll("[data-preset]").forEach((btn) => {
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        closeAllDropdownMenus();
+        if (!wasmApi) return;
+        const preset = btn.dataset.preset;
+        if (!preset) return;
+        dispatch({ action: "add_preset", preset: preset });
+        setHelpLine("Created " + preset.replace(/_/g, " ") + " — press W/E/R to transform, F to frame");
       });
     });
 
@@ -6149,8 +6172,15 @@
     };
 
     rebuildOverrideMap();
-    restoreWorkspaceFromStorage();
+    const restoredWorkspace = restoreWorkspaceFromStorage();
     syncFromEngine(true);
+
+    // Maya Classic is the default workstation: Menu Bar + Status Line + Shelf + Tool Box +
+    // Viewport + Outliner/Tool Settings + Channel Box/Layers/Attribute Editor + Time Slider.
+    if (!restoredWorkspace) {
+      activateWorkspaceById("layout", false);
+      syncFromEngine(true);
+    }
 
     const params = new URLSearchParams(window.location.search || "");
     if (params.get("view") === "studio") setAppView("studio");
