@@ -3147,6 +3147,10 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await expect(page.getByTestId("outliner-item-HeroCube")).toHaveCount(0);
     await page.getByTestId("outliner-filter").fill("");
     await expect(page.getByTestId("outliner-item-HeroCube")).toBeVisible();
+    // Give the viewport keyboard focus back so global Maya shortcuts / Hotbox resume
+    await page.evaluate(() => {
+      if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    });
 
     // ---- 8. Spacebar Hotbox opens, switches menu sets, and closes on release ----
     await page.keyboard.down("Space");
