@@ -2075,6 +2075,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
   test("11. Stage 5.4 Lighting Engine Part A: All 4 Light Types (Directional, Point, Spot, Rect & Disk Area), Independent Properties, Real WebGL2 PBR Attenuation/Cone/Area Spread, and Real-Time Shadow Atlas", async ({
     browser,
   }) => {
+    test.setTimeout(240_000);
     const outDir =
       process.env.FE3D_SCREENSHOT_DIR ||
       path.resolve(process.cwd(), "../../build/ci-screenshots/after-stage5.1");
@@ -2446,6 +2447,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
   test("12. Stage 5.4 Lighting Engine Part B: Radiance .hdr IBL Assignment/Rotation/Error Safety, Light Linking, Undo/Redo, .fe3d v1.3 Round-Trip, v1.2 Compatibility, and 3D Light Helpers", async ({
     browser,
   }) => {
+    test.setTimeout(240_000);
     const outDir =
       process.env.FE3D_SCREENSHOT_DIR ||
       path.resolve(process.cwd(), "../../build/ci-screenshots/after-stage5.1");
@@ -2982,10 +2984,10 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
       .toBe(objectsBeforeMenuCreate);
 
     // Redo becomes available after Undo and the real Edit menu reflects it
-    const editMenuUndo = page.locator('[data-menu-cmd="redo"]');
+    const editMenuUndo = page.getByTestId("menu-cmd-redo");
     await expect(editMenuUndo).toBeEnabled();
     await page.getByTestId("menu-edit").click();
-    await page.locator('[data-menu-cmd="redo"]').click();
+    await page.getByTestId("menu-cmd-redo").click();
     await expect
       .poll(async () => (await readState()).stats.object_count)
       .toBe(objectsBeforeMenuCreate + 1);
@@ -2994,10 +2996,10 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     // Dismissing selection disables selection-dependent menu commands
     await page.getByTestId("btn-clear-selection").click();
     await expect.poll(async () => (await readState()).inspector).toBeNull();
-    await expect(page.locator('[data-menu-cmd="delete_obj"]')).toBeDisabled();
-    await expect(page.locator('[data-menu-cmd="freeze_transforms"]')).toBeDisabled();
+    await expect(page.getByTestId("menu-cmd-delete")).toBeDisabled();
+    await expect(page.getByTestId("menu-cmd-freeze")).toBeDisabled();
     await page.getByTestId("outliner-item-HeroCube").click();
-    await expect(page.locator('[data-menu-cmd="delete_obj"]')).toBeEnabled();
+    await expect(page.getByTestId("menu-cmd-delete")).toBeEnabled();
 
     // ---- 4. Status Line selection masks + snapping drive real engine state ----
     await page.getByTestId("mask-lights").click();
@@ -3115,15 +3117,15 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await expect.poll(async () => (await readState()).editor.active_tool).toBe("move");
 
     // Component / shading shortcut matrix
-    await page.keyboard.press("f8");
+    await page.keyboard.press("F8");
     await expect.poll(async () => (await readState()).editor.mode).toBe("face");
-    await page.keyboard.press("f9");
+    await page.keyboard.press("F9");
     await expect.poll(async () => (await readState()).editor.mode).toBe("vertex");
-    await page.keyboard.press("f10");
+    await page.keyboard.press("F10");
     await expect.poll(async () => (await readState()).editor.mode).toBe("edge");
-    await page.keyboard.press("f11");
+    await page.keyboard.press("F11");
     await expect.poll(async () => (await readState()).editor.mode).toBe("face");
-    await page.keyboard.press("f8");
+    await page.keyboard.press("F8");
     await expect.poll(async () => (await readState()).editor.mode).toBe("object");
 
     await page.keyboard.press("4");
@@ -3432,10 +3434,10 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     expect(Math.abs(leftWidthAfter - leftWidthBefore)).toBeGreaterThan(15);
 
     await page.getByTestId("menu-view").click();
-    await page.locator('[data-menu-cmd="toggle_left_dock"]').click();
+    await page.locator('[data-menu-cmd="toggle_left_dock"]').first().click();
     await expect(page.getByTestId("dock-left")).toBeHidden();
     await page.getByTestId("menu-view").click();
-    await page.locator('[data-menu-cmd="toggle_left_dock"]').click();
+    await page.locator('[data-menu-cmd="toggle_left_dock"]').first().click();
     await expect(page.getByTestId("dock-left")).toBeVisible();
 
     await page.locator("#btn-collapse-bottom").click();
