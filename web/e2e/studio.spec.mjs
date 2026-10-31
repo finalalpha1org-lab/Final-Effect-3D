@@ -3095,7 +3095,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
       ["w", "move"],
       ["e", "rotate"],
       ["r", "scale"],
-      ["t", "show_manipulator"],
+      ["t", "manipulator"],
     ];
     for (const [key, tool] of shortcutExpectations) {
       await page.keyboard.press(key);
@@ -3104,7 +3104,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
         .toBe(tool);
     }
     await page.keyboard.press("y");
-    await expect.poll(async () => (await readState()).editor.active_tool).toBe("show_manipulator");
+    await expect.poll(async () => (await readState()).editor.active_tool).toBe("manipulator");
 
     await page.getByTestId("outliner-item-HeroCube").click();
     await page.keyboard.press("e");

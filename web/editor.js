@@ -4507,8 +4507,21 @@
         const startX = ev.clientX;
         const startW = target.getBoundingClientRect().width;
 
+        // Keep the central 3D Viewport dominant: the dragged dock may never consume more than
+        // 45% of the window, and the opposite dock + tool shelf + splitters are subtracted.
+        function viewportPriorityMaxWidth() {
+          const w = window.innerWidth || 1280;
+          const shelfW = els.toolShelf ? els.toolShelf.getBoundingClientRect().width : 0;
+          const minViewport = Math.max(320, Math.floor(w * 0.55));
+          const oppositeW =
+            cssVar === "--right-dock-w"
+              ? (els.dockLeft ? els.dockLeft.getBoundingClientRect().width : 0)
+              : (els.dockRight ? els.dockRight.getBoundingClientRect().width : 0);
+          return Math.max(minPx, Math.min(520, w - minViewport - shelfW - oppositeW - 8));
+        }
+
         function onMove(mev) {
-          const maxW = Math.max(minPx, Math.min(520, Math.floor((window.innerWidth || 1280) * 0.42)));
+          const maxW = Math.max(minPx, Math.min(viewportPriorityMaxWidth(), cssVar === "--right-dock-w" ? 520 : 340));
           const delta = mev.clientX - startX;
           const nextW = Math.round(Math.max(minPx, Math.min(maxW, invert ? startW - delta : startW + delta)));
           document.documentElement.style.setProperty(cssVar, nextW + "px");
@@ -4575,12 +4588,18 @@
     if (!wsObj) return;
     const totalW = window.innerWidth || 1280;
     const totalH = window.innerHeight || 720;
+    const shelfW = els.toolShelf ? els.toolShelf.getBoundingClientRect().width : 38;
+    const minViewport = Math.max(320, Math.floor(totalW * 0.55));
     if (typeof wsObj.right_dock_width_ratio === "number" && totalW >= 960) {
-      const pxW = Math.round(Math.max(212, Math.min(520, wsObj.right_dock_width_ratio * totalW)));
+      const leftW = els.dockLeft ? els.dockLeft.getBoundingClientRect().width : 150;
+      const maxRight = Math.max(212, Math.min(520, totalW - minViewport - shelfW - leftW - 8));
+      const pxW = Math.round(Math.max(212, Math.min(maxRight, wsObj.right_dock_width_ratio * totalW)));
       document.documentElement.style.setProperty("--right-dock-w", pxW + "px");
     }
     if (typeof wsObj.left_dock_width_ratio === "number" && totalW >= 960) {
-      const pxL = Math.round(Math.max(130, Math.min(340, wsObj.left_dock_width_ratio * totalW)));
+      const rightW = els.dockRight ? els.dockRight.getBoundingClientRect().width : 224;
+      const maxLeft = Math.max(130, Math.min(340, totalW - minViewport - shelfW - rightW - 8));
+      const pxL = Math.round(Math.max(130, Math.min(maxLeft, wsObj.left_dock_width_ratio * totalW)));
       document.documentElement.style.setProperty("--left-dock-w", pxL + "px");
     }
     if (typeof wsObj.bottom_dock_height_ratio === "number" && totalH >= 480) {
