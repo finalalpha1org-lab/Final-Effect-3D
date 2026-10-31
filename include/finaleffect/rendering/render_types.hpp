@@ -7,10 +7,13 @@
 #include "finaleffect/math/mat4.hpp"
 #include "finaleffect/math/vec3.hpp"
 #include "finaleffect/math/vec4.hpp"
+#include "finaleffect/scene/object_id.hpp"
 
 #include <compare>
 #include <cstdint>
+#include <span>
 #include <string>
+#include <string_view>
 
 namespace finaleffect::rendering {
 
@@ -98,6 +101,34 @@ struct ViewportGridOptions {
     float opacity{1.0f};
     // Optional camera-to-pivot focus distance hint for horizon-stable Perspective zoom scaling.
     float focus_distance{0.0f};
+};
+
+// Maya-style viewport shading & display state (editor-only; never alters final offline renders).
+enum class ViewportShadingMode : std::uint8_t {
+    MaterialTextured = 0, // Maya '6': PBR Material & Textured Shading (default)
+    SmoothShaded = 1,     // Maya '5': Smooth Shaded Neutral Clay
+    Wireframe = 2,        // Maya '4': Wireframe Only
+};
+
+[[nodiscard]] constexpr std::string_view viewportShadingModeSlug(ViewportShadingMode mode) noexcept {
+    switch (mode) {
+        case ViewportShadingMode::SmoothShaded:     return "shaded";
+        case ViewportShadingMode::Wireframe:        return "wireframe";
+        case ViewportShadingMode::MaterialTextured:
+        default:                                    return "textured";
+    }
+}
+
+struct ViewportDisplayOptions {
+    ViewportShadingMode shading_mode{ViewportShadingMode::MaterialTextured};
+    bool wireframe_on_shaded{false};
+    bool xray_enabled{false};
+    bool use_default_lighting{false};
+    bool isolate_select_active{false};
+    std::span<const scene::ObjectId> isolated_objects{};
+    std::span<const scene::ObjectId> hidden_by_layer_objects{};
+    std::span<const scene::ObjectId> template_objects{};
+    std::span<const scene::ObjectId> multi_selected_objects{};
 };
 
 // Camera-relative procedural XZ ground grid draw parameters shared across CPU, OpenGL 3.3, and WebGL 2.0.

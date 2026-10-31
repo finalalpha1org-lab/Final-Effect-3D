@@ -178,6 +178,24 @@ std::string EditorController::serializeStateJson() const {
     vp.setKey("view_transition_active", session_.isViewTransitionActive());
     vp.setKey("active_camera_id", scene.activeCamera().value);
     vp.setKey("selected_object_id", session_.selectedObject().value);
+    {
+        JsonArray sel_arr;
+        for (const auto sid : session_.selectedObjects()) {
+            sel_arr.emplace_back(sid.value);
+        }
+        vp.setKey("selected_object_ids", std::move(sel_arr));
+    }
+    {
+        std::string_view sm = "textured";
+        if (session_.viewportShadingMode() == rendering::ViewportShadingMode::Wireframe) sm = "wireframe";
+        else if (session_.viewportShadingMode() == rendering::ViewportShadingMode::SmoothShaded) sm = "shaded";
+        vp.setKey("shading_mode", std::string(sm));
+    }
+    vp.setKey("wireframe_on_shaded", session_.isWireframeOnShaded());
+    vp.setKey("xray_enabled", session_.isXRayEnabled());
+    vp.setKey("default_lighting", session_.isDefaultLightingActive());
+    vp.setKey("isolate_select", session_.isIsolateSelectActive());
+    vp.setKey("display_smoothness", static_cast<std::uint64_t>(session_.displaySmoothness()));
     vp.setKey("camera_position", vec3ToJson(cam_eye));
     vp.setKey("camera_target", vec3ToJson(session_.cameraController().target()));
     vp.setKey("camera_distance", static_cast<double>(session_.cameraController().distance()));
@@ -188,9 +206,36 @@ std::string EditorController::serializeStateJson() const {
     vp.setKey("camera_forward", vec3ToJson(cam_fwd));
     root.setKey("viewport", std::move(vp));
 
-    // Stage 4 / 5.3: Editor mode, 3D Transform Gizmo state & Mesh Edit selection summary.
+    // Stage 4 / 5.3 / Maya Stage 1: Editor mode, Menu Set, Toolbox, Masks, Snapping & Gizmo state.
     JsonValue ed{JsonObject{}};
     ed.setKey("mode", std::string(editModeToString(session_.editorMode())));
+    ed.setKey("menu_set", std::string(mayaMenuSetSlug(session_.menuSet())));
+    ed.setKey("menu_set_label", std::string(mayaMenuSetLabel(session_.menuSet())));
+    ed.setKey("active_tool", std::string(mayaToolSlug(session_.activeTool())));
+    ed.setKey("last_tool", std::string(mayaToolSlug(session_.lastTool())));
+    {
+        const auto& sm = session_.selectionMasks();
+        JsonValue smj{JsonObject{}};
+        smj.setKey("meshes", sm.meshes);
+        smj.setKey("cameras", sm.cameras);
+        smj.setKey("lights", sm.lights);
+        smj.setKey("helpers", sm.helpers);
+        smj.setKey("uv_mode", sm.uv_mode);
+        smj.setKey("multi_component_mode", sm.multi_component_mode);
+        ed.setKey("selection_masks", std::move(smj));
+    }
+    {
+        const auto& sn = session_.snapSettings();
+        JsonValue snj{JsonObject{}};
+        snj.setKey("grid", sn.grid);
+        snj.setKey("point", sn.point);
+        snj.setKey("curve", sn.curve);
+        snj.setKey("surface", sn.surface);
+        snj.setKey("grid_step", static_cast<double>(sn.grid_step));
+        snj.setKey("rotate_step_deg", static_cast<double>(sn.rotate_step_deg));
+        snj.setKey("scale_step", static_cast<double>(sn.scale_step));
+        ed.setKey("snap", std::move(snj));
+    }
     ed.setKey("gizmo_mode", std::string(gizmoModeName(session_.gizmo().mode())));
     ed.setKey("gizmo_space", std::string(gizmoSpaceName(session_.gizmo().space())));
     ed.setKey("gizmo_hovered_handle", std::string(gizmoHandleName(session_.hoveredGizmoHandle())));
@@ -423,6 +468,14 @@ std::string EditorController::serializeStateJson() const {
                 : std::string{});
         item.setKey("material_id", node->material_id.has_value() ? node->material_id->value : std::uint64_t{0});
         item.setKey("is_active_camera", node->id == scene.activeCamera());
+        item.setKey("locked", session_.isObjectLocked(node->id));
+        item.setKey("display_layer_id", static_cast<std::uint64_t>(session_.objectDisplayLayerId(node->id)));
+        {
+            const auto sel_span = session_.selectedObjects();
+            const bool in_multi =
+                std::find(sel_span.begin(), sel_span.end(), node->id) != sel_span.end();
+            item.setKey("is_selected", in_multi || (node->id == session_.selectedObject()));
+        }
         if (const auto wm = scene.computeWorldMatrix(node->id); wm.hasValue()) {
             const math::Vec3 wpos = wm.value().transformPoint(math::Vec3::zero());
             item.setKey("world_position", vec3ToJson(wpos));
@@ -477,6 +530,28 @@ std::string EditorController::serializeStateJson() const {
                 math::radToDeg(euler_rad.z),
             }));
             insp.setKey("scale", vec3ToJson(sel_obj->local_transform.scale));
+            {
+                const auto& meta = session_.objectEditorMeta(sel_obj->id);
+                insp.setKey("locked", meta.locked);
+                insp.setKey("locked_channels", static_cast<std::uint64_t>(meta.locked_channels));
+                insp.setKey("pivot_offset", vec3ToJson(meta.pivot_offset));
+                insp.setKey(
+                    "display_layer_id",
+                    static_cast<std::uint64_t>(session_.objectDisplayLayerId(sel_obj->id)));
+                JsonArray cattrs;
+                cattrs.reserve(meta.custom_attributes.size());
+                for (const auto& ca : meta.custom_attributes) {
+                    JsonValue caj{JsonObject{}};
+                    caj.setKey("name", ca.name);
+                    caj.setKey("value", static_cast<double>(ca.value));
+                    caj.setKey("min_value", static_cast<double>(ca.min_value));
+                    caj.setKey("max_value", static_cast<double>(ca.max_value));
+                    caj.setKey("keyable", ca.keyable);
+                    caj.setKey("locked", ca.locked);
+                    cattrs.push_back(std::move(caj));
+                }
+                insp.setKey("custom_attributes", std::move(cattrs));
+            }
 
             if (sel_obj->mesh_id.has_value()) {
                 if (const auto* mesh_asset = scene.findMesh(sel_obj->mesh_id.value()); mesh_asset != nullptr) {
@@ -661,6 +736,66 @@ std::string EditorController::serializeStateJson() const {
         root.setKey("lighting_diagnostics", std::move(dj));
     }
 
+    // Maya Stage 1: Display Layers state.
+    {
+        JsonValue dlj{JsonObject{}};
+        dlj.setKey("active_layer_id", static_cast<std::uint64_t>(session_.activeDisplayLayerId()));
+        JsonArray larr;
+        larr.reserve(session_.displayLayers().size());
+        for (const auto& layer : session_.displayLayers()) {
+            JsonValue lj{JsonObject{}};
+            lj.setKey("id", static_cast<std::uint64_t>(layer.id));
+            lj.setKey("name", layer.name);
+            lj.setKey("visible", layer.visible);
+            lj.setKey("mode", std::string(displayLayerModeSlug(layer.mode)));
+            lj.setKey("color", vec3ToJson(layer.color));
+            JsonArray mids;
+            mids.reserve(layer.members.size());
+            for (const auto mid : layer.members) {
+                if (mid.isValid() && scene.findObject(mid) != nullptr) {
+                    mids.emplace_back(mid.value);
+                }
+            }
+            lj.setKey("member_ids", std::move(mids));
+            larr.push_back(std::move(lj));
+        }
+        dlj.setKey("layers", std::move(larr));
+        root.setKey("display_layers", std::move(dlj));
+    }
+
+    // Maya Stage 1: Real C++20 Animation Timeline & Keyframes state.
+    {
+        const auto& tl = session_.timeline();
+        JsonValue tlj{JsonObject{}};
+        tlj.setKey("current_frame", tl.current_frame);
+        tlj.setKey("scene_start", tl.scene_start);
+        tlj.setKey("scene_end", tl.scene_end);
+        tlj.setKey("playback_start", tl.playback_start);
+        tlj.setKey("playback_end", tl.playback_end);
+        tlj.setKey("fps", static_cast<double>(tl.fps));
+        tlj.setKey("playing", tl.playing);
+        tlj.setKey("auto_key", tl.auto_key);
+        tlj.setKey("loop_mode", std::string(playbackLoopModeSlug(tl.loop_mode)));
+        tlj.setKey("total_tracks", static_cast<std::uint64_t>(tl.tracks.size()));
+        const auto sel_keys = session_.keyframesForObject(session_.selectedObject());
+        JsonArray karr;
+        karr.reserve(sel_keys.size());
+        for (const int kf : sel_keys) {
+            karr.emplace_back(kf);
+        }
+        tlj.setKey("selected_object_keys", std::move(karr));
+        root.setKey("timeline", std::move(tlj));
+    }
+
+    {
+        JsonArray hist_arr;
+        hist_arr.reserve(command_history_.size());
+        for (const auto& ch : command_history_) {
+            hist_arr.emplace_back(ch);
+        }
+        root.setKey("command_history", std::move(hist_arr));
+    }
+
     auto serialized = project::writeJson(root, false);
     return serialized.hasValue() ? serialized.value() : "{}";
 }
@@ -689,7 +824,133 @@ core::Status EditorController::executeActionJson(std::string_view action_json) {
     if (action == "select_object") {
         auto id_res = parseJsonId(cmd.findKey("id"), "id");
         if (!id_res) { recordStatus(core::Status(id_res.error()), {}); return id_res.error(); }
-        return selectObject(scene::ObjectId{id_res.value()});
+        bool additive = false;
+        if (const auto* av = cmd.findKey("additive"); av != nullptr && av->isBool()) {
+            additive = av->asBool();
+        }
+        return additive
+                   ? toggleObjectSelection(scene::ObjectId{id_res.value()}, true)
+                   : selectObject(scene::ObjectId{id_res.value()});
+    }
+
+    if (action == "select_all_objects") {
+        return selectAllObjects();
+    }
+    if (action == "invert_selection") {
+        return invertObjectSelection();
+    }
+    if (action == "select_hierarchy") {
+        return selectHierarchy();
+    }
+    if (action == "frame_all") {
+        return frameAllScene();
+    }
+
+    if (action == "set_menu_set") {
+        const auto* sv = cmd.findKey("menu_set");
+        if (sv == nullptr || !sv->isString()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing string 'menu_set'");
+            recordStatus(st, {});
+            return st;
+        }
+        const auto parsed_ms = parseMayaMenuSetSlug(sv->asString());
+        if (!parsed_ms.has_value()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Unknown menu set: " + sv->asString());
+            recordStatus(st, {});
+            return st;
+        }
+        session_.setMenuSet(parsed_ms.value());
+        recordStatus(core::Status::ok(), "Menu Set: " + std::string(mayaMenuSetLabel(parsed_ms.value())));
+        return core::Status::ok();
+    }
+
+    if (action == "set_active_tool") {
+        const auto* tv = cmd.findKey("tool");
+        if (tv == nullptr || !tv->isString()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing string 'tool'");
+            recordStatus(st, {});
+            return st;
+        }
+        const auto parsed_t = parseMayaToolSlug(tv->asString());
+        if (!parsed_t.has_value()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Unknown Maya tool: " + tv->asString());
+            recordStatus(st, {});
+            return st;
+        }
+        session_.setActiveTool(parsed_t.value());
+        recordStatus(core::Status::ok(), "Active tool: " + std::string(mayaToolSlug(parsed_t.value())));
+        return core::Status::ok();
+    }
+
+    if (action == "activate_last_tool") {
+        session_.activateLastTool();
+        recordStatus(core::Status::ok(), "Activated last tool: " + std::string(mayaToolSlug(session_.activeTool())));
+        return core::Status::ok();
+    }
+
+    if (action == "set_selection_masks") {
+        SelectionTypeMasks masks = session_.selectionMasks();
+        if (const auto* v = cmd.findKey("meshes"); v != nullptr && v->isBool()) masks.meshes = v->asBool();
+        if (const auto* v = cmd.findKey("cameras"); v != nullptr && v->isBool()) masks.cameras = v->asBool();
+        if (const auto* v = cmd.findKey("lights"); v != nullptr && v->isBool()) masks.lights = v->asBool();
+        if (const auto* v = cmd.findKey("helpers"); v != nullptr && v->isBool()) masks.helpers = v->asBool();
+        if (const auto* v = cmd.findKey("uv_mode"); v != nullptr && v->isBool()) masks.uv_mode = v->asBool();
+        if (const auto* v = cmd.findKey("multi_component_mode"); v != nullptr && v->isBool()) {
+            masks.multi_component_mode = v->asBool();
+        }
+        session_.setSelectionMasks(masks);
+        recordStatus(core::Status::ok(), "Updated selection masks");
+        return core::Status::ok();
+    }
+
+    if (action == "set_snap_settings") {
+        SnapSettings snap = session_.snapSettings();
+        if (const auto* v = cmd.findKey("grid"); v != nullptr && v->isBool()) snap.grid = v->asBool();
+        if (const auto* v = cmd.findKey("point"); v != nullptr && v->isBool()) snap.point = v->asBool();
+        if (const auto* v = cmd.findKey("curve"); v != nullptr && v->isBool()) snap.curve = v->asBool();
+        if (const auto* v = cmd.findKey("surface"); v != nullptr && v->isBool()) snap.surface = v->asBool();
+        if (const auto* v = cmd.findKey("grid_step"); v != nullptr) {
+            if (auto f = parseJsonFloat(v, "grid_step"); f.hasValue()) snap.grid_step = f.value();
+        }
+        if (const auto* v = cmd.findKey("rotate_step_deg"); v != nullptr) {
+            if (auto f = parseJsonFloat(v, "rotate_step_deg"); f.hasValue()) snap.rotate_step_deg = f.value();
+        }
+        if (const auto* v = cmd.findKey("scale_step"); v != nullptr) {
+            if (auto f = parseJsonFloat(v, "scale_step"); f.hasValue()) snap.scale_step = f.value();
+        }
+        session_.setSnapSettings(snap);
+        recordStatus(core::Status::ok(), "Updated snapping settings");
+        return core::Status::ok();
+    }
+
+    if (action == "set_viewport_display") {
+        if (const auto* dk = cmd.findKey("digit_key"); dk != nullptr && dk->isNumber()) {
+            const int key_num = static_cast<int>(dk->asNumber());
+            session_.applyMayaViewportDisplayKey(key_num);
+        }
+        if (const auto* sm = cmd.findKey("shading_mode"); sm != nullptr && sm->isString()) {
+            const auto& s = sm->asString();
+            if (s == "wireframe") session_.setViewportShadingMode(rendering::ViewportShadingMode::Wireframe);
+            else if (s == "shaded") session_.setViewportShadingMode(rendering::ViewportShadingMode::SmoothShaded);
+            else if (s == "textured") session_.setViewportShadingMode(rendering::ViewportShadingMode::MaterialTextured);
+        }
+        if (const auto* wos = cmd.findKey("wireframe_on_shaded"); wos != nullptr && wos->isBool()) {
+            session_.setWireframeOnShaded(wos->asBool());
+        }
+        if (const auto* xr = cmd.findKey("xray_enabled"); xr != nullptr && xr->isBool()) {
+            session_.setXRayEnabled(xr->asBool());
+        }
+        if (const auto* dl = cmd.findKey("default_lighting"); dl != nullptr && dl->isBool()) {
+            session_.setDefaultLightingActive(dl->asBool());
+        }
+        if (const auto* iso = cmd.findKey("isolate_select"); iso != nullptr && iso->isBool()) {
+            session_.setIsolateSelectActive(iso->asBool());
+        }
+        if (const auto* ds = cmd.findKey("display_smoothness"); ds != nullptr && ds->isNumber()) {
+            session_.setDisplaySmoothness(static_cast<std::uint8_t>(std::clamp(ds->asNumber(), 1.0, 3.0)));
+        }
+        recordStatus(core::Status::ok(), "Updated viewport display mode");
+        return core::Status::ok();
     }
 
     // Stage 4: Editor mode & Gizmo actions.
@@ -1042,6 +1303,9 @@ core::Status EditorController::executeActionJson(std::string_view action_json) {
         if (p_str == "cube") preset = ScenePreset::Cube;
         else if (p_str == "pyramid") preset = ScenePreset::Pyramid;
         else if (p_str == "sphere") preset = ScenePreset::Sphere;
+        else if (p_str == "cylinder") preset = ScenePreset::Cylinder;
+        else if (p_str == "cone") preset = ScenePreset::Cone;
+        else if (p_str == "torus") preset = ScenePreset::Torus;
         else if (p_str == "plane") preset = ScenePreset::Plane;
         else if (p_str == "pivot") preset = ScenePreset::EmptyPivot;
         else if (p_str == "light" || p_str == "directional_light") preset = ScenePreset::DirectionalLight;
@@ -1692,6 +1956,371 @@ core::Status EditorController::executeActionJson(std::string_view action_json) {
             return st;
         }
         return importInlineProjectJson(jv->asString());
+    }
+
+    // Maya Stage 1: Hierarchy, Modify, Mesh Normals, Locks, Display Layers, Timeline & Command Line.
+    if (action == "group_selected") {
+        std::string gname;
+        if (const auto* nv = cmd.findKey("name"); nv != nullptr && nv->isString()) {
+            gname = nv->asString();
+        }
+        auto res = groupSelectedObjects(std::move(gname));
+        return res ? core::Status::ok() : core::Status(res.error());
+    }
+    if (action == "parent_selected") {
+        return parentSelectedObjects();
+    }
+    if (action == "unparent_selected") {
+        return unparentSelectedObjects();
+    }
+    if (action == "freeze_transforms") {
+        return freezeSelectedTransformations();
+    }
+    if (action == "center_pivot") {
+        return centerSelectedPivot();
+    }
+    if (action == "reset_pivot") {
+        return resetSelectedPivot();
+    }
+    if (action == "soften_normals") {
+        return setSelectedMeshSmoothNormals(true);
+    }
+    if (action == "harden_normals") {
+        return setSelectedMeshSmoothNormals(false);
+    }
+    if (action == "reverse_normals") {
+        return reverseSelectedMeshNormals();
+    }
+    if (action == "select_all_components") {
+        return selectAllMeshComponents();
+    }
+
+    if (action == "set_object_lock") {
+        auto id_res = parseJsonId(cmd.findKey("id"), "id");
+        const auto* lv = cmd.findKey("locked");
+        if (!id_res || lv == nullptr || !lv->isBool()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Invalid set_object_lock payload");
+            recordStatus(st, {});
+            return st;
+        }
+        session_.setObjectLocked(scene::ObjectId{id_res.value()}, lv->asBool());
+        recordStatus(core::Status::ok(), lv->asBool() ? "Locked object" : "Unlocked object");
+        return core::Status::ok();
+    }
+
+    if (action == "set_channel_locks") {
+        auto id_res = parseJsonId(cmd.findKey("id"), "id");
+        auto mask_res = parseJsonId(cmd.findKey("mask"), "mask");
+        if (!id_res || !mask_res) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Invalid set_channel_locks payload");
+            recordStatus(st, {});
+            return st;
+        }
+        session_.setObjectChannelMask(
+            scene::ObjectId{id_res.value()},
+            static_cast<std::uint16_t>(mask_res.value() & 0xFFFFu));
+        recordStatus(core::Status::ok(), "Updated channel lock mask");
+        return core::Status::ok();
+    }
+
+    if (action == "add_custom_attribute") {
+        auto id_res = parseJsonId(cmd.findKey("id"), "id");
+        const auto* nv = cmd.findKey("name");
+        if (!id_res || nv == nullptr || !nv->isString() || nv->asString().empty()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Invalid custom attribute name");
+            recordStatus(st, {});
+            return st;
+        }
+        auto& meta = session_.objectEditorMetaMutable(scene::ObjectId{id_res.value()});
+        for (const auto& existing : meta.custom_attributes) {
+            if (existing.name == nv->asString()) {
+                auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Attribute already exists");
+                recordStatus(st, {});
+                return st;
+            }
+        }
+        CustomChannelAttribute attr{};
+        attr.name = nv->asString();
+        if (const auto* vv = cmd.findKey("value"); vv != nullptr) {
+            if (auto f = parseJsonFloat(vv, "value"); f.hasValue()) attr.value = f.value();
+        }
+        if (const auto* mn = cmd.findKey("min_value"); mn != nullptr) {
+            if (auto f = parseJsonFloat(mn, "min_value"); f.hasValue()) attr.min_value = f.value();
+        }
+        if (const auto* mx = cmd.findKey("max_value"); mx != nullptr) {
+            if (auto f = parseJsonFloat(mx, "max_value"); f.hasValue()) attr.max_value = f.value();
+        }
+        if (const auto* kv = cmd.findKey("keyable"); kv != nullptr && kv->isBool()) attr.keyable = kv->asBool();
+        meta.custom_attributes.push_back(std::move(attr));
+        recordStatus(core::Status::ok(), "Added custom attribute '" + nv->asString() + "'");
+        return core::Status::ok();
+    }
+
+    if (action == "update_custom_attribute") {
+        auto id_res = parseJsonId(cmd.findKey("id"), "id");
+        const auto* nv = cmd.findKey("name");
+        if (!id_res || nv == nullptr || !nv->isString()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Invalid update_custom_attribute payload");
+            recordStatus(st, {});
+            return st;
+        }
+        auto& meta = session_.objectEditorMetaMutable(scene::ObjectId{id_res.value()});
+        for (auto& attr : meta.custom_attributes) {
+            if (attr.name == nv->asString()) {
+                if (const auto* lv = cmd.findKey("locked"); lv != nullptr && lv->isBool()) {
+                    attr.locked = lv->asBool();
+                }
+                if (const auto* kv = cmd.findKey("keyable"); kv != nullptr && kv->isBool()) {
+                    attr.keyable = kv->asBool();
+                }
+                if (!attr.locked) {
+                    if (const auto* vv = cmd.findKey("value"); vv != nullptr) {
+                        if (auto f = parseJsonFloat(vv, "value"); f.hasValue()) {
+                            attr.value = std::clamp(f.value(), attr.min_value, attr.max_value);
+                        }
+                    }
+                }
+                recordStatus(core::Status::ok(), "Updated attribute '" + attr.name + "'");
+                return core::Status::ok();
+            }
+        }
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Custom attribute not found");
+        recordStatus(st, {});
+        return st;
+    }
+
+    if (action == "delete_custom_attribute") {
+        auto id_res = parseJsonId(cmd.findKey("id"), "id");
+        const auto* nv = cmd.findKey("name");
+        if (!id_res || nv == nullptr || !nv->isString()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Invalid delete_custom_attribute payload");
+            recordStatus(st, {});
+            return st;
+        }
+        auto& meta = session_.objectEditorMetaMutable(scene::ObjectId{id_res.value()});
+        std::erase_if(meta.custom_attributes, [&](const auto& a) { return a.name == nv->asString(); });
+        recordStatus(core::Status::ok(), "Deleted attribute '" + nv->asString() + "'");
+        return core::Status::ok();
+    }
+
+    if (action == "create_display_layer") {
+        std::string lname;
+        if (const auto* nv = cmd.findKey("name"); nv != nullptr && nv->isString()) lname = nv->asString();
+        bool assign_sel = true;
+        if (const auto* av = cmd.findKey("assign_selected"); av != nullptr && av->isBool()) {
+            assign_sel = av->asBool();
+        }
+        const auto lid = session_.createDisplayLayer(std::move(lname), assign_sel);
+        recordStatus(core::Status::ok(), "Created display layer #" + std::to_string(lid));
+        return core::Status::ok();
+    }
+
+    if (action == "delete_display_layer") {
+        auto lid = parseJsonId(cmd.findKey("layer_id"), "layer_id");
+        if (!lid) { recordStatus(core::Status(lid.error()), {}); return lid.error(); }
+        auto st = session_.deleteDisplayLayer(static_cast<std::uint32_t>(lid.value()));
+        recordStatus(st, "Deleted display layer");
+        return st;
+    }
+
+    if (action == "rename_display_layer") {
+        auto lid = parseJsonId(cmd.findKey("layer_id"), "layer_id");
+        const auto* nv = cmd.findKey("name");
+        if (!lid || nv == nullptr || !nv->isString()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Invalid rename_display_layer payload");
+            recordStatus(st, {});
+            return st;
+        }
+        auto st = session_.renameDisplayLayer(static_cast<std::uint32_t>(lid.value()), nv->asString());
+        recordStatus(st, "Renamed display layer");
+        return st;
+    }
+
+    if (action == "set_display_layer_state") {
+        auto lid = parseJsonId(cmd.findKey("layer_id"), "layer_id");
+        if (!lid) { recordStatus(core::Status(lid.error()), {}); return lid.error(); }
+        std::optional<bool> vis;
+        if (const auto* vv = cmd.findKey("visible"); vv != nullptr && vv->isBool()) vis = vv->asBool();
+        std::optional<DisplayLayerMode> mode;
+        if (const auto* mv = cmd.findKey("mode"); mv != nullptr && mv->isString()) {
+            mode = parseDisplayLayerModeSlug(mv->asString());
+        }
+        std::optional<math::Vec3> col;
+        if (const auto* cv = cmd.findKey("color"); cv != nullptr) {
+            if (auto parsed_c = parseJsonVec3(cv, "color"); parsed_c.hasValue()) col = parsed_c.value();
+        }
+        auto st = session_.setDisplayLayerState(static_cast<std::uint32_t>(lid.value()), vis, mode, col);
+        recordStatus(st, "Updated display layer state");
+        return st;
+    }
+
+    if (action == "assign_display_layer") {
+        auto lid = parseJsonId(cmd.findKey("layer_id"), "layer_id");
+        if (!lid) { recordStatus(core::Status(lid.error()), {}); return lid.error(); }
+        std::vector<scene::ObjectId> targets;
+        if (const auto* arr_v = cmd.findKey("object_ids"); arr_v != nullptr && arr_v->isArray()) {
+            for (const auto& elem : arr_v->asArray()) {
+                if (auto oid = parseJsonId(&elem, "object_ids"); oid.hasValue()) {
+                    targets.push_back(scene::ObjectId{oid.value()});
+                }
+            }
+        } else {
+            session_.sanitizeMultiSelection();
+            targets.assign(session_.selectedObjects().begin(), session_.selectedObjects().end());
+            if (targets.empty() && session_.selectedObject().isValid()) {
+                targets.push_back(session_.selectedObject());
+            }
+        }
+        auto st = session_.assignObjectsToDisplayLayer(static_cast<std::uint32_t>(lid.value()), targets);
+        recordStatus(st, "Assigned object(s) to display layer");
+        return st;
+    }
+
+    if (action == "select_display_layer") {
+        auto lid = parseJsonId(cmd.findKey("layer_id"), "layer_id");
+        if (!lid) { recordStatus(core::Status(lid.error()), {}); return lid.error(); }
+        session_.setActiveDisplayLayerId(static_cast<std::uint32_t>(lid.value()));
+        bool select_members = false;
+        if (const auto* sm = cmd.findKey("select_members"); sm != nullptr && sm->isBool()) {
+            select_members = sm->asBool();
+        }
+        if (select_members) {
+            for (const auto& l : session_.displayLayers()) {
+                if (l.id == static_cast<std::uint32_t>(lid.value())) {
+                    session_.setSelectedObjects(l.members);
+                    break;
+                }
+            }
+        }
+        recordStatus(core::Status::ok(), "Selected display layer");
+        return core::Status::ok();
+    }
+
+    if (action == "timeline_set_frame") {
+        auto fr = parseJsonFloat(cmd.findKey("frame"), "frame");
+        if (!fr) { recordStatus(core::Status(fr.error()), {}); return fr.error(); }
+        session_.setTimelineFrame(static_cast<double>(fr.value()));
+        ++state_revision_;
+        return core::Status::ok();
+    }
+
+    if (action == "timeline_set_ranges") {
+        const auto& cur = session_.timeline();
+        int ss = cur.scene_start;
+        int se = cur.scene_end;
+        int ps = cur.playback_start;
+        int pe = cur.playback_end;
+        if (const auto* v = cmd.findKey("scene_start"); v != nullptr && v->isNumber()) ss = static_cast<int>(v->asNumber());
+        if (const auto* v = cmd.findKey("scene_end"); v != nullptr && v->isNumber()) se = static_cast<int>(v->asNumber());
+        if (const auto* v = cmd.findKey("playback_start"); v != nullptr && v->isNumber()) ps = static_cast<int>(v->asNumber());
+        if (const auto* v = cmd.findKey("playback_end"); v != nullptr && v->isNumber()) pe = static_cast<int>(v->asNumber());
+        session_.setTimelineRanges(ss, se, ps, pe);
+        recordStatus(core::Status::ok(), "Updated timeline frame range");
+        return core::Status::ok();
+    }
+
+    if (action == "timeline_set_playing") {
+        const auto* pv = cmd.findKey("playing");
+        if (pv == nullptr || !pv->isBool()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing boolean 'playing'");
+            recordStatus(st, {});
+            return st;
+        }
+        session_.setTimelinePlaying(pv->asBool());
+        recordStatus(core::Status::ok(), pv->asBool() ? "Timeline playing" : "Timeline paused");
+        return core::Status::ok();
+    }
+
+    if (action == "timeline_step") {
+        int delta = 1;
+        if (const auto* dv = cmd.findKey("delta"); dv != nullptr && dv->isNumber()) {
+            delta = static_cast<int>(dv->asNumber());
+        }
+        session_.stepTimelineFrames(delta);
+        ++state_revision_;
+        return core::Status::ok();
+    }
+
+    if (action == "timeline_jump_key") {
+        bool fwd = true;
+        if (const auto* fv = cmd.findKey("forward"); fv != nullptr && fv->isBool()) fwd = fv->asBool();
+        session_.jumpToAdjacentKeyframe(fwd);
+        ++state_revision_;
+        return core::Status::ok();
+    }
+
+    if (action == "timeline_set_fps") {
+        auto fr = parseJsonFloat(cmd.findKey("fps"), "fps");
+        if (!fr) { recordStatus(core::Status(fr.error()), {}); return fr.error(); }
+        session_.setTimelineFps(fr.value());
+        recordStatus(core::Status::ok(), "Timeline FPS updated");
+        return core::Status::ok();
+    }
+
+    if (action == "timeline_set_loop_mode") {
+        const auto* mv = cmd.findKey("mode");
+        if (mv == nullptr || !mv->isString()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing string 'mode'");
+            recordStatus(st, {});
+            return st;
+        }
+        const auto parsed_lm = parsePlaybackLoopModeSlug(mv->asString());
+        if (!parsed_lm.has_value()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Invalid loop mode");
+            recordStatus(st, {});
+            return st;
+        }
+        session_.setTimelineLoopMode(parsed_lm.value());
+        recordStatus(core::Status::ok(), "Playback loop mode: " + std::string(playbackLoopModeSlug(parsed_lm.value())));
+        return core::Status::ok();
+    }
+
+    if (action == "timeline_set_auto_key") {
+        const auto* av = cmd.findKey("enabled");
+        if (av == nullptr || !av->isBool()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing boolean 'enabled'");
+            recordStatus(st, {});
+            return st;
+        }
+        session_.setTimelineAutoKey(av->asBool());
+        recordStatus(core::Status::ok(), av->asBool() ? "Auto Keyframe enabled" : "Auto Keyframe disabled");
+        return core::Status::ok();
+    }
+
+    if (action == "timeline_set_key") {
+        if (const auto* fv = cmd.findKey("frame"); fv != nullptr && fv->isNumber() &&
+            session_.selectedObject().isValid()) {
+            auto st = session_.setKeyframeForObject(
+                session_.selectedObject(), static_cast<int>(std::llround(fv->asNumber())));
+            recordStatus(st, "Set keyframe");
+            return st;
+        }
+        auto st = session_.setKeyframeForSelection();
+        recordStatus(
+            st,
+            "Set keyframe at frame " +
+                std::to_string(static_cast<int>(std::llround(session_.timeline().current_frame))));
+        return st;
+    }
+
+    if (action == "timeline_delete_key") {
+        int frame = static_cast<int>(std::llround(session_.timeline().current_frame));
+        if (const auto* fv = cmd.findKey("frame"); fv != nullptr && fv->isNumber()) {
+            frame = static_cast<int>(std::llround(fv->asNumber()));
+        }
+        auto st = session_.deleteKeyframeForObject(session_.selectedObject(), frame);
+        recordStatus(st, "Deleted keyframe at frame " + std::to_string(frame));
+        return st;
+    }
+
+    if (action == "execute_command_line") {
+        const auto* cv = cmd.findKey("command");
+        if (cv == nullptr || !cv->isString()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing string 'command'");
+            recordStatus(st, {});
+            return st;
+        }
+        return executeCommandLine(cv->asString());
     }
 
     auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Unknown editor action: " + action);

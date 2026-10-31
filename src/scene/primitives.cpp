@@ -139,4 +139,30 @@ MeshData Primitives::createUvSphere(
     return EditableMesh::createUvSphere(radius, rings, sectors, base_color).toMeshData();
 }
 
+MeshData Primitives::createCylinder(
+    float radius,
+    float height,
+    std::uint32_t sectors,
+    const math::Vec3& base_color) {
+    return EditableMesh::createCylinder(radius, height, sectors, base_color).toMeshData();
+}
+
+MeshData Primitives::createCone(
+    float radius,
+    float height,
+    std::uint32_t sectors,
+    const math::Vec3& base_color) {
+    return EditableMesh::createCone(radius, height, sectors, base_color).toMeshData();
+}
+
+MeshData Primitives::createTorus(
+    float major_radius,
+    float minor_radius,
+    std::uint32_t major_segments,
+    std::uint32_t minor_segments,
+    const math::Vec3& base_color) {
+    return EditableMesh::createTorus(major_radius, minor_radius, major_segments, minor_segments, base_color)
+        .toMeshData();
+}
+
 } // namespace finaleffect::scene

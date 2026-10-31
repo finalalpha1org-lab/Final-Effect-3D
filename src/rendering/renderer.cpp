@@ -6,6 +6,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -107,6 +109,74 @@ DirectionalLightUniforms buildLegacyLightUniforms(const PreparedSceneLighting& p
         }
     }
     return u;
+}
+
+void appendTriangleMeshWireframe(
+    scene::MeshData& out_overlay,
+    const scene::MeshData& tri_mesh,
+    const math::Mat4& world_matrix,
+    float world_wire_radius,
+    const math::Vec3& color) {
+    const float r = std::max(0.0008f, world_wire_radius);
+    auto appendSegment = [&](const math::Vec3& a, const math::Vec3& b) {
+        const math::Vec3 delta = b - a;
+        const float len = delta.length();
+        if (len < 1.0e-6f) {
+            return;
+        }
+        const math::Vec3 axis = delta * (1.0f / len);
+        const math::Vec3 ref =
+            (std::fabs(axis.y) < 0.9f) ? math::Vec3{0.0f, 1.0f, 0.0f} : math::Vec3{1.0f, 0.0f, 0.0f};
+        const math::Vec3 u = axis.cross(ref).normalized() * r;
+        const math::Vec3 v = axis.cross(u).normalized() * r;
+
+        const math::Vec3 a0 = a - u - v;
+        const math::Vec3 a1 = a + u - v;
+        const math::Vec3 a2 = a + u + v;
+        const math::Vec3 a3 = a - u + v;
+        const math::Vec3 b0 = b - u - v;
+        const math::Vec3 b1 = b + u - v;
+        const math::Vec3 b2 = b + u + v;
+        const math::Vec3 b3 = b - u + v;
+
+        auto addQuad = [&](const math::Vec3& p0, const math::Vec3& p1, const math::Vec3& p2, const math::Vec3& p3) {
+            const math::Vec3 n = (p1 - p0).cross(p2 - p0).normalized();
+            const auto start = static_cast<std::uint32_t>(out_overlay.vertices.size());
+            out_overlay.vertices.push_back({p0, n, color, {0.0f, 0.0f}});
+            out_overlay.vertices.push_back({p1, n, color, {1.0f, 0.0f}});
+            out_overlay.vertices.push_back({p2, n, color, {1.0f, 1.0f}});
+            out_overlay.vertices.push_back({p3, n, color, {0.0f, 1.0f}});
+            out_overlay.indices.insert(
+                out_overlay.indices.end(),
+                {start + 0, start + 1, start + 2, start + 0, start + 2, start + 3});
+        };
+        addQuad(a0, a1, b1, b0);
+        addQuad(a1, a2, b2, b1);
+        addQuad(a2, a3, b3, b2);
+        addQuad(a3, a0, b0, b3);
+    };
+
+    std::unordered_set<std::uint64_t> seen_edges;
+    const std::size_t tri_count = tri_mesh.indices.size() / 3u;
+    for (std::size_t t = 0; t < tri_count; ++t) {
+        const std::uint32_t i0 = tri_mesh.indices[t * 3u + 0];
+        const std::uint32_t i1 = tri_mesh.indices[t * 3u + 1];
+        const std::uint32_t i2 = tri_mesh.indices[t * 3u + 2];
+        const std::uint32_t pairs[3][2] = {{i0, i1}, {i1, i2}, {i2, i0}};
+        for (const auto& p : pairs) {
+            if (p[0] >= tri_mesh.vertices.size() || p[1] >= tri_mesh.vertices.size()) {
+                continue;
+            }
+            const std::uint32_t lo = std::min(p[0], p[1]);
+            const std::uint32_t hi = std::max(p[0], p[1]);
+            const std::uint64_t key = (static_cast<std::uint64_t>(lo) << 32u) | static_cast<std::uint64_t>(hi);
+            if (seen_edges.insert(key).second) {
+                appendSegment(
+                    world_matrix.transformPoint(tri_mesh.vertices[lo].position),
+                    world_matrix.transformPoint(tri_mesh.vertices[hi].position));
+            }
+        }
+    }
 }
 
 } // namespace
@@ -241,7 +311,8 @@ core::Status Renderer::renderScene(
     scene::ObjectId selected_object,
     std::span<const ViewportOverlayMesh> overlays,
     const ViewportCameraOverride* camera_override,
-    const ViewportGridOptions* grid_options) {
+    const ViewportGridOptions* grid_options,
+    const ViewportDisplayOptions* display_options) {
     if (!initialized_) {
         return core::Status::fail(core::ErrorCode::InvalidState, "Renderer::renderScene called before initialize");
     }
@@ -379,7 +450,41 @@ core::Status Renderer::renderScene(
     }
 
     const math::Mat4 view_proj = proj_matrix * view_matrix;
-    const DirectionalLightUniforms light_uniforms = buildLegacyLightUniforms(scene_lighting);
+    DirectionalLightUniforms light_uniforms = buildLegacyLightUniforms(scene_lighting);
+
+    const bool use_default_lighting =
+        (display_options != nullptr && display_options->use_default_lighting);
+    if (use_default_lighting) {
+        const math::Vec3 cam_right{view_matrix(0, 0), view_matrix(0, 1), view_matrix(0, 2)};
+        const math::Vec3 cam_up{view_matrix(1, 0), view_matrix(1, 1), view_matrix(1, 2)};
+        const math::Vec3 cam_back{view_matrix(2, 0), view_matrix(2, 1), view_matrix(2, 2)};
+        light_uniforms = DirectionalLightUniforms{
+            .direction_to_light = (cam_back * 0.76f + cam_up * 0.48f + cam_right * 0.34f).normalized(),
+            .radiance = {1.15f, 1.15f, 1.16f},
+            .ambient = {0.22f, 0.24f, 0.27f},
+            .extra_light_count = 0,
+        };
+    }
+
+    const ViewportShadingMode shading_mode =
+        (display_options != nullptr) ? display_options->shading_mode : ViewportShadingMode::MaterialTextured;
+    const bool wireframe_only = (shading_mode == ViewportShadingMode::Wireframe);
+    const bool wireframe_on_shaded = (display_options != nullptr && display_options->wireframe_on_shaded);
+    const bool xray_enabled = (display_options != nullptr && display_options->xray_enabled);
+    const bool isolate_active = (display_options != nullptr && display_options->isolate_select_active);
+
+    auto containsObjId = [](std::span<const scene::ObjectId> list, scene::ObjectId id) noexcept -> bool {
+        for (const auto item : list) {
+            if (item == id) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    viewport_wireframe_mesh_.vertices.clear();
+    viewport_wireframe_mesh_.indices.clear();
+    viewport_wireframe_mesh_.submeshes.clear();
 
     struct TranslucentDrawItem {
         DrawMeshCommand cmd;
@@ -391,8 +496,62 @@ core::Status Renderer::renderScene(
         if (!obj.mesh_id.has_value() || !isObjectEffectivelyVisible(scene, obj.id)) {
             continue;
         }
+        if (display_options != nullptr) {
+            if (containsObjId(display_options->hidden_by_layer_objects, obj.id)) {
+                continue;
+            }
+            if (isolate_active && !containsObjId(display_options->isolated_objects, obj.id)) {
+                continue;
+            }
+        }
         const auto* mesh_asset = scene.findMesh(obj.mesh_id.value());
         if (mesh_asset == nullptr) {
+            continue;
+        }
+
+        auto world_res = scene.computeWorldMatrix(obj.id);
+        if (!world_res) {
+            (void)device_->endFrame();
+            return world_res.error();
+        }
+
+        const bool is_sel =
+            (selected_object.isValid() && obj.id == selected_object) ||
+            (display_options != nullptr && containsObjId(display_options->multi_selected_objects, obj.id));
+        const bool is_template =
+            (display_options != nullptr && containsObjId(display_options->template_objects, obj.id));
+
+        const math::Vec3 world_center = world_res.value().transformPoint(mesh_asset->local_bounds.center());
+        const float cam_dist = std::max(0.5f, (world_center - camera_pos).length());
+        const float cam_dist_sq = cam_dist * cam_dist;
+
+        if (wireframe_only || wireframe_on_shaded || is_template) {
+            const float wire_r = std::clamp(cam_dist * 0.0019f, 0.0012f, 0.045f);
+            math::Vec3 wire_col{0.28f, 0.52f, 0.80f};
+            if (is_template) {
+                wire_col = {0.66f, 0.48f, 0.56f};
+            } else if (is_sel) {
+                wire_col = {0.26f, 0.94f, 0.54f};
+            } else if (wireframe_on_shaded) {
+                wire_col = {0.14f, 0.24f, 0.36f};
+            }
+            if (mesh_asset->editable_mesh.has_value()) {
+                mesh_asset->editable_mesh->appendWireframeOverlay(
+                    viewport_wireframe_mesh_,
+                    world_res.value(),
+                    wire_r,
+                    wire_col);
+            } else {
+                appendTriangleMeshWireframe(
+                    viewport_wireframe_mesh_,
+                    mesh_asset->data,
+                    world_res.value(),
+                    wire_r,
+                    wire_col);
+            }
+        }
+
+        if (wireframe_only || is_template) {
             continue;
         }
 
@@ -402,18 +561,25 @@ core::Status Renderer::renderScene(
             return gpu_handle_res.error();
         }
 
-        auto world_res = scene.computeWorldMatrix(obj.id);
-        if (!world_res) {
-            (void)device_->endFrame();
-            return world_res.error();
-        }
-
         const scene::PbrMaterial* obj_mat =
             obj.material_id.has_value() ? scene.findMaterial(obj.material_id.value()) : nullptr;
-        const bool is_sel = (selected_object.isValid() && obj.id == selected_object);
-        const math::Vec3 world_center = world_res.value().transformPoint(mesh_asset->local_bounds.center());
-        const float cam_dist_sq = (world_center - camera_pos).lengthSquared();
         const std::uint32_t obj_light_mask = scene_lighting.computeObjectLightMask(scene, obj.id);
+
+        auto buildSurface = [&](const scene::PbrMaterial* mat) -> PbrSurfaceParams {
+            PbrSurfaceParams surf = surfaceFromMaterial(mat);
+            if (shading_mode == ViewportShadingMode::SmoothShaded) {
+                surf.base_color = {0.58f, 0.60f, 0.64f};
+                surf.metallic = 0.0f;
+                surf.roughness = 0.52f;
+                surf.ambient_occlusion = 1.0f;
+                surf.emissive_radiance = {0.0f, 0.0f, 0.0f};
+                surf.vertex_color_weight = 0.0f;
+            }
+            if (xray_enabled) {
+                surf.opacity = std::min(surf.opacity, 0.42f);
+            }
+            return surf;
+        };
 
         auto submitSubmesh = [&](std::uint32_t offset, std::uint32_t count, const scene::PbrMaterial* mat) -> core::Status {
             DrawMeshCommand cmd{
@@ -423,10 +589,10 @@ core::Status Renderer::renderScene(
                 .camera_position = camera_pos,
                 .lighting = light_uniforms,
                 .selected = is_sel,
-                .surface = surfaceFromMaterial(mat),
+                .surface = buildSurface(mat),
                 .index_offset = offset,
                 .index_count = count,
-                .scene_lighting = &scene_lighting,
+                .scene_lighting = use_default_lighting ? nullptr : &scene_lighting,
                 .light_mask = obj_light_mask,
             };
             if (cmd.surface.opacity < 0.999f) {
@@ -522,6 +688,19 @@ core::Status Renderer::renderScene(
             continue;
         }
         auto draw_st = submitOverlayItem(ov);
+        if (!draw_st) {
+            (void)device_->endFrame();
+            return draw_st;
+        }
+    }
+
+    if (!viewport_wireframe_mesh_.vertices.empty() && !viewport_wireframe_mesh_.indices.empty()) {
+        const ViewportOverlayMesh wire_ov{
+            .mesh_data = &viewport_wireframe_mesh_,
+            .model_matrix = math::Mat4::identity(),
+            .depth_test_scene = true,
+        };
+        auto draw_st = submitOverlayItem(wire_ov);
         if (!draw_st) {
             (void)device_->endFrame();
             return draw_st;

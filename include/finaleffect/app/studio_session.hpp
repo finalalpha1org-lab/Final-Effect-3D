@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "finaleffect/app/maya_editor_types.hpp"
 #include "finaleffect/app/orbit_camera_controller.hpp"
 #include "finaleffect/app/transform_gizmo.hpp"
 #include "finaleffect/app/workspace_manager.hpp"
@@ -20,8 +21,11 @@
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <vector>
 
 namespace finaleffect::app {
 
@@ -94,6 +98,7 @@ public:
 
     // Frames selectedObject() (or the entire visible scene when nothing is selected) in the active camera.
     [[nodiscard]] core::Status frameSelectionOrScene();
+    [[nodiscard]] core::Status frameAllScene();
 
     // Direct camera & gizmo hit-test helpers for touch/stylus/multi-pointer hosts.
     [[nodiscard]] core::Status orbitViewportCamera(float delta_pixels_x, float delta_pixels_y);
@@ -102,7 +107,11 @@ public:
     [[nodiscard]] bool hitTestGizmoAtScreenPosition(float screen_x, float screen_y) const noexcept;
 
     [[nodiscard]] scene::ObjectId selectedObject() const noexcept { return selected_object_; }
+    [[nodiscard]] std::span<const scene::ObjectId> selectedObjects() const noexcept { return selected_objects_; }
     void setSelectedObject(scene::ObjectId id) noexcept;
+    void toggleOrAddSelectedObject(scene::ObjectId id, bool additive) noexcept;
+    void setSelectedObjects(std::span<const scene::ObjectId> ids) noexcept;
+    void sanitizeMultiSelection() noexcept;
 
     // Editor Mode (Object / Vertex / Edge / Face) & Mesh Element Selection.
     [[nodiscard]] scene::EditMode editorMode() const noexcept { return editor_mode_; }
@@ -183,6 +192,89 @@ public:
     [[nodiscard]] bool isEditorGridVisible() const noexcept { return editor_grid_visible_; }
     void setEditorGridVisible(bool visible) noexcept;
 
+    // Maya Stage 1: Menu Set, Toolbox, Selection Masks, Snapping, Viewport Display, Display Layers & Timeline.
+    [[nodiscard]] MayaMenuSet menuSet() const noexcept { return menu_set_; }
+    void setMenuSet(MayaMenuSet set) noexcept;
+
+    [[nodiscard]] MayaTool activeTool() const noexcept { return active_tool_; }
+    [[nodiscard]] MayaTool lastTool() const noexcept { return last_tool_; }
+    void setActiveTool(MayaTool tool) noexcept;
+    void activateLastTool() noexcept;
+
+    [[nodiscard]] SelectionTypeMasks& selectionMasks() noexcept { return selection_masks_; }
+    [[nodiscard]] const SelectionTypeMasks& selectionMasks() const noexcept { return selection_masks_; }
+    void setSelectionMasks(SelectionTypeMasks masks) noexcept;
+
+    [[nodiscard]] SnapSettings& snapSettings() noexcept { return snap_settings_; }
+    [[nodiscard]] const SnapSettings& snapSettings() const noexcept { return snap_settings_; }
+    void setSnapSettings(SnapSettings snap) noexcept;
+
+    [[nodiscard]] rendering::ViewportShadingMode viewportShadingMode() const noexcept { return shading_mode_; }
+    void setViewportShadingMode(rendering::ViewportShadingMode mode) noexcept;
+    void applyMayaViewportDisplayKey(int digit_key) noexcept;
+    [[nodiscard]] bool isWireframeOnShaded() const noexcept { return wireframe_on_shaded_; }
+    void setWireframeOnShaded(bool enabled) noexcept;
+    [[nodiscard]] bool isXRayEnabled() const noexcept { return xray_enabled_; }
+    void setXRayEnabled(bool enabled) noexcept;
+    [[nodiscard]] bool isDefaultLightingActive() const noexcept { return use_default_lighting_; }
+    void setDefaultLightingActive(bool enabled) noexcept;
+    [[nodiscard]] bool isIsolateSelectActive() const noexcept { return isolate_select_active_; }
+    void setIsolateSelectActive(bool active) noexcept;
+    void toggleIsolateSelect() noexcept;
+    [[nodiscard]] std::uint8_t displaySmoothness() const noexcept { return display_smoothness_; }
+    void setDisplaySmoothness(std::uint8_t level) noexcept;
+
+    // Per-object Lock, Channel Lock, Pivot Offset & Custom Channel Attributes.
+    [[nodiscard]] const ObjectEditorMeta& objectEditorMeta(scene::ObjectId id) const noexcept;
+    [[nodiscard]] ObjectEditorMeta& objectEditorMetaMutable(scene::ObjectId id);
+    [[nodiscard]] bool isObjectLocked(scene::ObjectId id) const noexcept;
+    void setObjectLocked(scene::ObjectId id, bool locked);
+    void setObjectChannelMask(scene::ObjectId id, std::uint16_t mask);
+    [[nodiscard]] math::Vec3 objectPivotOffset(scene::ObjectId id) const noexcept;
+    void setObjectPivotOffset(scene::ObjectId id, const math::Vec3& offset);
+    void centerObjectPivot(scene::ObjectId id);
+    void resetObjectPivot(scene::ObjectId id);
+    [[nodiscard]] math::Transform applyChannelLocks(
+        scene::ObjectId id,
+        const math::Transform& previous_tf,
+        const math::Transform& candidate_tf) const noexcept;
+
+    // Maya Display Layers (Normal / Template / Reference / Visibility).
+    [[nodiscard]] const std::vector<DisplayLayer>& displayLayers() const noexcept { return display_layers_; }
+    [[nodiscard]] std::uint32_t activeDisplayLayerId() const noexcept { return active_display_layer_id_; }
+    void setActiveDisplayLayerId(std::uint32_t layer_id) noexcept;
+    [[nodiscard]] std::uint32_t createDisplayLayer(std::string name = {}, bool assign_selected = true);
+    [[nodiscard]] core::Status deleteDisplayLayer(std::uint32_t layer_id);
+    [[nodiscard]] core::Status renameDisplayLayer(std::uint32_t layer_id, std::string new_name);
+    [[nodiscard]] core::Status setDisplayLayerState(
+        std::uint32_t layer_id,
+        std::optional<bool> visible,
+        std::optional<DisplayLayerMode> mode,
+        std::optional<math::Vec3> color = std::nullopt);
+    [[nodiscard]] core::Status assignObjectsToDisplayLayer(
+        std::uint32_t layer_id,
+        std::span<const scene::ObjectId> objects);
+    [[nodiscard]] std::uint32_t objectDisplayLayerId(scene::ObjectId id) const noexcept;
+    [[nodiscard]] bool isObjectSelectableInViewport(scene::ObjectId id) const noexcept;
+
+    // Real C++20 Animation Timeline & Transform Keyframe Engine.
+    [[nodiscard]] const TimelineState& timeline() const noexcept { return timeline_; }
+    [[nodiscard]] TimelineState& timelineMutable() noexcept { return timeline_; }
+    void setTimelineFrame(double frame);
+    void setTimelineRanges(int scene_start, int scene_end, int playback_start, int playback_end) noexcept;
+    void setTimelinePlaying(bool playing) noexcept;
+    void setTimelineFps(float fps) noexcept;
+    void setTimelineLoopMode(PlaybackLoopMode mode) noexcept;
+    void setTimelineAutoKey(bool enabled) noexcept;
+    void stepTimelineFrames(int delta_frames);
+    void jumpToAdjacentKeyframe(bool forward);
+    [[nodiscard]] core::Status setKeyframeForObject(scene::ObjectId id, int frame);
+    [[nodiscard]] core::Status setKeyframeForSelection();
+    [[nodiscard]] core::Status deleteKeyframeForObject(scene::ObjectId id, int frame);
+    void recordAutoKeyIfEnabled(scene::ObjectId id);
+    [[nodiscard]] std::vector<int> keyframesForObject(scene::ObjectId id) const;
+    void resetMayaSessionAuxiliaryState() noexcept;
+
     // Renders the final/offline scene image from the active scene camera without editor grid,
     // selection highlights, transform gizmos, or camera/light viewport helpers.
     [[nodiscard]] core::Status renderFinalScene(const rendering::FrameClearDesc& clear = {});
@@ -194,8 +286,10 @@ private:
         None = 0,
         Orbit,
         Pan,
+        Zoom,
         PendingLeftClick,
         GizmoObject,
+        GizmoPivot,
         GizmoMeshElements,
     };
 
@@ -222,6 +316,11 @@ private:
     [[nodiscard]] core::Status applyCameraControllerToScene();
     [[nodiscard]] core::Status processInputEvent(const platform::InputEvent& event);
     [[nodiscard]] core::Status commitActiveGizmoDrag();
+    [[nodiscard]] math::Transform applySnapToTransform(
+        scene::ObjectId id,
+        const math::Transform& candidate_local_tf,
+        const math::Ray& world_ray) const noexcept;
+    void evaluateTimelineAtCurrentFrame() noexcept;
 
     platform::IWindow& window_;
     rendering::Renderer renderer_;
@@ -239,9 +338,34 @@ private:
     WorkspaceManager workspace_{};
 
     scene::ObjectId selected_object_{};
+    std::vector<scene::ObjectId> selected_objects_{};
     scene::EditMode editor_mode_{scene::EditMode::Object};
+    scene::EditMode last_component_mode_{scene::EditMode::Face};
     scene::MeshElementSelection mesh_selection_{};
     bool text_input_focused_{false};
+
+    MayaMenuSet menu_set_{MayaMenuSet::Modeling};
+    MayaTool active_tool_{MayaTool::Move};
+    MayaTool last_tool_{MayaTool::Move};
+    SelectionTypeMasks selection_masks_{};
+    SnapSettings snap_settings_{};
+    rendering::ViewportShadingMode shading_mode_{rendering::ViewportShadingMode::MaterialTextured};
+    bool wireframe_on_shaded_{false};
+    bool xray_enabled_{false};
+    bool use_default_lighting_{false};
+    bool isolate_select_active_{false};
+    std::vector<scene::ObjectId> isolated_objects_{};
+    std::uint8_t display_smoothness_{1};
+
+    std::unordered_map<scene::ObjectId, ObjectEditorMeta> object_meta_{};
+    std::vector<DisplayLayer> display_layers_{};
+    std::uint32_t next_display_layer_id_{1};
+    std::uint32_t active_display_layer_id_{0};
+    TimelineState timeline_{};
+
+    math::Vec3 gizmo_drag_initial_pivot_{0.0f, 0.0f, 0.0f};
+    std::vector<scene::ObjectId> scratch_hidden_layer_objs_{};
+    std::vector<scene::ObjectId> scratch_template_objs_{};
 
     DragMode drag_mode_{DragMode::None};
     bool left_click_shift_{false};

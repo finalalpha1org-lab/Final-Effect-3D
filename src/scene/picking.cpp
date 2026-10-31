@@ -21,6 +21,10 @@ std::optional<RaycastHit> raycastScene(
     std::optional<RaycastHit> best_hit;
 
     for (const auto& obj : scene.objects()) {
+        if (options.object_filter != nullptr &&
+            !options.object_filter(obj.id, options.filter_user_data)) {
+            continue;
+        }
         if (options.ignore_invisible) {
             ObjectId cur = obj.id;
             std::size_t guard = 0;

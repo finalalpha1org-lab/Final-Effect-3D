@@ -359,7 +359,10 @@ RoutedInputDecision WorkspaceManager::routeKeyEvent(
     }
 
     const bool cmd_or_ctrl = event.mods.ctrl || event.mods.super;
-    if (cmd_or_ctrl && (event.key == platform::KeyCode::Z || event.key == platform::KeyCode::Y)) {
+    if (cmd_or_ctrl &&
+        (event.key == platform::KeyCode::Z || event.key == platform::KeyCode::Y ||
+         event.key == platform::KeyCode::D || event.key == platform::KeyCode::G ||
+         event.key == platform::KeyCode::S)) {
         return RoutedInputDecision{RoutedInputTarget::GlobalEditorShortcut, std::nullopt};
     }
 
@@ -368,15 +371,36 @@ RoutedInputDecision WorkspaceManager::routeKeyEvent(
     }
 
     switch (event.key) {
+        case platform::KeyCode::Q:
         case platform::KeyCode::W:
         case platform::KeyCode::E:
         case platform::KeyCode::R:
+        case platform::KeyCode::T:
+        case platform::KeyCode::Y:
+        case platform::KeyCode::A:
+        case platform::KeyCode::S:
+        case platform::KeyCode::D:
         case platform::KeyCode::F:
+        case platform::KeyCode::G:
+        case platform::KeyCode::H:
+        case platform::KeyCode::P:
+        case platform::KeyCode::X:
+        case platform::KeyCode::C:
+        case platform::KeyCode::V:
+        case platform::KeyCode::Insert:
         case platform::KeyCode::Tab:
         case platform::KeyCode::Digit1:
         case platform::KeyCode::Digit2:
         case platform::KeyCode::Digit3:
         case platform::KeyCode::Digit4:
+        case platform::KeyCode::Digit5:
+        case platform::KeyCode::Digit6:
+        case platform::KeyCode::Digit7:
+        case platform::KeyCode::F8:
+        case platform::KeyCode::F9:
+        case platform::KeyCode::F10:
+        case platform::KeyCode::F11:
+        case platform::KeyCode::F12:
         case platform::KeyCode::Delete:
         case platform::KeyCode::Backspace:
         case platform::KeyCode::Escape:

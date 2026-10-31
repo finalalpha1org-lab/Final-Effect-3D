@@ -50,7 +50,8 @@ public:
         scene::ObjectId selected_object = {},
         std::span<const ViewportOverlayMesh> overlays = {},
         const ViewportCameraOverride* camera_override = nullptr,
-        const ViewportGridOptions* grid_options = nullptr);
+        const ViewportGridOptions* grid_options = nullptr,
+        const ViewportDisplayOptions* display_options = nullptr);
 
     void releaseSceneResources() noexcept;
 
@@ -79,6 +80,7 @@ private:
     std::uint32_t viewport_height_{0};
     std::unordered_map<scene::MeshId, CachedGpuMesh> gpu_mesh_cache_;
     std::vector<GpuMeshHandle> overlay_gpu_pool_;
+    scene::MeshData viewport_wireframe_mesh_;
     std::uint32_t cached_shadow_atlas_size_{0};
     std::unordered_map<std::uint32_t, std::uint64_t> cached_shadow_tile_signatures_;
     LightingDiagnostics last_lighting_diagnostics_{};

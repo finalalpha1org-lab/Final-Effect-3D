@@ -409,6 +409,11 @@ if(FINALEFFECT_BUILD_TESTS)
     finaleffect_apply_compiler_settings(finaleffect_lighting_engine_tests)
     add_test(NAME finaleffect.lighting_engine COMMAND finaleffect_lighting_engine_tests)
 
+    add_executable(finaleffect_maya_stage1_tests tests/maya_stage1_tests.cpp)
+    target_link_libraries(finaleffect_maya_stage1_tests PRIVATE finaleffect::app finaleffect::rendering)
+    finaleffect_apply_compiler_settings(finaleffect_maya_stage1_tests)
+    add_test(NAME finaleffect.maya_stage1 COMMAND finaleffect_maya_stage1_tests)
+
     if(FINALEFFECT_BUILD_RENDERER_DESKTOP AND FINALEFFECT_PLATFORM_IS_DESKTOP)
         add_executable(finaleffect_opengl33_tests tests/opengl33_device_tests.cpp)
         target_link_libraries(finaleffect_opengl33_tests PRIVATE finaleffect::rendering_opengl33)

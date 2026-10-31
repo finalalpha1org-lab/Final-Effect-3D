@@ -121,6 +121,22 @@ public:
         std::uint32_t rings = 16,
         std::uint32_t sectors = 24,
         const math::Vec3& base_color = {0.92f, 0.92f, 0.94f});
+    [[nodiscard]] static EditableMesh createCylinder(
+        float radius = 0.55f,
+        float height = 1.25f,
+        std::uint32_t sectors = 20,
+        const math::Vec3& base_color = {0.82f, 0.86f, 0.92f});
+    [[nodiscard]] static EditableMesh createCone(
+        float radius = 0.60f,
+        float height = 1.30f,
+        std::uint32_t sectors = 20,
+        const math::Vec3& base_color = {0.86f, 0.82f, 0.78f});
+    [[nodiscard]] static EditableMesh createTorus(
+        float major_radius = 0.65f,
+        float minor_radius = 0.22f,
+        std::uint32_t major_segments = 20,
+        std::uint32_t minor_segments = 12,
+        const math::Vec3& base_color = {0.78f, 0.84f, 0.92f});
 
     // Collects unique control vertex indices referenced by current selection in `mode`.
     [[nodiscard]] std::vector<std::uint32_t> collectSelectedVertexIndices(
@@ -169,6 +185,15 @@ public:
         MaterialId material_id);
 
     void clearMaterialReferences(MaterialId removed_material_id) noexcept;
+    void setSmoothShading(bool smooth) noexcept;
+    void transformVertices(const math::Mat4& matrix) noexcept;
+    [[nodiscard]] core::Status reverseNormals();
+
+    void appendWireframeOverlay(
+        MeshData& out_overlay,
+        const math::Mat4& world_matrix,
+        float world_wire_radius,
+        const math::Vec3& color) const;
 
     // -------------------------------------------------------------------------
     // Viewport Raycast Picking & 3D Edit Overlay Mesh Generation

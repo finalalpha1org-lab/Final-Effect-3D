@@ -32,6 +32,25 @@ public:
         std::uint32_t rings = 16,
         std::uint32_t sectors = 24,
         const math::Vec3& base_color = math::Vec3{0.82f, 0.85f, 0.90f});
+
+    [[nodiscard]] static MeshData createCylinder(
+        float radius = 0.55f,
+        float height = 1.25f,
+        std::uint32_t sectors = 20,
+        const math::Vec3& base_color = math::Vec3{0.82f, 0.86f, 0.92f});
+
+    [[nodiscard]] static MeshData createCone(
+        float radius = 0.60f,
+        float height = 1.30f,
+        std::uint32_t sectors = 20,
+        const math::Vec3& base_color = math::Vec3{0.86f, 0.82f, 0.78f});
+
+    [[nodiscard]] static MeshData createTorus(
+        float major_radius = 0.65f,
+        float minor_radius = 0.22f,
+        std::uint32_t major_segments = 20,
+        std::uint32_t minor_segments = 12,
+        const math::Vec3& base_color = math::Vec3{0.78f, 0.84f, 0.92f});
 };
 
 } // namespace finaleffect::scene

@@ -34,11 +34,25 @@ namespace {
 constexpr const char* kCanvasSelector = "#fe3d-canvas";
 
 EM_JS(int, fe3d_is_text_input_focused, (), {
+    if (document.body && document.body.dataset && document.body.dataset.appView &&
+        document.body.dataset.appView !== "studio") {
+        return 1;
+    }
+    if (document.querySelector(".modal-backdrop:not([hidden])")) {
+        return 1;
+    }
     const el = document.activeElement;
     if (!el) return 0;
     const tag = el.tagName ? el.tagName.toUpperCase() : "";
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable) {
         return 1;
+    }
+    return 0;
+});
+
+EM_JS(int, fe3d_is_custom_key_overridden, (const char* dom_code), {
+    if (typeof window.__FE3D_IS_KEY_OVERRIDDEN__ === "function") {
+        return window.__FE3D_IS_KEY_OVERRIDDEN__(UTF8ToString(dom_code)) ? 1 : 0;
     }
     return 0;
 });
@@ -95,8 +109,16 @@ finaleffect::platform::KeyCode translateDomKeyCode(std::string_view code) noexce
     if (code == "Escape") return KeyCode::Escape;
     if (code == "Delete") return KeyCode::Delete;
     if (code == "Backspace") return KeyCode::Backspace;
-    if (code == "Space") return KeyCode::Space;
+    if (code == "Insert") return KeyCode::Insert;
+    if (code == "KeyQ") return KeyCode::Q;
     if (code == "KeyF") return KeyCode::F;
+    if (code == "KeyG") return KeyCode::G;
+    if (code == "KeyH") return KeyCode::H;
+    if (code == "KeyP") return KeyCode::P;
+    if (code == "KeyT") return KeyCode::T;
+    if (code == "KeyX") return KeyCode::X;
+    if (code == "KeyC") return KeyCode::C;
+    if (code == "KeyV") return KeyCode::V;
     if (code == "KeyZ") return KeyCode::Z;
     if (code == "KeyY") return KeyCode::Y;
     if (code == "KeyW") return KeyCode::W;
@@ -110,6 +132,19 @@ finaleffect::platform::KeyCode translateDomKeyCode(std::string_view code) noexce
     if (code == "Digit2") return KeyCode::Digit2;
     if (code == "Digit3") return KeyCode::Digit3;
     if (code == "Digit4") return KeyCode::Digit4;
+    if (code == "Digit5") return KeyCode::Digit5;
+    if (code == "Digit6") return KeyCode::Digit6;
+    if (code == "Digit7") return KeyCode::Digit7;
+    if (code == "F2") return KeyCode::F2;
+    if (code == "F3") return KeyCode::F3;
+    if (code == "F4") return KeyCode::F4;
+    if (code == "F5") return KeyCode::F5;
+    if (code == "F6") return KeyCode::F6;
+    if (code == "F8") return KeyCode::F8;
+    if (code == "F9") return KeyCode::F9;
+    if (code == "F10") return KeyCode::F10;
+    if (code == "F11") return KeyCode::F11;
+    if (code == "F12") return KeyCode::F12;
     if (code == "ShiftLeft" || code == "ShiftRight") return KeyCode::LeftShift;
     if (code == "ControlLeft" || code == "ControlRight") return KeyCode::LeftControl;
     if (code == "AltLeft" || code == "AltRight") return KeyCode::LeftAlt;
@@ -345,6 +380,9 @@ private:
         }
         auto* self = static_cast<Html5CanvasWindow*>(user_data);
         if (self == nullptr || ev == nullptr) {
+            return EM_FALSE;
+        }
+        if (fe3d_is_custom_key_overridden(ev->code) != 0) {
             return EM_FALSE;
         }
         const auto code = translateDomKeyCode(ev->code);

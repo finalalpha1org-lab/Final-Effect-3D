@@ -6,8 +6,12 @@
 #include "finaleffect/math/constants.hpp"
 #include "finaleffect/scene/editable_mesh.hpp"
 
+#include <algorithm>
+#include <cctype>
+#include <charconv>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -126,6 +130,94 @@ core::Status EditorController::selectObject(scene::ObjectId id) {
     return core::Status::ok();
 }
 
+core::Status EditorController::toggleObjectSelection(scene::ObjectId id, bool additive) {
+    if (!additive) {
+        return selectObject(id);
+    }
+    if (!id.isValid() || session_.document().scene.findObject(id) == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Object ID does not exist in scene");
+        recordStatus(st, {});
+        return st;
+    }
+    session_.toggleOrAddSelectedObject(id, true);
+    if (session_.selectedObject().isValid()) {
+        if (const auto* obj = session_.document().scene.findObject(session_.selectedObject());
+            obj != nullptr && obj->material_id.has_value()) {
+            selected_material_id_ = obj->material_id.value();
+            session_.syncDocumentState(selected_material_id_);
+            refreshMaterialPreview();
+        }
+    }
+    recordStatus(
+        core::Status::ok(),
+        "Selected " + std::to_string(session_.selectedObjects().size()) + " object(s)");
+    return core::Status::ok();
+}
+
+core::Status EditorController::selectAllObjects() {
+    if (session_.editorMode() != scene::EditMode::Object) {
+        return selectAllMeshComponents();
+    }
+    std::vector<scene::ObjectId> all_ids;
+    for (const auto& obj : session_.document().scene.objects()) {
+        if (obj.visible && !session_.isObjectLocked(obj.id)) {
+            all_ids.push_back(obj.id);
+        }
+    }
+    session_.setSelectedObjects(all_ids);
+    recordStatus(core::Status::ok(), "Selected all (" + std::to_string(all_ids.size()) + " object(s))");
+    return core::Status::ok();
+}
+
+core::Status EditorController::invertObjectSelection() {
+    const auto cur = session_.selectedObjects();
+    std::vector<scene::ObjectId> inverted;
+    for (const auto& obj : session_.document().scene.objects()) {
+        if (!obj.visible || session_.isObjectLocked(obj.id)) {
+            continue;
+        }
+        if (std::find(cur.begin(), cur.end(), obj.id) == cur.end()) {
+            inverted.push_back(obj.id);
+        }
+    }
+    session_.setSelectedObjects(inverted);
+    recordStatus(core::Status::ok(), "Inverted selection (" + std::to_string(inverted.size()) + " object(s))");
+    return core::Status::ok();
+}
+
+core::Status EditorController::selectHierarchy() {
+    session_.sanitizeMultiSelection();
+    std::vector<scene::ObjectId> result(session_.selectedObjects().begin(), session_.selectedObjects().end());
+    if (result.empty() && session_.selectedObject().isValid()) {
+        result.push_back(session_.selectedObject());
+    }
+    if (result.empty()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Select an object to expand hierarchy");
+        recordStatus(st, {});
+        return st;
+    }
+    bool added = true;
+    while (added) {
+        added = false;
+        for (const auto& obj : session_.document().scene.objects()) {
+            if (!obj.parent_id.isValid()) {
+                continue;
+            }
+            const bool parent_in =
+                std::find(result.begin(), result.end(), obj.parent_id) != result.end();
+            const bool self_in =
+                std::find(result.begin(), result.end(), obj.id) != result.end();
+            if (parent_in && !self_in) {
+                result.push_back(obj.id);
+                added = true;
+            }
+        }
+    }
+    session_.setSelectedObjects(result);
+    recordStatus(core::Status::ok(), "Selected hierarchy (" + std::to_string(result.size()) + " node(s))");
+    return core::Status::ok();
+}
+
 std::optional<scene::RaycastHit> EditorController::pickViewportPixel(float x, float y) {
     auto hit = session_.pickAtScreenPosition(x, y);
     ++state_revision_;
@@ -149,6 +241,12 @@ std::optional<scene::RaycastHit> EditorController::pickViewportPixel(float x, fl
 core::Status EditorController::frameSelectionOrScene() {
     auto st = session_.frameSelectionOrScene();
     recordStatus(st, "Framed viewport camera");
+    return st;
+}
+
+core::Status EditorController::frameAllScene() {
+    auto st = session_.frameAllScene();
+    recordStatus(st, "Framed all scene objects");
     return st;
 }
 
@@ -624,6 +722,99 @@ core::Status EditorController::assignMaterialToSelectedFaces(scene::MaterialId m
     return cmd_st;
 }
 
+core::Status EditorController::setSelectedMeshSmoothNormals(bool smooth) {
+    if (!session_.selectedObject().isValid()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Select a polygon mesh object first");
+        recordStatus(st, {});
+        return st;
+    }
+    const auto* obj = session_.document().scene.findObject(session_.selectedObject());
+    const auto* ma = (obj != nullptr && obj->mesh_id.has_value())
+                         ? session_.document().scene.findMesh(obj->mesh_id.value())
+                         : nullptr;
+    if (ma == nullptr || !ma->editable_mesh.has_value()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Selected object has no editable mesh");
+        recordStatus(st, {});
+        return st;
+    }
+    scene::EditableMesh after = ma->editable_mesh.value();
+    after.setSmoothShading(smooth);
+    auto cmd_st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::ModifyMeshCommand>(
+            obj->mesh_id.value(),
+            std::move(after),
+            smooth ? "Soften Edge Normals" : "Harden Edge Normals",
+            false));
+    recordStatus(cmd_st, smooth ? "Softened mesh normals" : "Hardened mesh normals");
+    return cmd_st;
+}
+
+core::Status EditorController::reverseSelectedMeshNormals() {
+    if (!session_.selectedObject().isValid()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Select a polygon mesh object first");
+        recordStatus(st, {});
+        return st;
+    }
+    const auto* obj = session_.document().scene.findObject(session_.selectedObject());
+    const auto* ma = (obj != nullptr && obj->mesh_id.has_value())
+                         ? session_.document().scene.findMesh(obj->mesh_id.value())
+                         : nullptr;
+    if (ma == nullptr || !ma->editable_mesh.has_value()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Selected object has no editable mesh");
+        recordStatus(st, {});
+        return st;
+    }
+    scene::EditableMesh after = ma->editable_mesh.value();
+    auto rev_st = after.reverseNormals();
+    if (!rev_st) {
+        recordStatus(rev_st, {});
+        return rev_st;
+    }
+    auto cmd_st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::ModifyMeshCommand>(
+            obj->mesh_id.value(),
+            std::move(after),
+            "Reverse Mesh Normals",
+            false));
+    recordStatus(cmd_st, "Reversed polygon winding and normals");
+    return cmd_st;
+}
+
+core::Status EditorController::selectAllMeshComponents() {
+    if (session_.editorMode() == scene::EditMode::Object || !session_.selectedObject().isValid()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Enter Vertex/Edge/Face mode first");
+        recordStatus(st, {});
+        return st;
+    }
+    const auto* obj = session_.document().scene.findObject(session_.selectedObject());
+    const auto* ma = (obj != nullptr && obj->mesh_id.has_value())
+                         ? session_.document().scene.findMesh(obj->mesh_id.value())
+                         : nullptr;
+    if (ma == nullptr || !ma->editable_mesh.has_value()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Selected object has no editable mesh");
+        recordStatus(st, {});
+        return st;
+    }
+    const auto& em = ma->editable_mesh.value();
+    auto& ms = session_.meshSelection();
+    ms.clear();
+    if (session_.editorMode() == scene::EditMode::Vertex) {
+        ms.vertices.resize(em.vertexCount());
+        for (std::uint32_t i = 0; i < em.vertexCount(); ++i) ms.vertices[i] = i;
+    } else if (session_.editorMode() == scene::EditMode::Edge) {
+        ms.edges.resize(em.edgeCount());
+        for (std::uint32_t i = 0; i < em.edgeCount(); ++i) ms.edges[i] = i;
+    } else if (session_.editorMode() == scene::EditMode::Face) {
+        ms.faces.resize(em.faceCount());
+        for (std::uint32_t i = 0; i < em.faceCount(); ++i) ms.faces[i] = i;
+    }
+    session_.syncDocumentState();
+    recordStatus(core::Status::ok(), "Selected all mesh components");
+    return core::Status::ok();
+}
+
 std::string EditorController::generateUniqueMaterialName(std::string_view base_prefix) const {
     const auto& scene = session_.document().scene;
     if (scene.findMaterialByName(base_prefix) == nullptr) {
@@ -838,10 +1029,13 @@ core::Result<scene::MeshId> EditorController::ensurePresetMesh(ScenePreset prese
 
     std::string_view target_name;
     switch (preset) {
-        case ScenePreset::Cube:    target_name = "HeroCubeMesh"; break;
-        case ScenePreset::Pyramid: target_name = "AccentPyramidMesh"; break;
-        case ScenePreset::Plane:   target_name = "StudioPlaneMesh"; break;
-        case ScenePreset::Sphere:  target_name = "StudioSphereMesh"; break;
+        case ScenePreset::Cube:     target_name = "HeroCubeMesh"; break;
+        case ScenePreset::Pyramid:  target_name = "AccentPyramidMesh"; break;
+        case ScenePreset::Plane:    target_name = "StudioPlaneMesh"; break;
+        case ScenePreset::Sphere:   target_name = "StudioSphereMesh"; break;
+        case ScenePreset::Cylinder: target_name = "StudioCylinderMesh"; break;
+        case ScenePreset::Cone:     target_name = "StudioConeMesh"; break;
+        case ScenePreset::Torus:    target_name = "StudioTorusMesh"; break;
         default:
             return core::Result<scene::MeshId>::fail(core::ErrorCode::InvalidArgument, "Not a mesh preset");
     }
@@ -866,6 +1060,21 @@ core::Result<scene::MeshId> EditorController::ensurePresetMesh(ScenePreset prese
         return scene.registerEditableMesh(
             std::string(target_name),
             scene::EditableMesh::createUvSphere(0.75f, 14, 24, math::Vec3{0.85f, 0.88f, 0.92f}));
+    }
+    if (preset == ScenePreset::Cylinder) {
+        return scene.registerEditableMesh(
+            std::string(target_name),
+            scene::EditableMesh::createCylinder(0.55f, 1.40f, 24, math::Vec3{0.82f, 0.85f, 0.89f}));
+    }
+    if (preset == ScenePreset::Cone) {
+        return scene.registerEditableMesh(
+            std::string(target_name),
+            scene::EditableMesh::createCone(0.65f, 1.45f, 24, math::Vec3{0.84f, 0.82f, 0.78f}));
+    }
+    if (preset == ScenePreset::Torus) {
+        return scene.registerEditableMesh(
+            std::string(target_name),
+            scene::EditableMesh::createTorus(0.68f, 0.24f, 24, 16, math::Vec3{0.80f, 0.86f, 0.90f}));
     }
     return scene.registerEditableMesh(
         std::string(target_name),
@@ -930,6 +1139,27 @@ core::Result<scene::ObjectId> EditorController::addPresetObject(
         }
         case ScenePreset::Sphere: {
             base_name = "Sphere";
+            auto m = ensurePresetMesh(preset);
+            if (!m) return m.error();
+            mesh_id = m.value();
+            break;
+        }
+        case ScenePreset::Cylinder: {
+            base_name = "Cylinder";
+            auto m = ensurePresetMesh(preset);
+            if (!m) return m.error();
+            mesh_id = m.value();
+            break;
+        }
+        case ScenePreset::Cone: {
+            base_name = "Cone";
+            auto m = ensurePresetMesh(preset);
+            if (!m) return m.error();
+            mesh_id = m.value();
+            break;
+        }
+        case ScenePreset::Torus: {
+            base_name = "Torus";
             auto m = ensurePresetMesh(preset);
             if (!m) return m.error();
             mesh_id = m.value();
@@ -1132,6 +1362,13 @@ core::Status EditorController::deleteSelectedObject(scene::RemovalMode mode) {
         recordStatus(st, {});
         return st;
     }
+    if (session_.isObjectLocked(sel)) {
+        auto st = core::Status::fail(
+            core::ErrorCode::InvalidState,
+            "Cannot delete locked object; unlock it first");
+        recordStatus(st, {});
+        return st;
+    }
     const auto* obj = session_.document().scene.findObject(sel);
     if (obj == nullptr) {
         session_.setSelectedObject({});
@@ -1181,6 +1418,18 @@ core::Status EditorController::setObjectTransformEulerDegrees(
     const math::Vec3& euler_degrees,
     const math::Vec3& scale,
     bool allow_coalesce) {
+    const auto* existing = session_.document().scene.findObject(id);
+    if (existing == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Object not found");
+        recordStatus(st, {});
+        return st;
+    }
+    if (session_.isObjectLocked(id)) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Object is locked");
+        recordStatus(st, {});
+        return st;
+    }
+
     math::Transform tf;
     tf.position = position;
     tf.rotation = math::Quat::fromEulerXYZ({
@@ -1189,23 +1438,540 @@ core::Status EditorController::setObjectTransformEulerDegrees(
         math::degToRad(euler_degrees.z),
     });
     tf.scale = scale;
+    tf = session_.applyChannelLocks(id, existing->local_transform, tf);
 
     auto st = session_.commandStack().execute(
         session_.document().scene,
         std::make_unique<scene::SetTransformCommand>(id, tf, allow_coalesce));
-    if (st && session_.isCameraViewActive() && id == session_.document().scene.activeCamera()) {
-        session_.cameraController().syncFromCameraTransform(tf, session_.cameraController().target());
+    if (st) {
+        session_.recordAutoKeyIfEnabled(id);
+        if (session_.isCameraViewActive() && id == session_.document().scene.activeCamera()) {
+            session_.cameraController().syncFromCameraTransform(tf, session_.cameraController().target());
+        }
     }
     recordStatus(st, "Updated transform");
     return st;
 }
 
 core::Status EditorController::resetObjectTransform(scene::ObjectId id) {
+    if (session_.isObjectLocked(id)) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Object is locked");
+        recordStatus(st, {});
+        return st;
+    }
     auto st = session_.commandStack().execute(
         session_.document().scene,
         std::make_unique<scene::SetTransformCommand>(id, math::Transform::identity(), false));
+    if (st) {
+        session_.recordAutoKeyIfEnabled(id);
+    }
     recordStatus(st, "Reset transform to identity");
     return st;
+}
+
+core::Result<scene::ObjectId> EditorController::groupSelectedObjects(std::string group_name) {
+    session_.sanitizeMultiSelection();
+    std::vector<scene::ObjectId> targets(
+        session_.selectedObjects().begin(), session_.selectedObjects().end());
+    if (targets.empty() && session_.selectedObject().isValid()) {
+        targets.push_back(session_.selectedObject());
+    }
+
+    auto& scene = session_.document().scene;
+    math::Vec3 avg_pos = math::Vec3::zero();
+    std::size_t valid_count = 0;
+    scene::ObjectId common_parent{};
+    bool first = true;
+    for (const scene::ObjectId tid : targets) {
+        if (const auto* obj = scene.findObject(tid); obj != nullptr) {
+            avg_pos += obj->local_transform.position;
+            ++valid_count;
+            if (first) {
+                common_parent = obj->parent_id;
+                first = false;
+            } else if (common_parent != obj->parent_id) {
+                common_parent = {};
+            }
+        }
+    }
+    if (valid_count > 0) {
+        avg_pos = avg_pos * (1.0f / static_cast<float>(valid_count));
+    }
+
+    const std::string resolved_name =
+        generateUniqueObjectName(group_name.empty() ? "group" : group_name);
+    math::Transform grp_tf = math::Transform::identity();
+    grp_tf.position = avg_pos;
+
+    auto create_cmd = std::make_unique<scene::CreateObjectCommand>(
+        resolved_name,
+        common_parent,
+        grp_tf);
+    const auto* raw_cmd = create_cmd.get();
+    auto st = session_.commandStack().execute(scene, std::move(create_cmd));
+    if (!st) {
+        recordStatus(st, {});
+        return st.error();
+    }
+
+    const scene::ObjectId grp_id = raw_cmd->createdObjectId();
+    for (const scene::ObjectId tid : targets) {
+        if (tid != grp_id && scene.findObject(tid) != nullptr) {
+            if (const auto* child = scene.findObject(tid); child != nullptr) {
+                math::Transform rel_tf = child->local_transform;
+                rel_tf.position = rel_tf.position - avg_pos;
+                (void)session_.commandStack().execute(
+                    scene, std::make_unique<scene::SetTransformCommand>(tid, rel_tf, false));
+            }
+            (void)session_.commandStack().execute(
+                scene, std::make_unique<scene::ReparentObjectCommand>(tid, grp_id));
+        }
+    }
+    session_.setSelectedObject(grp_id);
+    recordStatus(core::Status::ok(), "Grouped selection under '" + resolved_name + "'");
+    return core::Result<scene::ObjectId>::ok(grp_id);
+}
+
+core::Status EditorController::parentSelectedObjects() {
+    session_.sanitizeMultiSelection();
+    const auto sel = session_.selectedObjects();
+    if (sel.size() < 2) {
+        auto st = core::Status::fail(
+            core::ErrorCode::InvalidState,
+            "Select child object(s) then Shift+Select target parent object to Parent (P)");
+        recordStatus(st, {});
+        return st;
+    }
+    const scene::ObjectId parent_id = sel.back();
+    core::Status last_st = core::Status::ok();
+    for (std::size_t i = 0; i + 1 < sel.size(); ++i) {
+        if (sel[i] != parent_id) {
+            last_st = session_.commandStack().execute(
+                session_.document().scene,
+                std::make_unique<scene::ReparentObjectCommand>(sel[i], parent_id));
+            if (!last_st) {
+                recordStatus(last_st, {});
+                return last_st;
+            }
+        }
+    }
+    recordStatus(core::Status::ok(), "Parented selected object(s)");
+    return core::Status::ok();
+}
+
+core::Status EditorController::unparentSelectedObjects() {
+    session_.sanitizeMultiSelection();
+    std::vector<scene::ObjectId> targets(
+        session_.selectedObjects().begin(), session_.selectedObjects().end());
+    if (targets.empty() && session_.selectedObject().isValid()) {
+        targets.push_back(session_.selectedObject());
+    }
+    if (targets.empty()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Select an object to Unparent");
+        recordStatus(st, {});
+        return st;
+    }
+    for (const scene::ObjectId tid : targets) {
+        auto st = session_.commandStack().execute(
+            session_.document().scene,
+            std::make_unique<scene::ReparentObjectCommand>(tid, scene::ObjectId::invalid()));
+        if (!st) {
+            recordStatus(st, {});
+            return st;
+        }
+    }
+    recordStatus(core::Status::ok(), "Unparented object(s) to world root");
+    return core::Status::ok();
+}
+
+core::Status EditorController::freezeSelectedTransformations() {
+    const scene::ObjectId sel = session_.selectedObject();
+    if (!sel.isValid()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Select an object to Freeze Transformations");
+        recordStatus(st, {});
+        return st;
+    }
+    if (session_.isObjectLocked(sel)) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Object is locked");
+        recordStatus(st, {});
+        return st;
+    }
+    auto& scene = session_.document().scene;
+    const auto* obj = scene.findObject(sel);
+    if (obj == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Selected object not found");
+        recordStatus(st, {});
+        return st;
+    }
+
+    if (obj->mesh_id.has_value()) {
+        const scene::MeshId orig_mid = obj->mesh_id.value();
+        const auto* ma = scene.findMesh(orig_mid);
+        if (ma != nullptr && ma->editable_mesh.has_value()) {
+            const math::Mat4 bake_mat = obj->local_transform.toMatrix();
+            std::size_t ref_count = 0;
+            for (const auto& o : scene.objects()) {
+                if (o.mesh_id == orig_mid) ++ref_count;
+            }
+            scene::EditableMesh baked = ma->editable_mesh.value();
+            baked.transformVertices(bake_mat);
+
+            if (ref_count > 1) {
+                auto new_mesh_res = scene.registerEditableMesh(obj->name + "_FrozenMesh", std::move(baked));
+                if (new_mesh_res) {
+                    (void)scene.assignMesh(sel, new_mesh_res.value());
+                }
+            } else {
+                auto mst = session_.commandStack().execute(
+                    scene,
+                    std::make_unique<scene::ModifyMeshCommand>(
+                        orig_mid, std::move(baked), "Freeze Mesh Vertices", false));
+                if (!mst) {
+                    recordStatus(mst, {});
+                    return mst;
+                }
+            }
+        }
+    }
+
+    auto st = session_.commandStack().execute(
+        scene,
+        std::make_unique<scene::SetTransformCommand>(sel, math::Transform::identity(), false));
+    session_.resetObjectPivot(sel);
+    recordStatus(st, "Froze transformations on '" + obj->name + "'");
+    return st;
+}
+
+core::Status EditorController::centerSelectedPivot() {
+    const scene::ObjectId sel = session_.selectedObject();
+    if (!sel.isValid() || session_.document().scene.findObject(sel) == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Select an object to Center Pivot");
+        recordStatus(st, {});
+        return st;
+    }
+    session_.centerObjectPivot(sel);
+    recordStatus(core::Status::ok(), "Centered object pivot");
+    return core::Status::ok();
+}
+
+core::Status EditorController::resetSelectedPivot() {
+    const scene::ObjectId sel = session_.selectedObject();
+    if (!sel.isValid() || session_.document().scene.findObject(sel) == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Select an object to Reset Pivot");
+        recordStatus(st, {});
+        return st;
+    }
+    session_.resetObjectPivot(sel);
+    recordStatus(core::Status::ok(), "Reset object pivot to origin");
+    return core::Status::ok();
+}
+
+core::Status EditorController::executeCommandLine(std::string_view command_text) {
+    // Trim leading/trailing whitespace & optional trailing MEL semicolon ';'.
+    while (!command_text.empty() && std::isspace(static_cast<unsigned char>(command_text.front()))) {
+        command_text.remove_prefix(1);
+    }
+    while (!command_text.empty() &&
+           (std::isspace(static_cast<unsigned char>(command_text.back())) || command_text.back() == ';')) {
+        command_text.remove_suffix(1);
+    }
+    if (command_text.empty()) {
+        return core::Status::ok();
+    }
+
+    command_history_.push_back(std::string(command_text));
+    while (command_history_.size() > 64) {
+        command_history_.pop_front();
+    }
+
+    // Safe whitespace/quoted tokenizer — strictly zero eval/shell execution.
+    std::vector<std::string> tokens;
+    std::string cur;
+    bool in_quotes = false;
+    char quote_ch = '"';
+    for (std::size_t i = 0; i < command_text.size(); ++i) {
+        const char c = command_text[i];
+        if (in_quotes) {
+            if (c == quote_ch) {
+                in_quotes = false;
+            } else {
+                cur.push_back(c);
+            }
+        } else if (c == '"' || c == '\'') {
+            in_quotes = true;
+            quote_ch = c;
+        } else if (std::isspace(static_cast<unsigned char>(c))) {
+            if (!cur.empty()) {
+                tokens.push_back(std::move(cur));
+                cur.clear();
+            }
+        } else {
+            cur.push_back(c);
+        }
+    }
+    if (!cur.empty()) {
+        tokens.push_back(std::move(cur));
+    }
+    if (tokens.empty()) {
+        return core::Status::ok();
+    }
+
+    std::string cmd = tokens[0];
+    for (char& ch : cmd) {
+        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    }
+
+    auto parseFloatArg = [&](std::size_t idx, float& out) -> bool {
+        if (idx >= tokens.size()) return false;
+        char* end_ptr = nullptr;
+        const float v = std::strtof(tokens[idx].c_str(), &end_ptr);
+        if (end_ptr == tokens[idx].c_str() || !std::isfinite(v)) return false;
+        out = v;
+        return true;
+    };
+
+    if (cmd == "help" || cmd == "?") {
+        recordStatus(
+            core::Status::ok(),
+            "Commands: polyCube, polySphere, polyCylinder, polyCone, polyTorus, polyPlane, camera, "
+            "directionalLight, pointLight, spotLight, areaLight, select <name|all|clear|invert>, "
+            "move <x y z>, rotate <x y z>, scale <x y z>, rename <name>, duplicate, delete, group, "
+            "parent, unparent, freezeTransforms, centerPivot, wireframe, shaded, textured, lighting, "
+            "xray, isolateSelect, frameSelected, frameAll, currentTime <f>, setKey, play, stop, undo, redo");
+        return core::Status::ok();
+    }
+    if (cmd == "polycube" || cmd == "cube") {
+        auto r = addPresetObject(ScenePreset::Cube);
+        return r ? core::Status::ok() : core::Status(r.error());
+    }
+    if (cmd == "polysphere" || cmd == "sphere") {
+        auto r = addPresetObject(ScenePreset::Sphere);
+        return r ? core::Status::ok() : core::Status(r.error());
+    }
+    if (cmd == "polycylinder" || cmd == "cylinder") {
+        auto r = addPresetObject(ScenePreset::Cylinder);
+        return r ? core::Status::ok() : core::Status(r.error());
+    }
+    if (cmd == "polycone" || cmd == "cone") {
+        auto r = addPresetObject(ScenePreset::Cone);
+        return r ? core::Status::ok() : core::Status(r.error());
+    }
+    if (cmd == "polytorus" || cmd == "torus") {
+        auto r = addPresetObject(ScenePreset::Torus);
+        return r ? core::Status::ok() : core::Status(r.error());
+    }
+    if (cmd == "polyplane" || cmd == "plane") {
+        auto r = addPresetObject(ScenePreset::Plane);
+        return r ? core::Status::ok() : core::Status(r.error());
+    }
+    if (cmd == "polypyramid" || cmd == "pyramid") {
+        auto r = addPresetObject(ScenePreset::Pyramid);
+        return r ? core::Status::ok() : core::Status(r.error());
+    }
+    if (cmd == "locator" || cmd == "spaceLocator" || cmd == "spacelocator" || cmd == "empty") {
+        auto r = addPresetObject(ScenePreset::EmptyPivot);
+        return r ? core::Status::ok() : core::Status(r.error());
+    }
+    if (cmd == "camera") {
+        auto r = addPresetObject(ScenePreset::Camera);
+        return r ? core::Status::ok() : core::Status(r.error());
+    }
+    if (cmd == "directionallight") {
+        auto r = addPresetObject(ScenePreset::DirectionalLight);
+        return r ? core::Status::ok() : core::Status(r.error());
+    }
+    if (cmd == "pointlight") {
+        auto r = addPresetObject(ScenePreset::PointLight);
+        return r ? core::Status::ok() : core::Status(r.error());
+    }
+    if (cmd == "spotlight") {
+        auto r = addPresetObject(ScenePreset::SpotLight);
+        return r ? core::Status::ok() : core::Status(r.error());
+    }
+    if (cmd == "arealight") {
+        auto r = addPresetObject(ScenePreset::AreaLight);
+        return r ? core::Status::ok() : core::Status(r.error());
+    }
+    if (cmd == "select") {
+        if (tokens.size() < 2) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Usage: select <objectName|all|clear|invert|hierarchy>");
+            recordStatus(st, {});
+            return st;
+        }
+        const std::string& arg = tokens[1];
+        if (arg == "-cl" || arg == "clear" || arg == "none") {
+            return selectObject({});
+        }
+        if (arg == "-all" || arg == "all") {
+            return selectAllObjects();
+        }
+        if (arg == "invert") {
+            return invertObjectSelection();
+        }
+        if (arg == "-hi" || arg == "hierarchy") {
+            return selectHierarchy();
+        }
+        if (const auto* obj = session_.document().scene.findObjectByName(arg); obj != nullptr) {
+            return selectObject(obj->id);
+        }
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "No scene object named '" + arg + "'");
+        recordStatus(st, {});
+        return st;
+    }
+    if (cmd == "move" || cmd == "rotate" || cmd == "scale") {
+        const scene::ObjectId sel = session_.selectedObject();
+        const auto* obj = sel.isValid() ? session_.document().scene.findObject(sel) : nullptr;
+        if (obj == nullptr) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidState, "Select an object before running '" + cmd + "'");
+            recordStatus(st, {});
+            return st;
+        }
+        float x = 0.0f, y = 0.0f, z = 0.0f;
+        if (!parseFloatArg(1, x) || !parseFloatArg(2, y) || !parseFloatArg(3, z)) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Usage: " + cmd + " <x> <y> <z>");
+            recordStatus(st, {});
+            return st;
+        }
+        math::Vec3 pos = obj->local_transform.position;
+        const math::Vec3 er = obj->local_transform.rotation.toEulerXYZ();
+        math::Vec3 rot{math::radToDeg(er.x), math::radToDeg(er.y), math::radToDeg(er.z)};
+        math::Vec3 scl = obj->local_transform.scale;
+        if (cmd == "move") pos = {x, y, z};
+        else if (cmd == "rotate") rot = {x, y, z};
+        else scl = {x, y, z};
+        return setObjectTransformEulerDegrees(sel, pos, rot, scl, false);
+    }
+    if (cmd == "rename") {
+        if (tokens.size() < 2 || !session_.selectedObject().isValid()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Select an object and specify: rename <newName>");
+            recordStatus(st, {});
+            return st;
+        }
+        return renameObject(session_.selectedObject(), tokens[1]);
+    }
+    if (cmd == "duplicate") {
+        auto r = duplicateSelectedObject();
+        return r ? core::Status::ok() : core::Status(r.error());
+    }
+    if (cmd == "delete") {
+        return deleteSelectedObject();
+    }
+    if (cmd == "group") {
+        auto r = groupSelectedObjects(tokens.size() >= 2 ? tokens[1] : std::string{});
+        return r ? core::Status::ok() : core::Status(r.error());
+    }
+    if (cmd == "parent") {
+        return parentSelectedObjects();
+    }
+    if (cmd == "unparent") {
+        return unparentSelectedObjects();
+    }
+    if (cmd == "freezetransforms" || cmd == "makeidentity") {
+        return freezeSelectedTransformations();
+    }
+    if (cmd == "centerpivot") {
+        return centerSelectedPivot();
+    }
+    if (cmd == "resettransform") {
+        if (!session_.selectedObject().isValid()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidState, "No object selected");
+            recordStatus(st, {});
+            return st;
+        }
+        return resetObjectTransform(session_.selectedObject());
+    }
+    if (cmd == "hide" || cmd == "show") {
+        if (!session_.selectedObject().isValid()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidState, "Select an object to " + cmd);
+            recordStatus(st, {});
+            return st;
+        }
+        return setObjectVisibility(session_.selectedObject(), cmd == "show");
+    }
+    if (cmd == "isolateselect" || cmd == "isolate") {
+        session_.toggleIsolateSelect();
+        recordStatus(
+            core::Status::ok(),
+            session_.isIsolateSelectActive() ? "Isolate Select enabled" : "Isolate Select disabled");
+        return core::Status::ok();
+    }
+    if (cmd == "wireframe") {
+        session_.applyMayaViewportDisplayKey(4);
+        recordStatus(core::Status::ok(), "Viewport shading: Wireframe (4)");
+        return core::Status::ok();
+    }
+    if (cmd == "shaded") {
+        session_.applyMayaViewportDisplayKey(5);
+        recordStatus(core::Status::ok(), "Viewport shading: Smooth Shaded (5)");
+        return core::Status::ok();
+    }
+    if (cmd == "textured") {
+        session_.applyMayaViewportDisplayKey(6);
+        recordStatus(core::Status::ok(), "Viewport shading: Textured (6)");
+        return core::Status::ok();
+    }
+    if (cmd == "lighting" || cmd == "alllights") {
+        session_.applyMayaViewportDisplayKey(7);
+        recordStatus(core::Status::ok(), "Viewport lighting: Use All Lights (7)");
+        return core::Status::ok();
+    }
+    if (cmd == "xray") {
+        session_.setXRayEnabled(!session_.isXRayEnabled());
+        recordStatus(core::Status::ok(), session_.isXRayEnabled() ? "X-Ray enabled" : "X-Ray disabled");
+        return core::Status::ok();
+    }
+    if (cmd == "grid") {
+        bool next = !session_.isEditorGridVisible();
+        if (tokens.size() >= 2) {
+            next = (tokens[1] == "on" || tokens[1] == "1" || tokens[1] == "true");
+        }
+        setEditorGridVisible(next);
+        return core::Status::ok();
+    }
+    if (cmd == "frameselected" || cmd == "viewfit") {
+        return frameSelectionOrScene();
+    }
+    if (cmd == "frameall") {
+        return frameAllScene();
+    }
+    if (cmd == "currenttime" || cmd == "frame") {
+        float f = 1.0f;
+        if (!parseFloatArg(1, f)) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Usage: currentTime <frame>");
+            recordStatus(st, {});
+            return st;
+        }
+        session_.setTimelineFrame(static_cast<double>(f));
+        recordStatus(core::Status::ok(), "Current frame set to " + std::to_string(static_cast<int>(std::llround(f))));
+        return core::Status::ok();
+    }
+    if (cmd == "setkey" || cmd == "setkeyframe") {
+        auto st = session_.setKeyframeForSelection();
+        recordStatus(st, "Set keyframe at frame " + std::to_string(static_cast<int>(std::llround(session_.timeline().current_frame))));
+        return st;
+    }
+    if (cmd == "play") {
+        session_.setTimelinePlaying(true);
+        recordStatus(core::Status::ok(), "Timeline playback started");
+        return core::Status::ok();
+    }
+    if (cmd == "stop" || cmd == "pause") {
+        session_.setTimelinePlaying(false);
+        recordStatus(core::Status::ok(), "Timeline playback stopped");
+        return core::Status::ok();
+    }
+    if (cmd == "undo") {
+        return undo();
+    }
+    if (cmd == "redo") {
+        return redo();
+    }
+
+    auto err = core::Status::fail(
+        core::ErrorCode::InvalidArgument,
+        "Unknown command '" + tokens[0] + "' — type 'help' for supported studio commands");
+    recordStatus(err, {});
+    return err;
 }
 
 core::Status EditorController::setCameraComponent(
@@ -1564,6 +2330,7 @@ core::Status EditorController::undo() {
             session_.document().scene.findObject(session_.selectedObject()) == nullptr) {
             session_.setSelectedObject({});
         }
+        session_.sanitizeMultiSelection();
         session_.sanitizeMeshSelection();
         refreshMaterialPreview();
         const auto active_cam = session_.document().scene.activeCamera();
@@ -1592,6 +2359,7 @@ core::Status EditorController::redo() {
             session_.document().scene.findObject(session_.selectedObject()) == nullptr) {
             session_.setSelectedObject({});
         }
+        session_.sanitizeMultiSelection();
         session_.sanitizeMeshSelection();
         refreshMaterialPreview();
         const auto active_cam = session_.document().scene.activeCamera();
@@ -1759,6 +2527,7 @@ core::Status EditorController::createNewProject(
 
     session_.document() = std::move(fresh);
     session_.commandStack().clear();
+    session_.resetMayaSessionAuxiliaryState();
     session_.restoreFromDocumentState();
     session_.setRigAnimationEnabled(false);
     session_.setCameraViewActive(false);
@@ -1792,6 +2561,7 @@ core::Status EditorController::importInlineProjectJson(std::string_view json_tex
     }
     session_.document() = std::move(loaded).value();
     session_.commandStack().clear();
+    session_.resetMayaSessionAuxiliaryState();
     session_.restoreFromDocumentState();
     session_.setRigAnimationEnabled(false);
     session_.setCameraViewActive(false);

@@ -19,6 +19,8 @@ struct RaycastOptions {
     bool ignore_invisible{true};
     bool backface_cull{false};
     float max_distance{std::numeric_limits<float>::max()};
+    bool (*object_filter)(ObjectId, const void*) noexcept {nullptr};
+    const void* filter_user_data{nullptr};
 };
 
 struct RaycastHit {

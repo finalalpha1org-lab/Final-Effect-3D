@@ -893,6 +893,10 @@ std::optional<scene::RaycastHit> pickSceneOrViewportHelper(
         if (!obj.camera.has_value() && !obj.hasAnyLight()) {
             continue;
         }
+        if (options.object_filter != nullptr &&
+            !options.object_filter(obj.id, options.filter_user_data)) {
+            continue;
+        }
         if (options.ignore_invisible && !isObjectVisibleInHierarchy(scene, obj.id)) {
             continue;
         }

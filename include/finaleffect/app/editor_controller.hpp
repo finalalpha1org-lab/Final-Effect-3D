@@ -37,6 +37,9 @@ enum class ScenePreset : std::uint8_t {
     PointLight = 7,
     SpotLight = 8,
     AreaLight = 9,
+    Cylinder = 10,
+    Cone = 11,
+    Torus = 12,
 };
 
 enum class ProjectTemplate : std::uint8_t {
@@ -64,8 +67,13 @@ public:
 
     // Selection, editor mode, gizmo & viewport operations.
     [[nodiscard]] core::Status selectObject(scene::ObjectId id);
+    [[nodiscard]] core::Status toggleObjectSelection(scene::ObjectId id, bool additive);
+    [[nodiscard]] core::Status selectAllObjects();
+    [[nodiscard]] core::Status invertObjectSelection();
+    [[nodiscard]] core::Status selectHierarchy();
     [[nodiscard]] std::optional<scene::RaycastHit> pickViewportPixel(float x, float y);
     [[nodiscard]] core::Status frameSelectionOrScene();
+    [[nodiscard]] core::Status frameAllScene();
     void setRigAnimationPlaying(bool playing) noexcept;
     void setCameraViewActive(bool active) noexcept;
     void setEditorHelpersVisible(bool visible) noexcept;
@@ -95,6 +103,9 @@ public:
     [[nodiscard]] core::Status deleteMeshSelection();
     [[nodiscard]] core::Status createFaceFromSelectedVertices();
     [[nodiscard]] core::Status assignMaterialToSelectedFaces(scene::MaterialId material_id);
+    [[nodiscard]] core::Status setSelectedMeshSmoothNormals(bool smooth);
+    [[nodiscard]] core::Status reverseSelectedMeshNormals();
+    [[nodiscard]] core::Status selectAllMeshComponents();
 
     // PBR material authoring & live 3D sphere preview.
     [[nodiscard]] scene::MaterialId selectedMaterial() const noexcept;
@@ -155,6 +166,16 @@ public:
         bool allow_coalesce = false);
 
     [[nodiscard]] core::Status resetObjectTransform(scene::ObjectId id);
+    [[nodiscard]] core::Result<scene::ObjectId> groupSelectedObjects(std::string group_name = {});
+    [[nodiscard]] core::Status parentSelectedObjects();
+    [[nodiscard]] core::Status unparentSelectedObjects();
+    [[nodiscard]] core::Status freezeSelectedTransformations();
+    [[nodiscard]] core::Status centerSelectedPivot();
+    [[nodiscard]] core::Status resetSelectedPivot();
+
+    // Safe structured Maya-style studio command-line executor (no eval / shell execution).
+    [[nodiscard]] core::Status executeCommandLine(std::string_view command_text);
+    [[nodiscard]] const std::deque<std::string>& commandHistory() const noexcept { return command_history_; }
 
     [[nodiscard]] core::Status setCameraComponent(
         scene::ObjectId id,
@@ -263,6 +284,7 @@ private:
     std::string last_status_message_{"Ready"};
     bool last_status_is_error_{false};
     std::deque<EditorConsoleEntry> console_entries_{};
+    std::deque<std::string> command_history_{};
 };
 
 } // namespace finaleffect::app
