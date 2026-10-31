@@ -84,6 +84,27 @@ public:
     [[nodiscard]] core::Status setObjectTransform(ObjectId id, const math::Transform& local_transform);
     [[nodiscard]] core::Status setObjectVisible(ObjectId id, bool visible);
     [[nodiscard]] core::Status setObjectName(ObjectId id, std::string new_name);
+    [[nodiscard]] core::Status setObjectLocked(ObjectId id, bool locked);
+    [[nodiscard]] core::Status setObjectChannelLocks(ObjectId id, std::uint16_t mask);
+    [[nodiscard]] core::Status setObjectPivotOffset(ObjectId id, const math::Vec3& pivot_offset);
+    [[nodiscard]] core::Status setObjectCustomAttributes(
+        ObjectId id,
+        std::vector<CustomAttribute> attributes);
+
+    // Maya Display Layers (non-destructive visibility / Template / Reference organization).
+    [[nodiscard]] const std::vector<DisplayLayer>& displayLayers() const noexcept { return display_layers_; }
+    [[nodiscard]] core::Status setDisplayLayers(std::vector<DisplayLayer> layers);
+    [[nodiscard]] const DisplayLayer* findObjectDisplayLayer(ObjectId id) const noexcept;
+
+    // Maya Keyframe Timeline & Animation Tracks.
+    [[nodiscard]] const TimelineSettings& timeline() const noexcept { return timeline_; }
+    void setTimeline(const TimelineSettings& settings) noexcept;
+    [[nodiscard]] const std::vector<ObjectAnimationTrack>& animationTracks() const noexcept {
+        return animation_tracks_;
+    }
+    [[nodiscard]] const ObjectAnimationTrack* findAnimationTrack(ObjectId id) const noexcept;
+    [[nodiscard]] core::Status setAnimationTracks(std::vector<ObjectAnimationTrack> tracks);
+    void evaluateAnimationAtFrame(float frame);
 
     // Typed components.
     [[nodiscard]] core::Status assignMesh(ObjectId id, std::optional<MeshId> mesh_id);
@@ -157,6 +178,9 @@ private:
 
     ObjectId active_camera_id_{ObjectId::invalid()};
     EnvironmentLighting environment_{};
+    std::vector<DisplayLayer> display_layers_;
+    TimelineSettings timeline_{};
+    std::vector<ObjectAnimationTrack> animation_tracks_;
 };
 
 } // namespace finaleffect::scene

@@ -460,16 +460,24 @@ core::Status decodeShadowSettings(
     if (val == nullptr || val->isNull()) {
         return core::Status::ok();
     }
+    auto makeFieldMsg = [](std::string_view p, std::string_view suffix) {
+        std::string msg;
+        msg.reserve(p.size() + suffix.size() + 2);
+        msg.push_back('\'');
+        msg.append(p);
+        msg.append(suffix);
+        return msg;
+    };
     if (!val->isObject()) {
         return core::Status::fail(
             core::ErrorCode::ValidationError,
-            "'" + std::string(prefix) + ".shadow' must be an object");
+            makeFieldMsg(prefix, ".shadow' must be an object"));
     }
     if (const auto* en = val->findKey("enabled"); en != nullptr) {
         if (!en->isBool()) {
             return core::Status::fail(
                 core::ErrorCode::ValidationError,
-                "'" + std::string(prefix) + ".shadow.enabled' must be a boolean");
+                makeFieldMsg(prefix, ".shadow.enabled' must be a boolean"));
         }
         out.enabled = en->asBool();
     }
@@ -482,7 +490,7 @@ core::Status decodeShadowSettings(
         if (!ql->isString()) {
             return core::Status::fail(
                 core::ErrorCode::ValidationError,
-                "'" + std::string(prefix) + ".shadow.quality' must be a string");
+                makeFieldMsg(prefix, ".shadow.quality' must be a string"));
         }
         const auto parsed_q = scene::parseShadowQualitySlug(ql->asString());
         if (!parsed_q.has_value()) {
@@ -496,7 +504,7 @@ core::Status decodeShadowSettings(
         if (!fl->isString()) {
             return core::Status::fail(
                 core::ErrorCode::ValidationError,
-                "'" + std::string(prefix) + ".shadow.filter' must be a string");
+                makeFieldMsg(prefix, ".shadow.filter' must be a string"));
         }
         const auto parsed_f = scene::parseShadowFilterModeSlug(fl->asString());
         if (!parsed_f.has_value()) {
@@ -554,16 +562,24 @@ core::Status decodeLightLinking(
     if (val == nullptr || val->isNull()) {
         return core::Status::ok();
     }
+    auto makeFieldMsg = [](std::string_view p, std::string_view suffix) {
+        std::string msg;
+        msg.reserve(p.size() + suffix.size() + 2);
+        msg.push_back('\'');
+        msg.append(p);
+        msg.append(suffix);
+        return msg;
+    };
     if (!val->isObject()) {
         return core::Status::fail(
             core::ErrorCode::ValidationError,
-            "'" + std::string(prefix) + ".linking' must be an object");
+            makeFieldMsg(prefix, ".linking' must be an object"));
     }
     if (const auto* md = val->findKey("mode"); md != nullptr) {
         if (!md->isString()) {
             return core::Status::fail(
                 core::ErrorCode::ValidationError,
-                "'" + std::string(prefix) + ".linking.mode' must be a string");
+                makeFieldMsg(prefix, ".linking.mode' must be a string"));
         }
         const auto parsed_m = scene::parseLightLinkModeSlug(md->asString());
         if (!parsed_m.has_value()) {
@@ -577,7 +593,7 @@ core::Status decodeLightLinking(
         if (!inc_d->isBool()) {
             return core::Status::fail(
                 core::ErrorCode::ValidationError,
-                "'" + std::string(prefix) + ".linking.include_descendants' must be a boolean");
+                makeFieldMsg(prefix, ".linking.include_descendants' must be a boolean"));
         }
         out.include_descendants = inc_d->asBool();
     }
@@ -586,7 +602,7 @@ core::Status decodeLightLinking(
         if (!ids->isArray()) {
             return core::Status::fail(
                 core::ErrorCode::ValidationError,
-                "'" + std::string(prefix) + ".linking.object_ids' must be an array");
+                makeFieldMsg(prefix, ".linking.object_ids' must be an array"));
         }
         for (const auto& entry : ids->asArray()) {
             auto id_res = decodeUint64(&entry, std::string(prefix) + ".linking.object_ids[]");
@@ -820,6 +836,32 @@ core::Result<std::string> serializeDocumentImpl(
             obj_json.setKey("area_light", std::move(light_json));
         }
 
+        if (obj->locked) {
+            obj_json.setKey("locked", true);
+        }
+        if (obj->locked_channels_mask != 0u) {
+            obj_json.setKey("locked_channels_mask", static_cast<std::uint64_t>(obj->locked_channels_mask));
+        }
+        if (!obj->pivot_offset.approxEqual(math::Vec3::zero(), 1.0e-6f)) {
+            obj_json.setKey("pivot_offset", encodeVec3(obj->pivot_offset));
+        }
+        if (!obj->custom_attributes.empty()) {
+            JsonArray ca_arr;
+            ca_arr.reserve(obj->custom_attributes.size());
+            for (const auto& ca : obj->custom_attributes) {
+                JsonValue ca_json{JsonObject{}};
+                ca_json.setKey("name", ca.name);
+                ca_json.setKey("value", ca.value);
+                ca_json.setKey("min_value", ca.min_value);
+                ca_json.setKey("max_value", ca.max_value);
+                ca_json.setKey("has_limits", ca.has_limits);
+                ca_json.setKey("keyable", ca.keyable);
+                ca_json.setKey("locked", ca.locked);
+                ca_arr.push_back(std::move(ca_json));
+            }
+            obj_json.setKey("custom_attributes", std::move(ca_arr));
+        }
+
         if (const auto it = document.preserved_fields.object_extra.find(obj->id);
             it != document.preserved_fields.object_extra.end()) {
             appendExtraFields(obj_json, it->second);
@@ -828,6 +870,76 @@ core::Result<std::string> serializeDocumentImpl(
         objects_arr.push_back(std::move(obj_json));
     }
     scene_json.setKey("objects", std::move(objects_arr));
+
+    // 3b. Serialize Maya Display Layers (when non-empty).
+    if (!document.scene.displayLayers().empty()) {
+        JsonArray layers_arr;
+        for (const auto& layer : document.scene.displayLayers()) {
+            JsonValue lj{JsonObject{}};
+            lj.setKey("id", static_cast<std::uint64_t>(layer.id));
+            lj.setKey("name", layer.name);
+            lj.setKey("visible", layer.visible);
+            lj.setKey("playback_visible", layer.playback_visible);
+            lj.setKey("display_type", std::string(scene::displayLayerTypeSlug(layer.display_type)));
+            lj.setKey("color", encodeVec3(layer.color));
+            JsonArray mem;
+            for (const auto oid : layer.members) {
+                mem.emplace_back(oid.value);
+            }
+            lj.setKey("members", std::move(mem));
+            layers_arr.push_back(std::move(lj));
+        }
+        scene_json.setKey("display_layers", std::move(layers_arr));
+    }
+
+    // 3c. Serialize Maya Keyframe Timeline & Animation Tracks (when non-default or non-empty).
+    {
+        const auto& tl = document.scene.timeline();
+        const scene::TimelineSettings def_tl{};
+        const bool non_default_tl =
+            std::fabs(tl.current_frame - def_tl.current_frame) > 1.0e-4f ||
+            std::fabs(tl.start_frame - def_tl.start_frame) > 1.0e-4f ||
+            std::fabs(tl.playback_start - def_tl.playback_start) > 1.0e-4f ||
+            std::fabs(tl.playback_end - def_tl.playback_end) > 1.0e-4f ||
+            std::fabs(tl.end_frame - def_tl.end_frame) > 1.0e-4f ||
+            std::fabs(tl.fps - def_tl.fps) > 1.0e-4f ||
+            tl.loop_mode != def_tl.loop_mode ||
+            tl.auto_key != def_tl.auto_key;
+
+        if (non_default_tl || !document.scene.animationTracks().empty()) {
+            JsonValue anim_json{JsonObject{}};
+            JsonValue tl_json{JsonObject{}};
+            tl_json.setKey("current_frame", static_cast<double>(tl.current_frame));
+            tl_json.setKey("start_frame", static_cast<double>(tl.start_frame));
+            tl_json.setKey("playback_start", static_cast<double>(tl.playback_start));
+            tl_json.setKey("playback_end", static_cast<double>(tl.playback_end));
+            tl_json.setKey("end_frame", static_cast<double>(tl.end_frame));
+            tl_json.setKey("fps", static_cast<double>(tl.fps));
+            tl_json.setKey("loop_mode", std::string(scene::timelineLoopModeSlug(tl.loop_mode)));
+            tl_json.setKey("auto_key", tl.auto_key);
+            anim_json.setKey("timeline", std::move(tl_json));
+
+            JsonArray tracks_arr;
+            for (const auto& tr : document.scene.animationTracks()) {
+                JsonValue tr_json{JsonObject{}};
+                tr_json.setKey("object_id", tr.object_id.value);
+                JsonArray keys_arr;
+                for (const auto& kf : tr.keyframes) {
+                    JsonValue kj{JsonObject{}};
+                    kj.setKey("frame", static_cast<double>(kf.frame));
+                    kj.setKey("position", encodeVec3(kf.position));
+                    kj.setKey("rotation_deg", encodeVec3(kf.rotation_deg));
+                    kj.setKey("scale", encodeVec3(kf.scale));
+                    kj.setKey("visible", kf.visible);
+                    keys_arr.push_back(std::move(kj));
+                }
+                tr_json.setKey("keyframes", std::move(keys_arr));
+                tracks_arr.push_back(std::move(tr_json));
+            }
+            anim_json.setKey("tracks", std::move(tracks_arr));
+            scene_json.setKey("animation", std::move(anim_json));
+        }
+    }
 
     // 3b. Serialize Scene Environment / HDRI & IBL settings (v1.3).
     {
@@ -991,7 +1103,7 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
     }
     captureUnknownFields(
         *scene_val,
-        {"name", "active_camera_id", "materials", "meshes", "objects", "environment"},
+        {"name", "active_camera_id", "materials", "meshes", "objects", "environment", "display_layers", "animation"},
         "scene",
         doc.preserved_fields.scene_extra,
         &doc.load_warnings);
@@ -1645,12 +1757,48 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
             if (!l_st) return l_st.error();
         }
 
+        if (const auto* lk = obj_json.findKey("locked"); lk != nullptr && lk->isBool()) {
+            (void)doc.scene.setObjectLocked(obj_id, lk->asBool());
+        }
+        if (const auto* lcm = obj_json.findKey("locked_channels_mask"); lcm != nullptr && lcm->isNumber()) {
+            auto mv = decodeUint64(lcm, "object.locked_channels_mask");
+            if (!mv) return mv.error();
+            (void)doc.scene.setObjectChannelLocks(obj_id, static_cast<std::uint16_t>(mv.value() & 0xFFFFu));
+        }
+        if (const auto* po = obj_json.findKey("pivot_offset"); po != nullptr && !po->isNull()) {
+            auto pv = decodeVec3(po, "object.pivot_offset");
+            if (!pv) return pv.error();
+            (void)doc.scene.setObjectPivotOffset(obj_id, pv.value());
+        }
+        if (const auto* ca_val = obj_json.findKey("custom_attributes"); ca_val != nullptr && ca_val->isArray()) {
+            std::vector<scene::CustomAttribute> attrs;
+            for (const auto& entry : ca_val->asArray()) {
+                if (!entry.isObject()) continue;
+                const auto* nm = entry.findKey("name");
+                const auto* vl = entry.findKey("value");
+                if (nm == nullptr || !nm->isString() || nm->asString().empty() || vl == nullptr || !vl->isNumber()) {
+                    continue;
+                }
+                scene::CustomAttribute attr;
+                attr.name = nm->asString();
+                attr.value = vl->asNumber();
+                if (const auto* mn = entry.findKey("min_value"); mn != nullptr && mn->isNumber()) attr.min_value = mn->asNumber();
+                if (const auto* mx = entry.findKey("max_value"); mx != nullptr && mx->isNumber()) attr.max_value = mx->asNumber();
+                if (const auto* hl = entry.findKey("has_limits"); hl != nullptr && hl->isBool()) attr.has_limits = hl->asBool();
+                if (const auto* ky = entry.findKey("keyable"); ky != nullptr && ky->isBool()) attr.keyable = ky->asBool();
+                if (const auto* al = entry.findKey("locked"); al != nullptr && al->isBool()) attr.locked = al->asBool();
+                attrs.push_back(std::move(attr));
+            }
+            (void)doc.scene.setObjectCustomAttributes(obj_id, std::move(attrs));
+        }
+
         JsonObject obj_extra;
         captureUnknownFields(
             obj_json,
             {"id", "name", "visible", "parent_id", "local_transform",
              "mesh_id", "material_id", "camera",
-             "directional_light", "point_light", "spot_light", "area_light"},
+             "directional_light", "point_light", "spot_light", "area_light",
+             "locked", "locked_channels_mask", "pivot_offset", "custom_attributes"},
             "scene.objects[" + std::to_string(obj_id.value) + "]",
             obj_extra,
             &doc.load_warnings);
@@ -1693,6 +1841,82 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
                 else if (auto* a = std::get_if<scene::AreaLightComponent>(&updated)) a->linking = std::move(cleaned);
                 (void)doc.scene.assignAnyLight(lid, updated);
             }
+        }
+    }
+
+    // Decode optional Maya Display Layers.
+    if (const auto* dl_val = scene_val->findKey("display_layers"); dl_val != nullptr && dl_val->isArray()) {
+        std::vector<scene::DisplayLayer> layers;
+        for (const auto& lj : dl_val->asArray()) {
+            if (!lj.isObject()) continue;
+            scene::DisplayLayer layer{};
+            if (const auto* lid = lj.findKey("id"); lid != nullptr && lid->isNumber()) {
+                auto v = decodeUint64(lid, "display_layers.id");
+                if (v) layer.id = static_cast<std::uint32_t>(v.value());
+            }
+            if (const auto* lnm = lj.findKey("name"); lnm != nullptr && lnm->isString() && !lnm->asString().empty()) {
+                layer.name = lnm->asString();
+            }
+            if (const auto* lv = lj.findKey("visible"); lv != nullptr && lv->isBool()) layer.visible = lv->asBool();
+            if (const auto* lp = lj.findKey("playback_visible"); lp != nullptr && lp->isBool()) layer.playback_visible = lp->asBool();
+            if (const auto* dt = lj.findKey("display_type"); dt != nullptr && dt->isString()) {
+                if (auto parsed_dt = scene::parseDisplayLayerTypeSlug(dt->asString())) {
+                    layer.display_type = *parsed_dt;
+                }
+            }
+            if (const auto* lc = lj.findKey("color"); lc != nullptr) {
+                if (auto cv = decodeVec3(lc, "display_layers.color")) layer.color = cv.value();
+            }
+            if (const auto* mem = lj.findKey("members"); mem != nullptr && mem->isArray()) {
+                for (const auto& mv : mem->asArray()) {
+                    if (auto oid = decodeUint64(&mv, "display_layers.members")) {
+                        layer.members.push_back(scene::ObjectId{oid.value()});
+                    }
+                }
+            }
+            layers.push_back(std::move(layer));
+        }
+        (void)doc.scene.setDisplayLayers(std::move(layers));
+    }
+
+    // Decode optional Maya Keyframe Timeline & Animation Tracks.
+    if (const auto* anim_val = scene_val->findKey("animation"); anim_val != nullptr && anim_val->isObject()) {
+        if (const auto* tl_val = anim_val->findKey("timeline"); tl_val != nullptr && tl_val->isObject()) {
+            scene::TimelineSettings tl = doc.scene.timeline();
+            if (auto v = decodeFloat(tl_val->findKey("current_frame"), "timeline.current_frame")) tl.current_frame = v.value();
+            if (auto v = decodeFloat(tl_val->findKey("start_frame"), "timeline.start_frame")) tl.start_frame = v.value();
+            if (auto v = decodeFloat(tl_val->findKey("playback_start"), "timeline.playback_start")) tl.playback_start = v.value();
+            if (auto v = decodeFloat(tl_val->findKey("playback_end"), "timeline.playback_end")) tl.playback_end = v.value();
+            if (auto v = decodeFloat(tl_val->findKey("end_frame"), "timeline.end_frame")) tl.end_frame = v.value();
+            if (auto v = decodeFloat(tl_val->findKey("fps"), "timeline.fps")) tl.fps = v.value();
+            if (const auto* lm = tl_val->findKey("loop_mode"); lm != nullptr && lm->isString()) {
+                if (auto parsed_lm = scene::parseTimelineLoopModeSlug(lm->asString())) tl.loop_mode = *parsed_lm;
+            }
+            if (const auto* ak = tl_val->findKey("auto_key"); ak != nullptr && ak->isBool()) tl.auto_key = ak->asBool();
+            doc.scene.setTimeline(tl);
+        }
+        if (const auto* tr_val = anim_val->findKey("tracks"); tr_val != nullptr && tr_val->isArray()) {
+            std::vector<scene::ObjectAnimationTrack> tracks;
+            for (const auto& tj : tr_val->asArray()) {
+                if (!tj.isObject()) continue;
+                auto oid = decodeUint64(tj.findKey("object_id"), "animation.tracks.object_id");
+                if (!oid) continue;
+                scene::ObjectAnimationTrack tr{.object_id = scene::ObjectId{oid.value()}};
+                if (const auto* kfs = tj.findKey("keyframes"); kfs != nullptr && kfs->isArray()) {
+                    for (const auto& kj : kfs->asArray()) {
+                        if (!kj.isObject()) continue;
+                        scene::TransformKeyframe kf{};
+                        if (auto v = decodeFloat(kj.findKey("frame"), "keyframe.frame")) kf.frame = v.value();
+                        if (auto v = decodeVec3(kj.findKey("position"), "keyframe.position")) kf.position = v.value();
+                        if (auto v = decodeVec3(kj.findKey("rotation_deg"), "keyframe.rotation_deg")) kf.rotation_deg = v.value();
+                        if (auto v = decodeVec3(kj.findKey("scale"), "keyframe.scale")) kf.scale = v.value();
+                        if (const auto* vis = kj.findKey("visible"); vis != nullptr && vis->isBool()) kf.visible = vis->asBool();
+                        tr.keyframes.push_back(kf);
+                    }
+                }
+                tracks.push_back(std::move(tr));
+            }
+            (void)doc.scene.setAnimationTracks(std::move(tracks));
         }
     }
 

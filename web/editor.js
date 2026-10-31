@@ -418,6 +418,9 @@
   let activeBottomEditor = "timeline";
   let activeMobileDrawer = "viewport";
   let outlinerFilterQuery = "";
+  let outlinerTypeFilter = "all";
+  const collapsedOutlinerIds = new Set();
+  const mayaSyncListeners = [];
   let isRightDockCollapsed = false;
 
   let touchNavMode = "orbit";
@@ -1082,6 +1085,30 @@
       importInlineProject: function (jsonText) {
         return wasmApi.dispatchAction({ action: "load_inline_json", json_text: jsonText });
       },
+      onSync: function (fn) {
+        if (typeof fn === "function") mayaSyncListeners.push(fn);
+      },
+      wasm: wasmApi,
+      hydrateIcons: hydrateStaticIcons,
+      closeAllMenus: closeAllDropdownMenus,
+      closeContextMenu: closeViewportContextMenu,
+      activateWorkspaceById: activateWorkspaceById,
+      setInspectorCategory: setInspectorCategory,
+      openSettingsModal: function () {
+        applyPreferencesAndResponsiveMode();
+        if (els.settingsModal) els.settingsModal.hidden = false;
+      },
+      exportPortableFe3d: exportPortableFe3d,
+      exportBinaryBundle: exportBinaryBundle,
+      setRightDockCollapsed: function (collapsed) {
+        isRightDockCollapsed = Boolean(collapsed);
+        if (currentState) renderWorkspaceAndBottomDock(currentState);
+      },
+      setBottomEditor: function (editorKey) {
+        activeBottomEditor = editorKey;
+        if (els.dockBottom) els.dockBottom.classList.remove("is-collapsed");
+        if (currentState) renderWorkspaceAndBottomDock(currentState);
+      },
     };
 
     restoreWorkspaceFromStorage();
@@ -1329,13 +1356,17 @@
       els.btnGizmoSpace.textContent = ed.gizmo_space === "local" ? "Local" : "World";
     }
 
-    const playing = Boolean(state.viewport.rig_playing);
+    const tlPlaying = Boolean(state.timeline && state.timeline.playing);
+    const rigPlaying = Boolean(state.viewport.rig_playing);
     if (els.btnToggleRig) {
-      els.btnToggleRig.textContent = playing ? "Pause Rig" : "Play Rig";
-      els.btnToggleRig.classList.toggle("is-active", playing);
+      els.btnToggleRig.textContent = rigPlaying ? "Pause Rig" : "Play Rig";
+      els.btnToggleRig.classList.toggle("is-active", rigPlaying);
     }
     if (els.lblTimelinePlay) {
-      els.lblTimelinePlay.textContent = playing ? "Pause Rig" : "Play Rig";
+      els.lblTimelinePlay.textContent = tlPlaying ? "Pause" : "Play";
+    }
+    if (els.btnTimelinePlay) {
+      els.btnTimelinePlay.classList.toggle("is-active", tlPlaying);
     }
 
     setInputValueIfUnfocused(els.metaProjectName, state.project.project_name);
@@ -1412,6 +1443,13 @@
     }
 
     wasmApi.blitMaterialPreview();
+    for (let i = 0; i < mayaSyncListeners.length; ++i) {
+      try {
+        mayaSyncListeners[i](state);
+      } catch (err) {
+        console.error("[FE3D Maya Sync]", err);
+      }
+    }
   }
 
   const FOUNDATION_EDITOR_COPY = {
@@ -1628,25 +1666,91 @@
 
   function renderOutliner(state) {
     const selectedId = state.viewport ? state.viewport.selected_object_id : 0;
+    const selectedIds =
+      state.viewport && Array.isArray(state.viewport.selected_object_ids)
+        ? state.viewport.selected_object_ids
+        : selectedId
+        ? [selectedId]
+        : [];
+    const selectedSet = new Set(selectedIds);
     const q = outlinerFilterQuery.trim().toLowerCase();
-    const sig = JSON.stringify([selectedId, state.objects, q]);
+    const tf = outlinerTypeFilter || "all";
+    const collapsedKey = Array.from(collapsedOutlinerIds).sort().join(",");
+    const sig = JSON.stringify([selectedId, selectedIds, state.objects, q, tf, collapsedKey]);
     if (sig === lastOutlinerSignature) return;
     lastOutlinerSignature = sig;
 
+    // Determine which objects have children in the serialized pre-order list.
+    const parentHasChildren = new Set();
+    const byId = new Map();
+    (state.objects || []).forEach((o) => {
+      byId.set(o.id, o);
+      if (o.parent_id) parentHasChildren.add(o.parent_id);
+    });
+
+    function hasCollapsedAncestor(obj) {
+      let pid = obj.parent_id || 0;
+      let guard = 0;
+      while (pid && guard++ < 64) {
+        if (collapsedOutlinerIds.has(pid)) return true;
+        const pnode = byId.get(pid);
+        pid = pnode ? pnode.parent_id || 0 : 0;
+      }
+      return false;
+    }
+
+    function matchesType(obj) {
+      if (tf === "all") return true;
+      if (tf === "mesh") return Boolean(obj.has_mesh);
+      if (tf === "light") return Boolean(obj.has_light);
+      if (tf === "camera") return Boolean(obj.has_camera);
+      if (tf === "group") return !obj.has_mesh && !obj.has_light && !obj.has_camera;
+      return true;
+    }
+
     els.outlinerList.innerHTML = "";
-    state.objects.forEach((obj) => {
+    const visibleOrderIds = [];
+
+    (state.objects || []).forEach((obj) => {
+      if (!q && tf === "all" && hasCollapsedAncestor(obj)) return;
       if (q && obj.name.toLowerCase().indexOf(q) === -1) return;
-      const isSel = obj.id === selectedId;
+      if (!matchesType(obj)) return;
+      visibleOrderIds.push(obj.id);
+
+      const isLead = obj.id === selectedId;
+      const isMulti = selectedSet.has(obj.id);
+      const hasKids = parentHasChildren.has(obj.id);
+      const isCollapsed = collapsedOutlinerIds.has(obj.id);
 
       const row = document.createElement("div");
       row.className =
         "outliner-row" +
-        (isSel ? " is-selected" : "") +
-        (!obj.visible ? " is-hidden-obj" : "");
+        (isLead ? " is-selected is-lead" : isMulti ? " is-selected is-secondary" : "") +
+        (!obj.visible || obj.display_layer_visible === false ? " is-hidden-obj" : "") +
+        (obj.locked ? " is-locked-obj" : "");
       row.setAttribute("role", "treeitem");
-      row.setAttribute("aria-selected", isSel ? "true" : "false");
+      row.setAttribute("aria-selected", isMulti ? "true" : "false");
       row.dataset.testid = "outliner-item-" + obj.name;
-      row.style.paddingLeft = 6 + obj.depth * 13 + "px";
+      row.dataset.objectId = String(obj.id);
+      row.draggable = true;
+      row.style.paddingLeft = 4 + obj.depth * 13 + "px";
+
+      // Hierarchy expand/collapse chevron
+      const twistBtn = document.createElement("button");
+      twistBtn.type = "button";
+      twistBtn.className = "outliner-twisty" + (hasKids ? "" : " is-leaf");
+      twistBtn.tabIndex = -1;
+      twistBtn.textContent = hasKids ? (isCollapsed ? "▸" : "▾") : "·";
+      if (hasKids) {
+        twistBtn.title = isCollapsed ? "Expand Hierarchy" : "Collapse Hierarchy";
+        twistBtn.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          if (collapsedOutlinerIds.has(obj.id)) collapsedOutlinerIds.delete(obj.id);
+          else collapsedOutlinerIds.add(obj.id);
+          lastOutlinerSignature = "";
+          renderOutliner(state);
+        });
+      }
 
       const iconWrap = document.createElement("span");
       iconWrap.className = "btn-ic";
@@ -1659,30 +1763,78 @@
       nameSpan.className = "outliner-name";
       nameSpan.textContent = obj.name;
 
+      // Double-click inline rename inside Outliner
+      nameSpan.addEventListener("dblclick", (ev) => {
+        ev.stopPropagation();
+        const inp = document.createElement("input");
+        inp.type = "text";
+        inp.className = "outliner-inline-rename";
+        inp.value = obj.name;
+        nameSpan.replaceWith(inp);
+        inp.focus();
+        inp.select();
+        let committed = false;
+        function commitRename(applyChange) {
+          if (committed) return;
+          committed = true;
+          const nextName = (inp.value || "").trim();
+          if (applyChange && nextName && nextName !== obj.name && wasmApi) {
+            wasmApi.dispatchAction({ action: "rename_object", id: obj.id, name: nextName });
+          } else {
+            lastOutlinerSignature = "";
+            renderOutliner(currentState || state);
+          }
+        }
+        inp.addEventListener("keydown", (kev) => {
+          if (kev.key === "Enter") {
+            kev.preventDefault();
+            commitRename(true);
+          } else if (kev.key === "Escape") {
+            kev.preventDefault();
+            commitRename(false);
+          }
+        });
+        inp.addEventListener("blur", () => commitRename(true));
+      });
+
       const tagSpan = document.createElement("span");
       tagSpan.className = "outliner-tag";
       const lt = obj.light_type || "directional";
       const lightTag =
-        lt === "point"
-          ? "PT"
-          : lt === "spot"
-          ? "SPOT"
-          : lt === "area"
-          ? "AREA"
-          : "SUN";
-      tagSpan.textContent = obj.has_camera
-        ? "CAM"
-        : obj.has_light
-        ? lightTag
-        : obj.has_mesh
-        ? "MESH"
-        : "PIVOT";
+        lt === "point" ? "PT" : lt === "spot" ? "SPOT" : lt === "area" ? "AREA" : "SUN";
+      const layerPrefix =
+        obj.display_layer_type === "template"
+          ? "[T] "
+          : obj.display_layer_type === "reference"
+          ? "[R] "
+          : "";
+      tagSpan.textContent =
+        layerPrefix +
+        (obj.has_camera ? "CAM" : obj.has_light ? lightTag : obj.has_mesh ? "MESH" : "GRP");
+
+      const lockBtn = document.createElement("button");
+      lockBtn.type = "button";
+      lockBtn.className = "outliner-eye-btn outliner-lock-btn" + (obj.locked ? " is-locked" : "");
+      lockBtn.dataset.testid = "toggle-lock-" + obj.name;
+      lockBtn.title = obj.locked ? "Unlock Node" : "Lock Node";
+      lockBtn.innerHTML =
+        '<span class="btn-ic">' + (obj.locked ? REG.ICONS.lock : REG.ICONS.unlock) + "</span>";
+      lockBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        if (wasmApi) {
+          wasmApi.dispatchAction({
+            action: "set_object_locked",
+            id: obj.id,
+            locked: !obj.locked,
+          });
+        }
+      });
 
       const eyeBtn = document.createElement("button");
       eyeBtn.type = "button";
       eyeBtn.className = "outliner-eye-btn";
       eyeBtn.dataset.testid = "toggle-vis-" + obj.name;
-      eyeBtn.title = obj.visible ? "Hide in Viewport" : "Show in Viewport";
+      eyeBtn.title = obj.visible ? "Hide in Viewport (H)" : "Show in Viewport (Shift+H)";
       eyeBtn.innerHTML =
         '<span class="btn-ic">' + (obj.visible ? REG.ICONS.eye : REG.ICONS.eyeOff) + "</span>";
       eyeBtn.addEventListener("click", (ev) => {
@@ -1696,13 +1848,59 @@
         }
       });
 
+      row.appendChild(twistBtn);
       row.appendChild(iconWrap);
       row.appendChild(nameSpan);
       row.appendChild(tagSpan);
+      row.appendChild(lockBtn);
       row.appendChild(eyeBtn);
 
-      row.addEventListener("click", () => {
-        if (wasmApi) wasmApi.dispatchAction({ action: "select_object", id: obj.id });
+      // Drag-and-drop reparenting inside Outliner
+      row.addEventListener("dragstart", (ev) => {
+        if (ev.dataTransfer) {
+          ev.dataTransfer.effectAllowed = "move";
+          ev.dataTransfer.setData("text/fe3d-obj-id", String(obj.id));
+        }
+      });
+      row.addEventListener("dragover", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        row.classList.add("is-drop-target");
+      });
+      row.addEventListener("dragleave", () => {
+        row.classList.remove("is-drop-target");
+      });
+      row.addEventListener("drop", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        row.classList.remove("is-drop-target");
+        const srcId = Number(ev.dataTransfer ? ev.dataTransfer.getData("text/fe3d-obj-id") : 0);
+        if (srcId && srcId !== obj.id && wasmApi) {
+          wasmApi.dispatchAction({
+            action: "reparent_object",
+            child_id: srcId,
+            parent_id: obj.id,
+          });
+        }
+      });
+
+      row.addEventListener("click", (ev) => {
+        if (!wasmApi) return;
+        if (ev.ctrlKey || ev.metaKey) {
+          wasmApi.dispatchAction({ action: "toggle_select_object", id: obj.id });
+        } else if (ev.shiftKey && selectedId && visibleOrderIds.includes(selectedId)) {
+          const iA = visibleOrderIds.indexOf(selectedId);
+          const iB = visibleOrderIds.indexOf(obj.id);
+          const lo = Math.min(iA, iB);
+          const hi = Math.max(iA, iB);
+          const rangeIds = visibleOrderIds.slice(lo, hi + 1);
+          // Ensure clicked object is last (lead)
+          const withoutClicked = rangeIds.filter((id) => id !== obj.id);
+          withoutClicked.push(obj.id);
+          wasmApi.dispatchAction({ action: "select_objects", ids: withoutClicked });
+        } else {
+          wasmApi.dispatchAction({ action: "select_object", id: obj.id });
+        }
       });
       els.outlinerList.appendChild(row);
     });
@@ -3454,6 +3652,11 @@
           exportPortableFe3d();
         } else if (cmd === "export_bundle") {
           exportBinaryBundle();
+        } else if (cmd === "load_hdri_dialog") {
+          if (els.fileOpenHdri) {
+            els.fileOpenHdri.value = "";
+            els.fileOpenHdri.click();
+          }
         } else if (cmd === "go_home") {
           await snapshotActiveProjectToRecent("Active Session");
           setAppView("home");
@@ -3817,20 +4020,43 @@
 
     els.btnTimelinePlay.addEventListener("click", () => {
       if (!wasmApi || !currentState) return;
+      const curPlaying = Boolean(currentState.timeline && currentState.timeline.playing);
       wasmApi.dispatchAction({
-        action: "set_rig_playing",
-        playing: !currentState.viewport.rig_playing,
+        action: "set_timeline_playing",
+        playing: !curPlaying,
       });
     });
 
     if (els.timelineScrubber && els.timelineFrameNum) {
       els.timelineScrubber.addEventListener("input", () => {
-        els.timelineFrameNum.value = els.timelineScrubber.value;
+        const f = Number(els.timelineScrubber.value) || 1;
+        els.timelineFrameNum.value = String(f);
+        if (wasmApi) wasmApi.dispatchAction({ action: "set_current_frame", frame: f });
       });
       els.timelineFrameNum.addEventListener("change", () => {
-        const f = Math.max(1, Math.min(240, Number(els.timelineFrameNum.value) || 1));
+        const f = Number(els.timelineFrameNum.value) || 1;
         els.timelineFrameNum.value = String(f);
         els.timelineScrubber.value = String(f);
+        if (wasmApi) wasmApi.dispatchAction({ action: "set_current_frame", frame: f });
+      });
+    }
+
+    const outlinerTypeEl = document.getElementById("outliner-type-filter");
+    if (outlinerTypeEl) {
+      outlinerTypeEl.addEventListener("change", () => {
+        outlinerTypeFilter = outlinerTypeEl.value || "all";
+        if (currentState) renderOutliner(currentState);
+      });
+    }
+    if (els.outlinerList) {
+      els.outlinerList.addEventListener("dragover", (ev) => ev.preventDefault());
+      els.outlinerList.addEventListener("drop", (ev) => {
+        if (ev.target !== els.outlinerList) return;
+        ev.preventDefault();
+        const srcId = Number(ev.dataTransfer ? ev.dataTransfer.getData("text/fe3d-obj-id") : 0);
+        if (srcId && wasmApi) {
+          wasmApi.dispatchAction({ action: "reparent_object", child_id: srcId, parent_id: 0 });
+        }
       });
     }
 

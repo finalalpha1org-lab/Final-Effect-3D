@@ -2885,7 +2885,311 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await assertNoHorizontalOverflow(page);
     await context.close();
   });
+
+  test("13. Stage 1 Maya Redesign: Classic layout hierarchy, Menu Sets (Modeling..Rendering + Arnold), Customizable Shelves, Toolbox, Snapping & Viewport Shading/Alt-Nav", async ({
+    browser,
+  }) => {
+    const outDir = path.resolve(process.cwd(), "../../build/ci-screenshots");
+    await fs.mkdir(outDir, { recursive: true });
+
+    const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    const page = await context.newPage();
+    await bootDirectStudioReady(page);
+    await page.getByTestId("btn-toggle-rig").click();
+    await assertNoHorizontalOverflow(page);
+
+    // 1. Verify Maya Classic region hierarchy & non-overlapping geometry
+    await expect(page.getByTestId("maya-main-menubar")).toBeVisible();
+    await expect(page.getByTestId("maya-status-line")).toBeVisible();
+    await expect(page.getByTestId("maya-shelf-bar")).toBeVisible();
+    await expect(page.getByTestId("tool-shelf")).toBeVisible();
+    await expect(page.getByTestId("vp-panel-menubar")).toBeVisible();
+    await expect(page.getByTestId("vp-panel-toolbar")).toBeVisible();
+    await expect(page.getByTestId("panel-channel-box")).toBeVisible();
+    await expect(page.getByTestId("panel-layer-editor")).toBeVisible();
+    await expect(page.getByTestId("maya-command-footer")).toBeVisible();
+
+    await page.screenshot({
+      path: path.join(outDir, "12-maya-stage1-desktop-classic-1920x1080.png"),
+    });
+
+    // 2. Switch Menu Sets dynamically without resetting scene, selection, or camera
+    await page.getByTestId("outliner-item-HeroCube").click();
+    const beforeMs = await page.evaluate(() => {
+      const s = window.__FE3D_STUDIO__.getState();
+      return { count: s.objects.length, sel: s.viewport.selected_object_id, cam: s.viewport.eye };
+    });
+
+    await page.getByTestId("maya-menuset-select").selectOption("rendering");
+    await expect(page.getByTestId("menuset-menu-arnold")).toBeVisible();
+    await expect(page.getByTestId("menuset-menu-lighting-shading")).toBeVisible();
+
+    await page.getByTestId("maya-menuset-select").selectOption("rigging");
+    await expect(page.getByTestId("menuset-menu-skeleton")).toBeVisible();
+
+    await page.getByTestId("maya-menuset-select").selectOption("animation");
+    await expect(page.getByTestId("menuset-menu-key")).toBeVisible();
+
+    await page.getByTestId("maya-menuset-select").selectOption("fx");
+    await expect(page.getByTestId("menuset-menu-fields-solvers")).toBeVisible();
+
+    await page.getByTestId("maya-menuset-select").selectOption("modeling");
+    await expect(page.getByTestId("menuset-menu-mesh")).toBeVisible();
+    await expect(page.getByTestId("menuset-menu-edit-mesh")).toBeVisible();
+
+    const afterMs = await page.evaluate(() => {
+      const s = window.__FE3D_STUDIO__.getState();
+      return { count: s.objects.length, sel: s.viewport.selected_object_id, cam: s.viewport.eye };
+    });
+    expect(afterMs).toEqual(beforeMs);
+
+    // 3. Customizable Shelf: create Cylinder, Cone & Torus from Poly Modeling shelf + Undo/Redo + Custom Shelf persistence
+    await page.getByTestId("shelf-tab-poly_modeling").click();
+    await page.getByTestId("shelf-item-pm_cyl").click();
+    await page.getByTestId("shelf-item-pm_con").click();
+    await page.getByTestId("shelf-item-pm_tor").click();
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("8 / 5");
+
+    await page.keyboard.press("Control+z");
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("7 / 4");
+    await page.keyboard.press("Control+y");
+    await expect(page.getByTestId("stat-objects-meshes")).toHaveText("8 / 5");
+
+    await page.getByTestId("btn-shelf-gear").click();
+    await page.getByTestId("shelf-gear-new-shelf").click();
+    const savedShelves = await page.evaluate(() =>
+      JSON.parse(window.localStorage.getItem("fe3d.maya_shelves.v1") || "{}")
+    );
+    expect(savedShelves.shelves.some((s) => s.name === "Custom1")).toBe(true);
+
+    // 4. Toolbox shortcuts (Q, W, E, R, T, D, Y) + Viewport shading modes (4, 5, 6, 7) + Alt+Mouse navigation
+    await page.keyboard.press("KeyQ");
+    await expect.poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().editor.active_tool)).toBe("select");
+    await page.keyboard.press("KeyE");
+    await expect.poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().editor.active_tool)).toBe("rotate");
+    await page.keyboard.press("KeyR");
+    await expect.poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().editor.active_tool)).toBe("scale");
+    await page.keyboard.press("KeyY");
+    await expect.poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().editor.active_tool)).toBe("rotate");
+    await page.keyboard.press("KeyW");
+    await expect.poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().editor.active_tool)).toBe("move");
+
+    const hashTextured = (await sampleViewportPixels(page)).hash;
+    await page.keyboard.press("Digit4"); // Wireframe
+    await page.waitForTimeout(50);
+    const hashWire = (await sampleViewportPixels(page)).hash;
+    expect(hashWire).not.toBe(hashTextured);
+
+    await page.keyboard.press("Digit5"); // Smooth Shaded
+    await page.waitForTimeout(50);
+    const hashShaded = (await sampleViewportPixels(page)).hash;
+    expect(hashShaded).not.toBe(hashWire);
+
+    await page.keyboard.press("Digit6"); // Back to Shaded & Textured
+    await expect
+      .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.shading_mode))
+      .toBe("shaded_textured");
+
+    // Alt + LMB Orbit, Alt + MMB Pan, Alt + RMB Dolly Zoom
+    const vpRect = await page.locator("#fe3d-canvas").boundingBox();
+    const eye0 = await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.eye.slice());
+    await page.keyboard.down("Alt");
+    await page.mouse.move(vpRect.x + 400, vpRect.y + 300);
+    await page.mouse.down({ button: "left" });
+    await page.mouse.move(vpRect.x + 490, vpRect.y + 260, { steps: 5 });
+    await page.mouse.up({ button: "left" });
+    const eye1 = await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.eye.slice());
+    expect(Math.hypot(eye1[0] - eye0[0], eye1[1] - eye0[1], eye1[2] - eye0[2])).toBeGreaterThan(0.2);
+
+    await page.mouse.move(vpRect.x + 400, vpRect.y + 300);
+    await page.mouse.down({ button: "right" });
+    await page.mouse.move(vpRect.x + 470, vpRect.y + 240, { steps: 5 });
+    await page.mouse.up({ button: "right" });
+    await page.keyboard.up("Alt");
+    const eye2 = await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.eye.slice());
+    expect(Math.hypot(eye2[0] - eye1[0], eye2[1] - eye1[1], eye2[2] - eye1[2])).toBeGreaterThan(0.15);
+    // Alt+RMB drag must NOT leave stationary Marking Menu open
+    await expect(page.getByTestId("viewport-context-menu")).toBeHidden();
+
+    await context.close();
+  });
+
+  test("14. Stage 1 Maya Outliner Hierarchy, Multi-Selection, Dedicated Channel Box, Custom Attributes, Display Layers & .fe3d v1.3 Persistence", async ({
+    browser,
+  }) => {
+    const context = await browser.newContext({ viewport: { width: 1600, height: 920 } });
+    const page = await context.newPage();
+    await bootDirectStudioReady(page);
+    await page.getByTestId("btn-toggle-rig").click();
+
+    // 1. Outliner multi-selection (Ctrl+Click), Ctrl+G Group, collapse/expand hierarchy,Shift+P Unparent
+    await page.getByTestId("outliner-item-HeroCube").click();
+    await page.getByTestId("outliner-item-GroundPlane").click({ modifiers: ["Control"] });
+    const selIds = await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.selected_object_ids);
+    expect(selIds.length).toBe(2);
+
+    await page.keyboard.press("Control+g");
+    await expect(page.getByTestId("outliner-item-group1")).toBeVisible();
+    await page.getByTestId("outliner-item-HeroCube").click();
+    const heroParentAfterGroup = await page.evaluate(
+      () => window.__FE3D_STUDIO__.getState().inspector.parent_id
+    );
+    expect(heroParentAfterGroup).toBeGreaterThan(0);
+
+    // 2. Dedicated Channel Box: numeric edit + channel lock + Custom Attribute + Undo/Redo
+    const cbTx = page.getByTestId("cb-tx");
+    await cbTx.fill("2.75");
+    await cbTx.press("Enter");
+    await expect
+      .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().inspector.position[0]))
+      .toBeCloseTo(2.75, 2);
+
+    // Lock TX channel
+    await page.getByTestId("cb-lock-tx").click();
+    await expect(cbTx).toBeDisabled();
+
+    // Add Custom Attribute 'rigBlend' = 0.65
+    await page.getByTestId("btn-cb-add-attr-toggle").click();
+    await page.locator("#cb-new-attr-name").fill("rigBlend");
+    await page.locator("#cb-new-attr-val").fill("0.65");
+    await page.getByTestId("btn-cb-create-attr").click();
+    await expect(page.getByTestId("cb-custom-rigBlend")).toHaveValue("0.650");
+
+    // 3. Display Layer Editor: create layer with HeroCube, toggle V/T/R, delete layer preserving HeroCube
+    await page.getByTestId("btn-layer-create-selected").click();
+    await expect(page.getByTestId("display-layer-row-layer1")).toBeVisible();
+
+    const hashVisOn = (await sampleViewportPixels(page)).hash;
+    await page.getByTestId("layer-vis-layer1").click(); // Hide layer1
+    await page.waitForTimeout(50);
+    const hashVisOff = (await sampleViewportPixels(page)).hash;
+    expect(hashVisOff).not.toBe(hashVisOn);
+    await page.getByTestId("layer-vis-layer1").click(); // Show layer1 again
+
+    // Cycle Normal -> Template -> Reference
+    await page.getByTestId("layer-mode-layer1").click();
+    await expect(page.getByTestId("layer-mode-layer1")).toHaveText("T");
+    await page.getByTestId("layer-mode-layer1").click();
+    await expect(page.getByTestId("layer-mode-layer1")).toHaveText("R");
+
+    // Verify .fe3d v1.3 export & re-import preserves Display Layers, Channel Locks & Custom Attributes cleanly
+    const exportedJson = await page.evaluate(() => window.__FE3D_STUDIO__.exportInlineProject());
+    expect(exportedJson).toContain('"display_layers"');
+    expect(exportedJson).toContain('"rigBlend"');
+
+    await page.evaluate(() => window.__FE3D_STUDIO__.dispatch({ action: "new_starter_project" }));
+    await expect(page.getByTestId("display-layer-row-layer1")).toHaveCount(0);
+
+    await page.evaluate((txt) => window.__FE3D_STUDIO__.importInlineProject(txt), exportedJson);
+    await expect(page.getByTestId("display-layer-row-layer1")).toBeVisible();
+    await page.getByTestId("outliner-item-HeroCube").click();
+    await expect(page.getByTestId("cb-custom-rigBlend")).toHaveValue("0.650");
+    const warnings = await page.evaluate(() => window.__FE3D_STUDIO__.getState().project.load_warnings);
+    expect(warnings).toEqual([]);
+
+    // Delete layer1 -> HeroCube remains in scene!
+    await page.getByTestId("layer-del-layer1").click();
+    await expect(page.getByTestId("display-layer-row-layer1")).toHaveCount(0);
+    await expect(page.getByTestId("outliner-item-HeroCube")).toBeVisible();
+
+    await context.close();
+  });
+
+  test("15. Stage 1 Maya Time/Range Slider Keyframes, Safe Command Line, Focus Guard, Hotbox, Marking Menu, Undock/Redock & Responsive Mobile Views", async ({
+    browser,
+  }) => {
+    const outDir = path.resolve(process.cwd(), "../../build/ci-screenshots");
+    await fs.mkdir(outDir, { recursive: true });
+
+    const context = await browser.newContext({ viewport: { width: 1600, height: 920 } });
+    const page = await context.newPage();
+    await bootDirectStudioReady(page);
+    await page.getByTestId("btn-toggle-rig").click();
+
+    // 1. Keyframe animation on Time Slider (Frame 1 -> Frame 25, scrub Frame 13)
+    await page.getByTestId("outliner-item-HeroCube").click();
+    await page.evaluate(() => {
+      const s = window.__FE3D_STUDIO__;
+      const id = s.getState().inspector.id;
+      s.dispatch({ action: "set_current_frame", frame: 1 });
+      s.dispatch({ action: "set_transform", id, position: [0, 0, 0], rotation_deg: [0, 0, 0], scale: [1, 1, 1] });
+    });
+    await page.getByTestId("btn-tl-set-key").click();
+    await page.getByTestId("btn-tl-autokey").click(); // Enable Auto Key!
+
+    await page.locator("#timeline-frame-num").fill("25");
+    await page.locator("#timeline-frame-num").press("Enter");
+    await page.getByTestId("cb-tx").fill("4.0");
+    await page.getByTestId("cb-tx").press("Enter");
+
+    // Scrub to midpoint Frame 13 -> interpolated X ~ 2.0!
+    await page.locator("#timeline-frame-num").fill("13");
+    await page.locator("#timeline-frame-num").press("Enter");
+    const midX = await page.evaluate(() => window.__FE3D_STUDIO__.getState().inspector.position[0]);
+    expect(midX).toBeGreaterThan(1.8);
+    expect(midX).toBeLessThan(2.2);
+
+    // 2. Safe Command Line + Input Focus Guard (typing shortcuts in Command Line must NOT trigger tools or delete objects!)
+    const cmdInput = page.getByTestId("maya-command-input");
+    await cmdInput.click();
+    await cmdInput.type("polyTorus");
+    // While typing 'polyTorus' (contains 'r', 's', 'y'), active tool must NOT change and HeroCube must remain selected!
+    await cmdInput.press("Enter");
+    await expect(page.getByTestId("outliner-item-Torus")).toBeVisible();
+
+    await cmdInput.fill('eval("window.__HACKED__ = 1")');
+    await cmdInput.press("Enter");
+    const hackedVal = await page.evaluate(() => window.__HACKED__);
+    expect(hackedVal).toBeUndefined();
+    await expect(page.getByTestId("status-message")).toContainText("Unknown command");
+
+    // 3. Hold Spacebar Hotbox & Stationary RMB Radial Marking Menu
+    await page.locator("#fe3d-canvas").click({ position: { x: 200, y: 200 } });
+    await page.keyboard.down("Space");
+    await expect(page.getByTestId("maya-hotbox")).toBeVisible();
+    await page.keyboard.up("Space");
+    await expect(page.getByTestId("maya-hotbox")).toBeHidden();
+
+    await page.getByTestId("outliner-item-HeroCube").click();
+    await page.locator("#fe3d-canvas").click({ button: "right", position: { x: 320, y: 260 } });
+    await expect(page.getByTestId("viewport-context-menu")).toBeVisible();
+    await expect(page.getByTestId("maya-marking-compass")).toBeVisible();
+    await page.getByTestId("mm-face").click();
+    await expect
+      .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().editor.mode))
+      .toBe("face");
+    await page.keyboard.press("F8");
+    await expect
+      .poll(async () => await page.evaluate(() => window.__FE3D_STUDIO__.getState().editor.mode))
+      .toBe("object");
+
+    // 4. Undock Outliner into Floating Window & Redock cleanly
+    await page.locator('[data-menu-trigger="windows"]').click();
+    await page.locator('[data-maya-cmd="float_outliner"]').click();
+    await expect(page.getByTestId("floating-win-panel-outliner")).toBeVisible();
+    await page.getByTestId("redock-panel-outliner").click();
+    await expect(page.getByTestId("floating-win-panel-outliner")).toHaveCount(0);
+    await expect(page.getByTestId("panel-outliner")).toBeVisible();
+
+    // 5. Capture Mobile Landscape (844x390) & Mobile Portrait (390x844) Maya screenshots with zero horizontal overflow
+    await page.setViewportSize({ width: 844, height: 390 });
+    await page.waitForTimeout(80);
+    await assertNoHorizontalOverflow(page);
+    await page.screenshot({
+      path: path.join(outDir, "13-maya-stage1-mobile-landscape-844x390.png"),
+    });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(80);
+    await assertNoHorizontalOverflow(page);
+    await page.screenshot({
+      path: path.join(outDir, "14-maya-stage1-mobile-portrait-390x844.png"),
+    });
+
+    await context.close();
+  });
 });
+
 
 
 

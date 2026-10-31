@@ -1,47 +1,48 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-/* Final Effect 3D — Professional Creative Software UI System (Stage 5 v0.5.0)
- * Dark, high-density Blender 4.x / Maya-inspired studio aesthetic with
- * Final Effect 3D cobalt-amber identity across Desktop, Mobile Landscape & Mobile Portrait.
+/* Final Effect 3D — Autodesk Maya Classic Stage 1 Dark Studio UI System (v0.5.0)
+ * Neutral dark gray / charcoal high-density interface with steel-blue & teal-lead
+ * selection accents across Desktop, Mobile Landscape & Mobile Portrait.
  */
 
 :root {
-  --bg-void: #111317;
-  --bg-header: #181b21;
-  --bg-subbar: #1d2129;
-  --bg-panel: #20242c;
-  --bg-panel-alt: #1a1e25;
-  --bg-card: #262b35;
-  --bg-input: #14171d;
-  --bg-hover: #2e3542;
-  --bg-active: #353d4d;
+  --bg-void: #1b1b1b;
+  --bg-header: #2b2b2b;
+  --bg-subbar: #323232;
+  --bg-panel: #2b2b2b;
+  --bg-panel-alt: #232323;
+  --bg-card: #363636;
+  --bg-input: #1d1d1d;
+  --bg-hover: #444444;
+  --bg-active: #4e4e4e;
 
-  --border-dark: #0f1115;
-  --border-subtle: #2c323e;
-  --border-strong: #3c4454;
+  --border-dark: #151515;
+  --border-subtle: #202020;
+  --border-strong: #4a4a4a;
 
-  --text-bright: #eef1f6;
-  --text-main: #d5dbe5;
-  --text-muted: #8d97a8;
-  --text-dim: #646e80;
+  --text-bright: #eeeeee;
+  --text-main: #d0d0d0;
+  --text-muted: #9a9a9a;
+  --text-dim: #6e6e6e;
 
-  --accent-blue: #3d84f5;
-  --accent-blue-hover: #5294ff;
-  --accent-blue-soft: rgba(61, 132, 245, 0.2);
-  --accent-amber: #e68a2e;
-  --accent-amber-soft: rgba(230, 138, 46, 0.2);
-  --accent-green: #42b874;
-  --accent-danger: #d9535f;
+  --accent-blue: #5285a6;
+  --accent-blue-hover: #6499bc;
+  --accent-blue-soft: rgba(82, 133, 166, 0.26);
+  --accent-lead: #43a089;
+  --accent-amber: #d4883a;
+  --accent-amber-soft: rgba(212, 136, 58, 0.2);
+  --accent-green: #49b37a;
+  --accent-danger: #d94c4c;
 
-  --axis-x: #e05561;
-  --axis-y: #5ec46a;
-  --axis-z: #4d8ff7;
+  --axis-x: #de5454;
+  --axis-y: #5dc269;
+  --axis-z: #4f8ef2;
 
-  --right-dock-w: 318px;
-  --bottom-dock-h: 152px;
-  --outliner-h-pct: 36%;
-  --shelf-w: 48px;
+  --right-dock-w: 332px;
+  --bottom-dock-h: 132px;
+  --outliner-h-pct: 27%;
+  --shelf-w: 44px;
 
-  --font-ui: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
@@ -2881,12 +2882,15 @@ body[data-layout-mode="portrait"][data-mp-drawer="outliner"] .outliner-panel {
   border-bottom: none;
 }
 
-body[data-layout-mode="portrait"][data-mp-drawer="outliner"] .properties-shell {
+body[data-layout-mode="portrait"][data-mp-drawer="outliner"] .properties-shell,
+body[data-layout-mode="portrait"][data-mp-drawer="outliner"] .maya-cb-panel,
+body[data-layout-mode="portrait"][data-mp-drawer="outliner"] .maya-tool-settings-panel {
   display: none !important;
 }
 
 body[data-layout-mode="portrait"][data-mp-drawer="inspector"] .outliner-panel,
-body[data-layout-mode="portrait"][data-mp-drawer="materials"] .outliner-panel {
+body[data-layout-mode="portrait"][data-mp-drawer="materials"] .outliner-panel,
+body[data-layout-mode="portrait"][data-mp-drawer="materials"] .maya-cb-panel {
   display: none !important;
 }
 
@@ -2897,11 +2901,19 @@ body[data-layout-mode="portrait"][data-mp-drawer="console"] .center-column {
   flex: 1 1 100%;
 }
 
-body[data-layout-mode="portrait"][data-mp-drawer="assets"] .viewport-stage,
-body[data-layout-mode="portrait"][data-mp-drawer="timeline"] .viewport-stage,
-body[data-layout-mode="portrait"][data-mp-drawer="console"] .viewport-stage {
+body[data-layout-mode="portrait"][data-mp-drawer="assets"] .maya-viewport-panel,
+body[data-layout-mode="portrait"][data-mp-drawer="timeline"] .maya-viewport-panel,
+body[data-layout-mode="portrait"][data-mp-drawer="console"] .maya-viewport-panel {
   flex: 0 0 44%;
   min-height: 180px;
+}
+
+body[data-layout-mode="portrait"] .vp-panel-menubar,
+body[data-layout-mode="portrait"] .vp-panel-toolbar,
+body[data-layout-mode="portrait"] .maya-shelf-tabs-row,
+body[data-layout-mode="portrait"] #maya-shelf-icons,
+body[data-layout-mode="portrait"] .maya-command-form {
+  display: none !important;
 }
 
 body[data-layout-mode="portrait"][data-mp-drawer="assets"] .bottom-dock,
@@ -3107,4 +3119,1134 @@ body[data-layout-mode="portrait"] .pro-btn {
   font-size: 10.5px;
   line-height: 1.35;
 }
+
+/* ========================================================================= */
+/* STAGE 1: AUTODESK MAYA CLASSIC INTERFACE ARCHITECTURE & VISUAL DESIGN     */
+/* ========================================================================= */
+
+.maya-menubar-row {
+  height: 26px;
+  padding: 0 6px;
+  background: #282828;
+  border-bottom: 1px solid #181818;
+  gap: 4px;
+}
+
+.maya-brand-btn {
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 2px;
+  border: 1px solid #444444;
+  background: #333333;
+  color: #e4e4e4;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.maya-brand-btn:hover {
+  background: var(--accent-blue);
+  border-color: var(--accent-blue-hover);
+  color: #ffffff;
+}
+
+.maya-menuset-menus {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding-left: 3px;
+  margin-left: 2px;
+  border-left: 1px solid #3c3c3c;
+}
+
+.menuset-trigger {
+  color: #cfe4f2 !important;
+}
+
+.maya-ws-tabs-compact {
+  max-width: 460px;
+}
+
+.maya-ws-picker .menu-dropdown {
+  right: 0;
+  left: auto;
+}
+
+.maya-ws-trigger {
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 2px;
+  border: 1px solid #424242;
+  background: #222222;
+  color: #d6d6d6;
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.maya-ws-label-dim {
+  color: #8c8c8c;
+  margin-right: 2px;
+}
+
+/* Row 2: Maya Status Line */
+.maya-statusline {
+  height: 28px;
+  padding: 0 6px;
+  background: #303030;
+  border-bottom: 1px solid #181818;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.maya-statusline::-webkit-scrollbar {
+  display: none;
+}
+
+.maya-menuset-picker {
+  flex-shrink: 0;
+}
+
+.maya-menuset-select {
+  height: 21px;
+  padding: 0 6px;
+  border-radius: 2px;
+  border: 1px solid #484848;
+  background: #222222;
+  color: #e6e6e6;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.maya-mask-group,
+.maya-snap-group,
+.maya-right-mode-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.maya-right-mode-group {
+  margin-left: auto;
+}
+
+.tb-icon-btn {
+  padding: 0 5px !important;
+  min-width: 24px;
+  justify-content: center;
+}
+
+.tb-btn.is-active,
+.maya-mask-btn.is-active,
+.maya-snap-btn.is-active {
+  background: var(--accent-blue) !important;
+  border-color: var(--accent-blue-hover) !important;
+  color: #ffffff !important;
+}
+
+.maya-render-btn {
+  background: #3b4752;
+  border-color: #5285a6;
+  color: #e6f2fa;
+}
+
+/* Row 3: Customizable Maya Shelf */
+.maya-shelf-bar {
+  background: #2b2b2b;
+  border-bottom: 1px solid #161616;
+  display: flex;
+  flex-direction: column;
+}
+
+.maya-shelf-tabs-row {
+  height: 21px;
+  padding: 0 6px;
+  background: #242424;
+  border-bottom: 1px solid #1b1b1b;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.maya-shelf-gear-btn {
+  width: 22px;
+  border: none;
+  background: transparent;
+  color: #9e9e9e;
+  font-size: 12px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.maya-shelf-gear-btn:hover {
+  color: #ffffff;
+  background: #3a3a3a;
+}
+
+.maya-shelf-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.maya-shelf-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.maya-shelf-tab {
+  height: 19px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 2px 2px 0 0;
+  background: transparent;
+  color: #9a9a9a;
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.maya-shelf-tab:hover {
+  color: #e2e2e2;
+  background: #2d2d2d;
+}
+
+.maya-shelf-tab.is-active {
+  background: #333333;
+  border-color: #464646;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.maya-shelf-body-row {
+  min-height: 36px;
+  padding: 2px 6px;
+  background: #333333;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.maya-shelf-body-row::-webkit-scrollbar {
+  display: none;
+}
+
+.maya-shelf-icons {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.maya-shelf-item {
+  min-width: 42px;
+  height: 32px;
+  padding: 2px 4px;
+  border-radius: 2px;
+  border: 1px solid transparent;
+  background: #3b3b3b;
+  color: #dadada;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+}
+
+.maya-shelf-item:hover {
+  background: #494949;
+  border-color: #626262;
+  color: #ffffff;
+}
+
+.maya-shelf-item-lbl {
+  font-size: 8.5px;
+  line-height: 1;
+  color: #bdbdbd;
+  max-width: 48px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maya-shelf-quick-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.maya-shelf-popup {
+  position: fixed;
+  z-index: 160;
+  min-width: 190px;
+}
+
+/* Left Dock (for Left-Docked Outliner layout) */
+.dock-left {
+  width: 224px;
+  flex-shrink: 0;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border-dark);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dock-left .outliner-panel {
+  flex: 1 1 100%;
+  max-height: none;
+}
+
+/* Viewport Panel Wrapper + Panel Menu Bar + Panel Icon Bar */
+.maya-viewport-panel {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #222222;
+}
+
+.vp-panel-menubar {
+  height: 22px;
+  padding: 0 6px;
+  background: #2d2d2d;
+  border-bottom: 1px solid #1b1b1b;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.vp-panel-menus .menu-trigger {
+  height: 19px;
+  padding: 0 6px;
+  font-size: 11px;
+  color: #c6c6c6;
+}
+
+.vp-panel-cam-label {
+  font-size: 10.5px;
+  font-family: var(--font-mono);
+  color: #9e9e9e;
+}
+
+.vp-panel-toolbar {
+  height: 24px;
+  padding: 0 6px;
+  background: #343434;
+  border-bottom: 1px solid #181818;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.vp-panel-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+.vp-camera-select {
+  height: 19px;
+  padding: 0 4px;
+  border-radius: 2px;
+  border: 1px solid #4a4a4a;
+  background: #232323;
+  color: #dedede;
+  font-size: 10.5px;
+}
+
+.vp-bar-sep {
+  width: 1px;
+  height: 14px;
+  background: #484848;
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+.vp-toolbar-btn {
+  height: 19px;
+  min-width: 22px;
+  padding: 0 5px;
+  border-radius: 2px;
+  border: 1px solid #454545;
+  background: #2b2b2b;
+  color: #c8c8c8;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.vp-toolbar-btn:hover {
+  background: #444444;
+  color: #ffffff;
+}
+
+.vp-toolbar-btn.is-active {
+  background: var(--accent-blue);
+  border-color: var(--accent-blue-hover);
+  color: #ffffff;
+}
+
+/* Radial Compass Marking Menu inside RMB Context Menu */
+.maya-marking-menu {
+  min-width: 236px;
+}
+
+.mm-compass-grid {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  grid-template-rows: auto auto auto;
+  gap: 4px;
+  padding: 6px;
+  background: #242424;
+  border-bottom: 1px solid #383838;
+  border-radius: 3px;
+  margin-bottom: 3px;
+  align-items: center;
+}
+
+.mm-dir-btn {
+  height: 23px !important;
+  padding: 0 8px !important;
+  justify-content: center !important;
+  background: #363636 !important;
+  border: 1px solid #505050 !important;
+  border-radius: 2px !important;
+  font-weight: 600;
+  color: #eaeaea !important;
+}
+
+.mm-dir-btn:hover:not(:disabled) {
+  background: var(--accent-blue) !important;
+  border-color: var(--accent-blue-hover) !important;
+}
+
+.mm-dir-btn:disabled {
+  opacity: 0.38;
+}
+
+.mm-north {
+  grid-column: 2;
+  grid-row: 1;
+}
+.mm-west {
+  grid-column: 1;
+  grid-row: 2;
+}
+.mm-center-hub {
+  grid-column: 2;
+  grid-row: 2;
+  font-size: 9px;
+  font-family: var(--font-mono);
+  color: #8fbcd9;
+  text-align: center;
+  padding: 0 4px;
+}
+.mm-east {
+  grid-column: 3;
+  grid-row: 2;
+}
+.mm-south {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+/* Hierarchical Maya Outliner Upgrades */
+.outliner-header-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.maya-outliner-filter-bar {
+  display: flex;
+  gap: 4px;
+}
+
+.outliner-type-select {
+  width: 72px;
+  height: 21px;
+  border-radius: 2px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-input);
+  color: var(--text-main);
+  font-size: 10.5px;
+}
+
+.outliner-twisty {
+  width: 14px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #9e9e9e;
+  font-size: 10px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.outliner-twisty.is-leaf {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.outliner-row.is-selected.is-lead {
+  background: rgba(67, 160, 137, 0.32);
+  color: #b4f5e3;
+  font-weight: 600;
+}
+
+.outliner-row.is-selected.is-secondary {
+  background: rgba(82, 133, 166, 0.34);
+  color: #ffffff;
+}
+
+.outliner-row.is-drop-target {
+  outline: 1px dashed #64b5f6;
+  background: rgba(82, 133, 166, 0.22);
+}
+
+.outliner-lock-btn.is-locked {
+  color: #f0ad4e;
+}
+
+.outliner-inline-rename {
+  flex: 1;
+  min-width: 60px;
+  height: 19px;
+  padding: 0 4px;
+  border: 1px solid var(--accent-blue);
+  background: #141414;
+  color: #ffffff;
+  font-size: 11px;
+}
+
+/* Dedicated Maya Channel Box & Display Layer Editor */
+.maya-cb-panel {
+  flex: 0 0 236px;
+  min-height: 150px;
+  max-height: 46%;
+  border-bottom: 1px solid var(--border-dark);
+  background: var(--bg-panel);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+body[data-layout-mode="desktop"] #panel-channel-box:not([hidden]):only-of-type,
+.maya-cb-panel:has(~ .properties-shell[hidden]) {
+  flex: 1 1 auto;
+  max-height: none;
+}
+
+.maya-cb-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 3px 6px;
+  background: #252525;
+}
+
+.maya-cb-empty {
+  padding: 8px 4px;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-align: center;
+}
+
+.maya-cb-node-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px 4px;
+  border-bottom: 1px solid #353535;
+  margin-bottom: 2px;
+  color: #e8e8e8;
+  font-size: 11px;
+}
+
+.maya-cb-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.maya-cb-subhead {
+  margin-top: 4px;
+  padding: 2px 4px;
+  background: #303030;
+  color: #a8a8a8;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.maya-cb-row {
+  display: grid;
+  grid-template-columns: 1fr 86px 18px;
+  align-items: center;
+  gap: 4px;
+  height: 19px;
+  padding-left: 4px;
+  background: #2b2b2b;
+  border-left: 2px solid transparent;
+}
+
+.maya-cb-row.is-ch-keyed {
+  border-left-color: #e04848;
+}
+
+.maya-cb-row.is-ch-locked {
+  opacity: 0.62;
+}
+
+.maya-cb-lbl {
+  font-size: 10.5px;
+  color: #c6c6c6;
+  cursor: ew-resize;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.maya-cb-input {
+  width: 100%;
+  height: 17px;
+  padding: 0 4px;
+  border: 1px solid #191919;
+  background: #1c1c1c;
+  color: #eaeaea;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-align: right;
+}
+
+.maya-cb-input:focus {
+  border-color: var(--accent-blue);
+  outline: none;
+}
+
+.maya-cb-lock-btn {
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: 1px solid #3a3a3a;
+  background: #242424;
+  color: #888888;
+  font-size: 9.5px;
+  font-family: var(--font-mono);
+}
+
+.maya-cb-lock-btn.is-locked {
+  background: #5c4b2b;
+  color: #ffd27d;
+  border-color: #967940;
+}
+
+.maya-add-attr-bar {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid #383838;
+  display: grid;
+  grid-template-columns: 1fr 58px auto;
+  gap: 3px;
+}
+
+.maya-add-attr-bar input {
+  height: 20px;
+  padding: 0 4px;
+  background: #1b1b1b;
+  border: 1px solid #3c3c3c;
+  color: #eeeeee;
+  font-size: 10.5px;
+}
+
+/* Display Layer Editor */
+.maya-layer-editor {
+  flex-shrink: 0;
+  border-top: 1px solid #181818;
+  background: #282828;
+}
+
+.maya-layer-header {
+  height: 22px;
+  padding: 0 6px;
+}
+
+.maya-layer-list {
+  max-height: 76px;
+  overflow-y: auto;
+  padding: 2px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.maya-layer-row {
+  height: 20px;
+  padding: 0 4px;
+  background: #303030;
+  border: 1px solid #202020;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.maya-layer-row.is-active {
+  background: rgba(82, 133, 166, 0.3);
+  border-color: var(--accent-blue);
+}
+
+.maya-layer-row.is-default-layer {
+  opacity: 0.72;
+  cursor: default;
+}
+
+.layer-box-btn,
+.layer-box-static {
+  width: 16px;
+  height: 15px;
+  padding: 0;
+  border: 1px solid #4a4a4a;
+  background: #222222;
+  color: #dcdcdc;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.layer-box-btn.layer-mode-template {
+  color: #f0ad4e;
+}
+
+.layer-box-btn.layer-mode-reference {
+  color: #7cc0ea;
+}
+
+.maya-layer-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layer-mini-act {
+  height: 16px !important;
+  padding: 0 4px !important;
+  font-size: 9.5px !important;
+}
+
+/* Tool Settings Panel */
+.maya-tool-settings-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+
+/* Maya Node-Tabbed Attribute Editor Top Tabs */
+.properties-shell {
+  flex-direction: column !important;
+}
+
+.maya-ae-rail {
+  width: 100% !important;
+  height: 26px !important;
+  border-right: none !important;
+  border-bottom: 1px solid #181818;
+  flex-direction: row !important;
+  padding: 0 4px !important;
+  gap: 2px !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+}
+
+.maya-ae-rail .props-tab {
+  width: auto !important;
+  height: 21px !important;
+  padding: 0 6px !important;
+  gap: 4px;
+  border-radius: 2px 2px 0 0;
+  white-space: nowrap;
+}
+
+.maya-ae-tab-lbl {
+  font-size: 10px;
+}
+
+/* Maya Time Slider & Range Slider */
+.maya-timeline-body {
+  padding: 4px 8px !important;
+}
+
+.maya-timeslider-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.maya-timeslider-track-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 140px;
+  height: 28px;
+}
+
+.maya-timeslider-canvas {
+  display: block;
+  width: 100%;
+  height: 28px;
+  border-radius: 2px;
+}
+
+.maya-timeslider-overlay-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: ew-resize;
+  margin: 0;
+}
+
+.maya-transport-cluster {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.maya-autokey-btn.is-autokey-on {
+  background: #b53838 !important;
+  border-color: #e05252 !important;
+  color: #ffffff !important;
+}
+
+.maya-rangeslider-row {
+  margin-top: 5px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.maya-range-num {
+  width: 48px;
+  height: 20px;
+  padding: 0 4px;
+  background: #1c1c1c;
+  border: 1px solid #3c3c3c;
+  border-radius: 2px;
+  color: #e2e2e2;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+.maya-range-bar-track {
+  position: relative;
+  flex: 1;
+  min-width: 60px;
+  height: 14px;
+  background: #1f1f1f;
+  border: 1px solid #3a3a3a;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.maya-range-bar-thumb {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: 0%;
+  width: 50%;
+  background: #485e6e;
+  border: 1px solid #6b91ab;
+  border-radius: 1px;
+}
+
+.maya-tl-select {
+  height: 20px;
+  padding: 0 4px;
+  background: #202020;
+  border: 1px solid #3e3e3e;
+  border-radius: 2px;
+  color: #dcdcdc;
+  font-size: 10.5px;
+}
+
+/* Maya Command Line & Help Line Footer */
+.maya-command-footer {
+  height: 25px;
+  padding: 0 6px;
+  background: #232323;
+  border-top: 1px solid #151515;
+  gap: 8px;
+}
+
+.maya-cmd-left {
+  flex: 1 1 55%;
+  min-width: 0;
+}
+
+.maya-command-form {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 320px;
+  min-width: 140px;
+  height: 19px;
+  background: #181818;
+  border: 1px solid #3c3c3c;
+  border-radius: 2px;
+}
+
+.maya-cmd-lang-pill {
+  padding: 0 5px;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  background: #2f2f2f;
+  border-right: 1px solid #3c3c3c;
+  color: #b4d5ec;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+}
+
+.maya-command-input {
+  flex: 1;
+  min-width: 60px;
+  height: 100%;
+  padding: 0 6px;
+  border: none;
+  background: transparent;
+  color: #eeeeee;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  outline: none;
+}
+
+.maya-help-right {
+  flex: 0 1 45%;
+  justify-content: flex-end;
+}
+
+.maya-help-line {
+  color: #9e9e9e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 340px;
+}
+
+/* Maya Hold-Spacebar Hotbox Overlay */
+.maya-hotbox-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 180;
+  background: rgba(12, 12, 12, 0.45);
+}
+
+.hotbox-crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  grid-template-columns: auto auto auto;
+  grid-template-rows: auto auto auto;
+  gap: 8px;
+  align-items: center;
+  justify-items: center;
+}
+
+.hotbox-zone {
+  display: flex;
+  gap: 4px;
+  padding: 5px 8px;
+  background: rgba(34, 34, 34, 0.96);
+  border: 1px solid #585858;
+  border-radius: 3px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65);
+}
+
+.hotbox-zone button,
+.hotbox-hub-btn {
+  height: 23px;
+  padding: 0 9px;
+  border: 1px solid #4d4d4d;
+  border-radius: 2px;
+  background: #333333;
+  color: #ececec;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.hotbox-zone button:hover,
+.hotbox-hub-btn:hover {
+  background: var(--accent-blue);
+  border-color: var(--accent-blue-hover);
+  color: #ffffff;
+}
+
+.hotbox-north { grid-column: 2; grid-row: 1; }
+.hotbox-west  { grid-column: 1; grid-row: 2; flex-direction: column; }
+.hotbox-center{ grid-column: 2; grid-row: 2; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.hotbox-east  { grid-column: 3; grid-row: 2; flex-direction: column; }
+.hotbox-south { grid-column: 2; grid-row: 3; }
+
+.hotbox-brand {
+  padding: 4px 12px;
+  border-radius: 2px;
+  background: #1f1f1f;
+  border: 1px solid var(--accent-blue);
+  color: #a9d5f2;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+/* Floating Undocked Panels */
+.maya-floating-host {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 120;
+}
+
+.maya-floating-window {
+  position: absolute;
+  width: 310px;
+  max-height: 70vh;
+  pointer-events: auto;
+  background: #2b2b2b;
+  border: 1px solid #5c5c5c;
+  border-radius: 3px;
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.72);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.maya-floating-titlebar {
+  height: 24px;
+  padding: 0 8px;
+  background: #202020;
+  border-bottom: 1px solid #3c3c3c;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: move;
+  font-size: 11px;
+}
+
+.maya-floating-window .outliner-panel,
+.maya-floating-window .maya-cb-panel {
+  flex: 1 1 auto;
+  max-height: 62vh;
+}
+
+/* Render View Preview Modal & Hotkey Manager */
+.maya-render-dialog {
+  width: min(680px, 95vw);
+}
+
+.maya-render-preview-wrap {
+  background: #141414;
+  border: 1px solid #383838;
+  border-radius: 2px;
+  overflow: hidden;
+  max-height: 62vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.maya-render-preview-wrap img {
+  max-width: 100%;
+  max-height: 60vh;
+  display: block;
+}
+
+.maya-hotkey-section {
+  border-top: 1px solid #3a3a3a;
+  padding-top: 8px;
+}
+
+.maya-hotkey-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.maya-hotkey-list {
+  max-height: 150px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-right: 4px;
+}
+
+.maya-hotkey-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  padding: 2px 4px;
+  background: #242424;
+  border-radius: 2px;
+}
+
+.maya-hotkey-input {
+  width: 86px;
+  height: 20px;
+  text-align: center;
+  background: #181818;
+  border: 1px solid #454545;
+  border-radius: 2px;
+  color: #9ad1f5;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+@media (max-width: 1180px) {
+  body[data-layout-mode="desktop"] .maya-menuset-menus {
+    display: none;
+  }
+}
+
+body[data-layout-mode="landscape"] .maya-shelf-tabs-row,
+body[data-layout-mode="landscape"] #maya-shelf-icons,
+body[data-layout-mode="landscape"] .vp-panel-menubar,
+body[data-layout-mode="landscape"] .maya-rangeslider-row,
+body[data-layout-mode="landscape"] .maya-command-form {
+  display: none;
+}
+
 

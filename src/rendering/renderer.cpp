@@ -109,6 +109,98 @@ DirectionalLightUniforms buildLegacyLightUniforms(const PreparedSceneLighting& p
     return u;
 }
 
+PreparedSceneLighting buildMayaDefaultHeadlampLighting() {
+    scene::Scene headlamp("MayaDefaultHeadlamp");
+    if (auto k = headlamp.createObject("KeyHeadlamp")) {
+        math::Transform tf = math::Transform::identity();
+        tf.rotation = math::Quat::fromEulerXYZ(math::Vec3{math::degToRad(-38.0f), math::degToRad(32.0f), 0.0f});
+        (void)headlamp.setObjectTransform(k.value(), tf);
+        scene::DirectionalLightComponent key{
+            .color = {1.0f, 0.99f, 0.96f},
+            .intensity = 2.15f,
+            .enabled = true,
+            .shadow = scene::LightShadowSettings{.enabled = false},
+        };
+        (void)headlamp.assignDirectionalLight(k.value(), key);
+    }
+    if (auto f = headlamp.createObject("FillHeadlamp")) {
+        math::Transform tf = math::Transform::identity();
+        tf.rotation = math::Quat::fromEulerXYZ(math::Vec3{math::degToRad(24.0f), math::degToRad(-145.0f), 0.0f});
+        (void)headlamp.setObjectTransform(f.value(), tf);
+        scene::DirectionalLightComponent fill{
+            .color = {0.78f, 0.85f, 0.98f},
+            .intensity = 0.72f,
+            .enabled = true,
+            .shadow = scene::LightShadowSettings{.enabled = false},
+        };
+        (void)headlamp.assignDirectionalLight(f.value(), fill);
+    }
+    return prepareSceneLighting(headlamp);
+}
+
+void appendWireRibbon(
+    scene::MeshData& out,
+    const math::Vec3& a,
+    const math::Vec3& b,
+    float radius,
+    const math::Vec3& color) {
+    const math::Vec3 ab = b - a;
+    const float len_sq = ab.lengthSquared();
+    if (len_sq <= 1.0e-10f) {
+        return;
+    }
+    const math::Vec3 dir = ab * (1.0f / std::sqrt(len_sq));
+    const math::Vec3 ref = (std::fabs(dir.y) < 0.9f) ? math::Vec3::unitY() : math::Vec3::unitX();
+    const math::Vec3 side1 = dir.cross(ref).normalized() * radius;
+    const math::Vec3 side2 = dir.cross(side1).normalized() * radius;
+
+    auto addQuad = [&](const math::Vec3& off) {
+        const auto base = static_cast<std::uint32_t>(out.vertices.size());
+        const math::Vec3 n = off.normalized();
+        out.vertices.push_back(scene::Vertex{a - off, n, color, {0.0f, 0.0f}});
+        out.vertices.push_back(scene::Vertex{a + off, n, color, {1.0f, 0.0f}});
+        out.vertices.push_back(scene::Vertex{b + off, n, color, {1.0f, 1.0f}});
+        out.vertices.push_back(scene::Vertex{b - off, n, color, {0.0f, 1.0f}});
+        out.indices.insert(out.indices.end(), {base + 0, base + 1, base + 2, base + 0, base + 2, base + 3});
+        out.indices.insert(out.indices.end(), {base + 0, base + 2, base + 1, base + 0, base + 3, base + 2});
+    };
+    addQuad(side1);
+    addQuad(side2);
+}
+
+scene::MeshData buildObjectWireframeMesh(
+    const scene::MeshAsset& asset,
+    const math::Mat4& world_matrix,
+    const math::Vec3& camera_pos,
+    const math::Vec3& color) {
+    scene::MeshData wire;
+    const math::Vec3 world_center = world_matrix.transformPoint(asset.local_bounds.center());
+    const float dist = std::max(0.6f, (world_center - camera_pos).length());
+    const float radius = std::clamp(dist * 0.0022f, 0.0025f, 0.045f);
+
+    if (asset.editable_mesh.has_value()) {
+        const auto& em = asset.editable_mesh.value();
+        const auto& verts = em.vertices();
+        for (const auto& edge : em.edges()) {
+            const math::Vec3 wa = world_matrix.transformPoint(verts[edge.v0].position);
+            const math::Vec3 wb = world_matrix.transformPoint(verts[edge.v1].position);
+            appendWireRibbon(wire, wa, wb, radius, color);
+        }
+        return wire;
+    }
+
+    const auto& data = asset.data;
+    for (std::size_t i = 0; i + 2 < data.indices.size(); i += 3) {
+        const math::Vec3 p0 = world_matrix.transformPoint(data.vertices[data.indices[i + 0]].position);
+        const math::Vec3 p1 = world_matrix.transformPoint(data.vertices[data.indices[i + 1]].position);
+        const math::Vec3 p2 = world_matrix.transformPoint(data.vertices[data.indices[i + 2]].position);
+        appendWireRibbon(wire, p0, p1, radius, color);
+        appendWireRibbon(wire, p1, p2, radius, color);
+        appendWireRibbon(wire, p2, p0, radius, color);
+    }
+    return wire;
+}
+
 } // namespace
 
 Renderer::Renderer(std::unique_ptr<IRenderDevice> device) : device_(std::move(device)) {}
@@ -241,7 +333,8 @@ core::Status Renderer::renderScene(
     scene::ObjectId selected_object,
     std::span<const ViewportOverlayMesh> overlays,
     const ViewportCameraOverride* camera_override,
-    const ViewportGridOptions* grid_options) {
+    const ViewportGridOptions* grid_options,
+    const ViewportDisplayOptions* display_options) {
     if (!initialized_) {
         return core::Status::fail(core::ErrorCode::InvalidState, "Renderer::renderScene called before initialize");
     }
@@ -257,7 +350,9 @@ core::Status Renderer::renderScene(
         return device_->endFrame();
     }
 
-    PreparedSceneLighting scene_lighting = prepareSceneLighting(scene);
+    const bool use_default_headlamp = (display_options != nullptr && !display_options->use_all_lights);
+    PreparedSceneLighting scene_lighting =
+        use_default_headlamp ? buildMayaDefaultHeadlampLighting() : prepareSceneLighting(scene);
 
     // 1. Synchronize HDRI prefiltered cubemap resource (cached by revision; zero upload when unchanged).
     if (auto env_st = device_->syncEnvironmentMap(
@@ -386,13 +481,76 @@ core::Status Renderer::renderScene(
         float dist_sq{0.0f};
     };
     std::vector<TranslucentDrawItem> translucent_queue;
+    std::vector<scene::MeshData> generated_wireframes;
 
     for (const auto& obj : scene.objects()) {
         if (!obj.mesh_id.has_value() || !isObjectEffectivelyVisible(scene, obj.id)) {
             continue;
         }
+
+        const scene::DisplayLayer* obj_layer = nullptr;
+        if (display_options != nullptr) {
+            obj_layer = scene.findObjectDisplayLayer(obj.id);
+            if (obj_layer != nullptr) {
+                if (!obj_layer->visible ||
+                    (display_options->timeline_playing && !obj_layer->playback_visible)) {
+                    continue;
+                }
+            }
+            if (display_options->isolate_select) {
+                const auto& iso = display_options->isolated_objects;
+                if (std::find(iso.begin(), iso.end(), obj.id) == iso.end()) {
+                    continue;
+                }
+            }
+        }
+
         const auto* mesh_asset = scene.findMesh(obj.mesh_id.value());
         if (mesh_asset == nullptr) {
+            continue;
+        }
+
+        auto world_res = scene.computeWorldMatrix(obj.id);
+        if (!world_res) {
+            (void)device_->endFrame();
+            return world_res.error();
+        }
+
+        const bool is_lead_sel = (selected_object.isValid() && obj.id == selected_object);
+        const bool is_sec_sel =
+            (display_options != nullptr &&
+             std::find(
+                 display_options->secondary_selected_objects.begin(),
+                 display_options->secondary_selected_objects.end(),
+                 obj.id) != display_options->secondary_selected_objects.end());
+        const bool is_sel = is_lead_sel || is_sec_sel;
+
+        const bool is_template =
+            (obj_layer != nullptr && obj_layer->display_type == scene::DisplayLayerType::Template);
+        const bool is_wireframe_only =
+            is_template ||
+            (display_options != nullptr && display_options->shading_mode == ViewportShadingMode::Wireframe);
+        const bool want_wire_overlay =
+            is_wireframe_only ||
+            (display_options != nullptr &&
+             (display_options->wireframe_on_shaded || display_options->mesh_display_smoothness == 2u));
+
+        if (want_wire_overlay) {
+            math::Vec3 wire_color{0.34f, 0.50f, 0.69f}; // Maya unselected navy-steel wireframe
+            if (is_template) {
+                wire_color = {0.56f, 0.45f, 0.52f}; // Maya Template muted rose-gray
+            } else if (is_lead_sel) {
+                wire_color = {0.26f, 0.92f, 0.52f}; // Maya active lead emerald green
+            } else if (is_sec_sel) {
+                wire_color = {0.92f, 0.95f, 0.99f}; // Maya secondary selected white
+            } else if (obj_layer != nullptr) {
+                wire_color = obj_layer->color;
+            }
+            generated_wireframes.push_back(
+                buildObjectWireframeMesh(*mesh_asset, world_res.value(), camera_pos, wire_color));
+        }
+
+        if (is_wireframe_only) {
             continue;
         }
 
@@ -402,20 +560,29 @@ core::Status Renderer::renderScene(
             return gpu_handle_res.error();
         }
 
-        auto world_res = scene.computeWorldMatrix(obj.id);
-        if (!world_res) {
-            (void)device_->endFrame();
-            return world_res.error();
-        }
-
         const scene::PbrMaterial* obj_mat =
             obj.material_id.has_value() ? scene.findMaterial(obj.material_id.value()) : nullptr;
-        const bool is_sel = (selected_object.isValid() && obj.id == selected_object);
         const math::Vec3 world_center = world_res.value().transformPoint(mesh_asset->local_bounds.center());
         const float cam_dist_sq = (world_center - camera_pos).lengthSquared();
-        const std::uint32_t obj_light_mask = scene_lighting.computeObjectLightMask(scene, obj.id);
+        const std::uint32_t obj_light_mask =
+            use_default_headlamp ? 0xFFFFFFFFu : scene_lighting.computeObjectLightMask(scene, obj.id);
 
         auto submitSubmesh = [&](std::uint32_t offset, std::uint32_t count, const scene::PbrMaterial* mat) -> core::Status {
+            PbrSurfaceParams surf = surfaceFromMaterial(mat);
+            if (display_options != nullptr) {
+                if (display_options->default_material ||
+                    display_options->shading_mode == ViewportShadingMode::SmoothShaded) {
+                    surf.base_color = {0.52f, 0.54f, 0.57f};
+                    surf.metallic = 0.0f;
+                    surf.roughness = 0.56f;
+                    surf.ambient_occlusion = 1.0f;
+                    surf.emissive_radiance = {0.0f, 0.0f, 0.0f};
+                    surf.vertex_color_weight = 0.0f;
+                }
+                if (display_options->xray_mode) {
+                    surf.opacity = std::min(surf.opacity, 0.42f);
+                }
+            }
             DrawMeshCommand cmd{
                 .mesh_handle = gpu_handle_res.value(),
                 .model_matrix = world_res.value(),
@@ -423,7 +590,7 @@ core::Status Renderer::renderScene(
                 .camera_position = camera_pos,
                 .lighting = light_uniforms,
                 .selected = is_sel,
-                .surface = surfaceFromMaterial(mat),
+                .surface = surf,
                 .index_offset = offset,
                 .index_count = count,
                 .scene_lighting = &scene_lighting,
@@ -515,6 +682,22 @@ core::Status Renderer::renderScene(
         };
         return device_->drawMesh(ov_cmd);
     };
+
+    for (const auto& wf_mesh : generated_wireframes) {
+        if (wf_mesh.vertices.empty() || wf_mesh.indices.empty()) {
+            continue;
+        }
+        ViewportOverlayMesh wf_ov{
+            .mesh_data = &wf_mesh,
+            .model_matrix = math::Mat4::identity(),
+            .depth_test_scene = true,
+        };
+        auto draw_st = submitOverlayItem(wf_ov);
+        if (!draw_st) {
+            (void)device_->endFrame();
+            return draw_st;
+        }
+    }
 
     for (const auto& ov : overlays) {
         if (!ov.depth_test_scene || ov.mesh_data == nullptr ||

@@ -30,6 +30,25 @@ struct ViewportCameraOverride {
     scene::CameraComponent camera{};
 };
 
+enum class ViewportShadingMode : std::uint8_t {
+    Wireframe = 0,      // Maya '4'
+    SmoothShaded = 1,   // Maya '5'
+    ShadedTextured = 2, // Maya '6' (default)
+};
+
+struct ViewportDisplayOptions {
+    ViewportShadingMode shading_mode{ViewportShadingMode::ShadedTextured};
+    bool wireframe_on_shaded{false};
+    bool xray_mode{false};
+    bool use_all_lights{true};      // Maya '7' = true; Maya Default Lighting = false
+    bool default_material{false};   // Maya 'Use Default Material'
+    std::uint8_t mesh_display_smoothness{1}; // '1' = Cage, '2' = Cage + Wire, '3' = Smooth
+    bool isolate_select{false};
+    std::vector<scene::ObjectId> isolated_objects{};
+    std::vector<scene::ObjectId> secondary_selected_objects{};
+    bool timeline_playing{false};
+};
+
 // High-level portable renderer: bridges Scene data, PBR materials, submeshes, and
 // 3D viewport overlays to an abstract IRenderDevice without leaking GPU handles into Scene.
 class Renderer {
@@ -50,7 +69,8 @@ public:
         scene::ObjectId selected_object = {},
         std::span<const ViewportOverlayMesh> overlays = {},
         const ViewportCameraOverride* camera_override = nullptr,
-        const ViewportGridOptions* grid_options = nullptr);
+        const ViewportGridOptions* grid_options = nullptr,
+        const ViewportDisplayOptions* display_options = nullptr);
 
     void releaseSceneResources() noexcept;
 

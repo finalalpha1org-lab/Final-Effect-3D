@@ -121,6 +121,22 @@ public:
         std::uint32_t rings = 16,
         std::uint32_t sectors = 24,
         const math::Vec3& base_color = {0.92f, 0.92f, 0.94f});
+    [[nodiscard]] static EditableMesh createCylinder(
+        float radius = 0.5f,
+        float height = 1.2f,
+        std::uint32_t sectors = 20,
+        const math::Vec3& base_color = {0.88f, 0.90f, 0.94f});
+    [[nodiscard]] static EditableMesh createCone(
+        float radius = 0.6f,
+        float height = 1.2f,
+        std::uint32_t sectors = 20,
+        const math::Vec3& base_color = {0.88f, 0.90f, 0.94f});
+    [[nodiscard]] static EditableMesh createTorus(
+        float major_radius = 0.65f,
+        float minor_radius = 0.22f,
+        std::uint32_t major_segments = 24,
+        std::uint32_t minor_segments = 12,
+        const math::Vec3& base_color = {0.88f, 0.90f, 0.94f});
 
     // Collects unique control vertex indices referenced by current selection in `mode`.
     [[nodiscard]] std::vector<std::uint32_t> collectSelectedVertexIndices(

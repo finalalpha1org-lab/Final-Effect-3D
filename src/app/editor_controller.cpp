@@ -6,9 +6,13 @@
 #include "finaleffect/math/constants.hpp"
 #include "finaleffect/scene/editable_mesh.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <memory>
+#include <sstream>
 #include <utility>
 #include <vector>
 
@@ -126,6 +130,128 @@ core::Status EditorController::selectObject(scene::ObjectId id) {
     return core::Status::ok();
 }
 
+core::Status EditorController::selectObjects(std::span<const scene::ObjectId> ids) {
+    for (const auto id : ids) {
+        if (id.isValid() && session_.document().scene.findObject(id) == nullptr) {
+            auto st = core::Status::fail(core::ErrorCode::NotFound, "Object ID in selection list does not exist");
+            recordStatus(st, {});
+            return st;
+        }
+    }
+    session_.setSelectedObjects(ids);
+    if (session_.selectedObject().isValid()) {
+        if (const auto* obj = session_.document().scene.findObject(session_.selectedObject());
+            obj != nullptr && obj->material_id.has_value()) {
+            selected_material_id_ = obj->material_id.value();
+            session_.syncDocumentState(selected_material_id_);
+            refreshMaterialPreview();
+        }
+    }
+    recordStatus(
+        core::Status::ok(),
+        session_.selectedObjects().empty()
+            ? "Cleared selection"
+            : ("Selected " + std::to_string(session_.selectedObjects().size()) + " object(s)"));
+    return core::Status::ok();
+}
+
+core::Status EditorController::toggleSelectObject(scene::ObjectId id) {
+    if (!id.isValid() || session_.document().scene.findObject(id) == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Object ID does not exist");
+        recordStatus(st, {});
+        return st;
+    }
+    session_.toggleObjectInSelection(id);
+    if (session_.selectedObject().isValid()) {
+        if (const auto* obj = session_.document().scene.findObject(session_.selectedObject());
+            obj != nullptr && obj->material_id.has_value()) {
+            selected_material_id_ = obj->material_id.value();
+            session_.syncDocumentState(selected_material_id_);
+            refreshMaterialPreview();
+        }
+    }
+    recordStatus(
+        core::Status::ok(),
+        "Selection count: " + std::to_string(session_.selectedObjects().size()));
+    return core::Status::ok();
+}
+
+core::Status EditorController::selectAllObjects() {
+    std::vector<scene::ObjectId> all_ids;
+    for (const auto& obj : session_.document().scene.objects()) {
+        if (const auto* layer = session_.document().scene.findObjectDisplayLayer(obj.id);
+            layer != nullptr && (!layer->visible || layer->display_type != scene::DisplayLayerType::Normal)) {
+            continue;
+        }
+        all_ids.push_back(obj.id);
+    }
+    return selectObjects(all_ids);
+}
+
+core::Status EditorController::invertSelection() {
+    const auto& current = session_.selectedObjects();
+    std::vector<scene::ObjectId> inverted;
+    for (const auto& obj : session_.document().scene.objects()) {
+        if (std::find(current.begin(), current.end(), obj.id) == current.end()) {
+            if (const auto* layer = session_.document().scene.findObjectDisplayLayer(obj.id);
+                layer != nullptr && (!layer->visible || layer->display_type != scene::DisplayLayerType::Normal)) {
+                continue;
+            }
+            inverted.push_back(obj.id);
+        }
+    }
+    return selectObjects(inverted);
+}
+
+core::Status EditorController::selectHierarchy() {
+    if (session_.selectedObjects().empty()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Select an object first to select hierarchy");
+        recordStatus(st, {});
+        return st;
+    }
+    std::vector<scene::ObjectId> expanded;
+    std::vector<scene::ObjectId> stack = session_.selectedObjects();
+    while (!stack.empty()) {
+        const scene::ObjectId cid = stack.back();
+        stack.pop_back();
+        if (std::find(expanded.begin(), expanded.end(), cid) != expanded.end()) continue;
+        expanded.push_back(cid);
+        if (const auto* node = session_.document().scene.findObject(cid)) {
+            for (const auto ch : node->children) {
+                stack.push_back(ch);
+            }
+        }
+    }
+    return selectObjects(expanded);
+}
+
+core::Status EditorController::selectSimilar() {
+    const auto* lead = session_.document().scene.findObject(session_.selectedObject());
+    if (lead == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Select a lead object first");
+        recordStatus(st, {});
+        return st;
+    }
+    std::vector<scene::ObjectId> similar;
+    for (const auto& obj : session_.document().scene.objects()) {
+        bool match = false;
+        if (lead->mesh_id.has_value() && obj.mesh_id.has_value()) {
+            match = (lead->mesh_id == obj.mesh_id) || true;
+        } else if (lead->camera.has_value() && obj.camera.has_value()) {
+            match = true;
+        } else if (lead->hasAnyLight() && obj.hasAnyLight()) {
+            match = (lead->lightType() == obj.lightType());
+        } else if (!lead->mesh_id.has_value() && !lead->camera.has_value() && !lead->hasAnyLight() &&
+                   !obj.mesh_id.has_value() && !obj.camera.has_value() && !obj.hasAnyLight()) {
+            match = true;
+        }
+        if (match) {
+            similar.push_back(obj.id);
+        }
+    }
+    return selectObjects(similar);
+}
+
 std::optional<scene::RaycastHit> EditorController::pickViewportPixel(float x, float y) {
     auto hit = session_.pickAtScreenPosition(x, y);
     ++state_revision_;
@@ -150,6 +276,44 @@ core::Status EditorController::frameSelectionOrScene() {
     auto st = session_.frameSelectionOrScene();
     recordStatus(st, "Framed viewport camera");
     return st;
+}
+
+core::Status EditorController::frameAllScene() {
+    auto st = session_.frameAllScene();
+    recordStatus(st, "Framed all scene objects");
+    return st;
+}
+
+void EditorController::setActiveTool(MayaActiveTool tool) noexcept {
+    session_.setActiveTool(tool);
+    recordStatus(core::Status::ok(), "Active tool: " + std::string(mayaActiveToolSlug(tool)));
+}
+
+void EditorController::activateLastTool() noexcept {
+    session_.activateLastTool();
+    recordStatus(core::Status::ok(), "Restored last tool: " + std::string(mayaActiveToolSlug(session_.activeTool())));
+}
+
+void EditorController::setViewportDisplay(rendering::ViewportDisplayOptions opts) noexcept {
+    session_.setViewportDisplay(std::move(opts));
+    ++state_revision_;
+}
+
+void EditorController::setIsolateSelect(bool enabled) noexcept {
+    session_.setIsolateSelect(enabled);
+    recordStatus(
+        core::Status::ok(),
+        enabled ? "Isolate Select: ON" : "Isolate Select: OFF");
+}
+
+void EditorController::setSnapping(const MayaSnappingState& snap) noexcept {
+    session_.setSnapping(snap);
+    ++state_revision_;
+}
+
+void EditorController::setSelectionMask(const ObjectSelectionMask& mask) noexcept {
+    session_.setSelectionMask(mask);
+    ++state_revision_;
 }
 
 void EditorController::setRigAnimationPlaying(bool playing) noexcept {
@@ -838,10 +1002,13 @@ core::Result<scene::MeshId> EditorController::ensurePresetMesh(ScenePreset prese
 
     std::string_view target_name;
     switch (preset) {
-        case ScenePreset::Cube:    target_name = "HeroCubeMesh"; break;
-        case ScenePreset::Pyramid: target_name = "AccentPyramidMesh"; break;
-        case ScenePreset::Plane:   target_name = "StudioPlaneMesh"; break;
-        case ScenePreset::Sphere:  target_name = "StudioSphereMesh"; break;
+        case ScenePreset::Cube:     target_name = "HeroCubeMesh"; break;
+        case ScenePreset::Pyramid:  target_name = "AccentPyramidMesh"; break;
+        case ScenePreset::Plane:    target_name = "StudioPlaneMesh"; break;
+        case ScenePreset::Sphere:   target_name = "StudioSphereMesh"; break;
+        case ScenePreset::Cylinder: target_name = "StudioCylinderMesh"; break;
+        case ScenePreset::Cone:     target_name = "StudioConeMesh"; break;
+        case ScenePreset::Torus:    target_name = "StudioTorusMesh"; break;
         default:
             return core::Result<scene::MeshId>::fail(core::ErrorCode::InvalidArgument, "Not a mesh preset");
     }
@@ -866,6 +1033,21 @@ core::Result<scene::MeshId> EditorController::ensurePresetMesh(ScenePreset prese
         return scene.registerEditableMesh(
             std::string(target_name),
             scene::EditableMesh::createUvSphere(0.75f, 14, 24, math::Vec3{0.85f, 0.88f, 0.92f}));
+    }
+    if (preset == ScenePreset::Cylinder) {
+        return scene.registerEditableMesh(
+            std::string(target_name),
+            scene::EditableMesh::createCylinder(0.55f, 1.25f, 20, math::Vec3{0.84f, 0.86f, 0.90f}));
+    }
+    if (preset == ScenePreset::Cone) {
+        return scene.registerEditableMesh(
+            std::string(target_name),
+            scene::EditableMesh::createCone(0.60f, 1.25f, 20, math::Vec3{0.84f, 0.86f, 0.90f}));
+    }
+    if (preset == ScenePreset::Torus) {
+        return scene.registerEditableMesh(
+            std::string(target_name),
+            scene::EditableMesh::createTorus(0.65f, 0.22f, 24, 12, math::Vec3{0.84f, 0.86f, 0.90f}));
     }
     return scene.registerEditableMesh(
         std::string(target_name),
@@ -930,6 +1112,27 @@ core::Result<scene::ObjectId> EditorController::addPresetObject(
         }
         case ScenePreset::Sphere: {
             base_name = "Sphere";
+            auto m = ensurePresetMesh(preset);
+            if (!m) return m.error();
+            mesh_id = m.value();
+            break;
+        }
+        case ScenePreset::Cylinder: {
+            base_name = "pCylinder";
+            auto m = ensurePresetMesh(preset);
+            if (!m) return m.error();
+            mesh_id = m.value();
+            break;
+        }
+        case ScenePreset::Cone: {
+            base_name = "pCone";
+            auto m = ensurePresetMesh(preset);
+            if (!m) return m.error();
+            mesh_id = m.value();
+            break;
+        }
+        case ScenePreset::Torus: {
+            base_name = "pTorus";
             auto m = ensurePresetMesh(preset);
             if (!m) return m.error();
             mesh_id = m.value();
@@ -1160,6 +1363,12 @@ core::Status EditorController::renameObject(scene::ObjectId id, std::string new_
 }
 
 core::Status EditorController::setObjectVisibility(scene::ObjectId id, bool visible) {
+    if (const auto* obj = session_.document().scene.findObject(id);
+        obj != nullptr && (obj->locked || (obj->locked_channels_mask & scene::ChannelBit::kVisibility) != 0u)) {
+        auto st = core::Status::fail(core::ErrorCode::ValidationError, "Visibility channel is locked on '" + obj->name + "'");
+        recordStatus(st, {});
+        return st;
+    }
     auto st = session_.commandStack().execute(
         session_.document().scene,
         std::make_unique<scene::SetVisibilityCommand>(id, visible));
@@ -1181,31 +1390,951 @@ core::Status EditorController::setObjectTransformEulerDegrees(
     const math::Vec3& euler_degrees,
     const math::Vec3& scale,
     bool allow_coalesce) {
+    const auto* existing = session_.document().scene.findObject(id);
+    if (existing == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Scene object not found");
+        recordStatus(st, {});
+        return st;
+    }
+    if (existing->locked) {
+        auto st = core::Status::fail(
+            core::ErrorCode::ValidationError,
+            "Object '" + existing->name + "' is locked; unlock before transforming");
+        recordStatus(st, {});
+        return st;
+    }
+
+    math::Vec3 pos = position;
+    math::Vec3 eul = euler_degrees;
+    math::Vec3 scl = scale;
+    const std::uint16_t mask = existing->locked_channels_mask;
+    if (mask != 0u) {
+        const math::Vec3 cur_rad = existing->local_transform.rotation.toEulerXYZ();
+        const math::Vec3 cur_deg{
+            math::radToDeg(cur_rad.x),
+            math::radToDeg(cur_rad.y),
+            math::radToDeg(cur_rad.z),
+        };
+        if (mask & scene::ChannelBit::kTranslateX) pos.x = existing->local_transform.position.x;
+        if (mask & scene::ChannelBit::kTranslateY) pos.y = existing->local_transform.position.y;
+        if (mask & scene::ChannelBit::kTranslateZ) pos.z = existing->local_transform.position.z;
+        if (mask & scene::ChannelBit::kRotateX)    eul.x = cur_deg.x;
+        if (mask & scene::ChannelBit::kRotateY)    eul.y = cur_deg.y;
+        if (mask & scene::ChannelBit::kRotateZ)    eul.z = cur_deg.z;
+        if (mask & scene::ChannelBit::kScaleX)     scl.x = existing->local_transform.scale.x;
+        if (mask & scene::ChannelBit::kScaleY)     scl.y = existing->local_transform.scale.y;
+        if (mask & scene::ChannelBit::kScaleZ)     scl.z = existing->local_transform.scale.z;
+    }
+
     math::Transform tf;
-    tf.position = position;
+    tf.position = pos;
     tf.rotation = math::Quat::fromEulerXYZ({
-        math::degToRad(euler_degrees.x),
-        math::degToRad(euler_degrees.y),
-        math::degToRad(euler_degrees.z),
+        math::degToRad(eul.x),
+        math::degToRad(eul.y),
+        math::degToRad(eul.z),
     });
-    tf.scale = scale;
+    tf.scale = scl;
 
     auto st = session_.commandStack().execute(
         session_.document().scene,
         std::make_unique<scene::SetTransformCommand>(id, tf, allow_coalesce));
-    if (st && session_.isCameraViewActive() && id == session_.document().scene.activeCamera()) {
-        session_.cameraController().syncFromCameraTransform(tf, session_.cameraController().target());
+    if (st) {
+        if (session_.isCameraViewActive() && id == session_.document().scene.activeCamera()) {
+            session_.cameraController().syncFromCameraTransform(tf, session_.cameraController().target());
+        }
+        if (!allow_coalesce &&
+            session_.document().scene.timeline().auto_key &&
+            session_.document().scene.findAnimationTrack(id) != nullptr) {
+            std::vector<scene::ObjectAnimationTrack> tracks = session_.document().scene.animationTracks();
+            const float cur_f = session_.document().scene.timeline().current_frame;
+            const scene::TransformKeyframe kf{
+                .frame = cur_f,
+                .position = pos,
+                .rotation_deg = eul,
+                .scale = scl,
+                .visible = session_.document().scene.findObject(id)->visible,
+            };
+            for (auto& tr : tracks) {
+                if (tr.object_id == id) {
+                    bool updated = false;
+                    for (auto& k : tr.keyframes) {
+                        if (std::fabs(k.frame - cur_f) <= 1.0e-3f) {
+                            k = kf;
+                            updated = true;
+                            break;
+                        }
+                    }
+                    if (!updated) tr.keyframes.push_back(kf);
+                    break;
+                }
+            }
+            (void)session_.document().scene.setAnimationTracks(std::move(tracks));
+        }
     }
     recordStatus(st, "Updated transform");
     return st;
 }
 
 core::Status EditorController::resetObjectTransform(scene::ObjectId id) {
+    if (const auto* existing = session_.document().scene.findObject(id);
+        existing != nullptr && existing->locked) {
+        auto st = core::Status::fail(
+            core::ErrorCode::ValidationError,
+            "Object '" + existing->name + "' is locked");
+        recordStatus(st, {});
+        return st;
+    }
     auto st = session_.commandStack().execute(
         session_.document().scene,
         std::make_unique<scene::SetTransformCommand>(id, math::Transform::identity(), false));
     recordStatus(st, "Reset transform to identity");
     return st;
+}
+
+core::Result<scene::ObjectId> EditorController::groupSelectedObjects(std::string group_name) {
+    auto& sc = session_.document().scene;
+    std::vector<scene::ObjectId> targets = session_.selectedObjects();
+    if (targets.empty() && session_.selectedObject().isValid()) {
+        targets.push_back(session_.selectedObject());
+    }
+    if (targets.empty()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Select one or more objects to group");
+        recordStatus(st, {});
+        return st.error();
+    }
+
+    scene::ObjectId common_parent = scene::ObjectId::invalid();
+    if (const auto* first = sc.findObject(targets.front())) {
+        common_parent = first->parent_id;
+        for (const auto tid : targets) {
+            const auto* n = sc.findObject(tid);
+            if (n == nullptr || n->parent_id != common_parent) {
+                common_parent = scene::ObjectId::invalid();
+                break;
+            }
+        }
+    }
+
+    const std::string resolved_name =
+        group_name.empty() ? generateUniqueObjectName("group1") : generateUniqueObjectName(group_name);
+
+    // Pre-create + undo pattern inside CompoundTransactionCommand: createObject assigns stable ID on execute!
+    auto create_grp = std::make_unique<scene::CreateObjectCommand>(
+        resolved_name,
+        common_parent,
+        math::Transform::identity());
+    const auto* raw_grp = create_grp.get();
+
+    // Execute group creation first via a compound transaction built step-by-step:
+    auto create_st = create_grp->execute(sc);
+    if (!create_st) {
+        recordStatus(create_st, {});
+        return create_st.error();
+    }
+    const scene::ObjectId grp_id = raw_grp->createdObjectId();
+    // Undo temporary step so CommandStack::execute runs the full compound cleanly from initial state!
+    (void)create_grp->undo(sc);
+
+    std::vector<std::unique_ptr<scene::ISceneCommand>> steps;
+    steps.push_back(std::move(create_grp));
+    for (const auto tid : targets) {
+        if (tid != grp_id) {
+            steps.push_back(std::make_unique<scene::ReparentObjectCommand>(tid, grp_id));
+        }
+    }
+
+    auto st = session_.commandStack().execute(
+        sc,
+        std::make_unique<scene::CompoundTransactionCommand>("Group Objects", std::move(steps)));
+    if (!st) {
+        recordStatus(st, {});
+        return st.error();
+    }
+    session_.setSelectedObject(grp_id);
+    recordStatus(core::Status::ok(), "Grouped under '" + resolved_name + "'");
+    return core::Result<scene::ObjectId>::ok(grp_id);
+}
+
+core::Status EditorController::parentSelectedObjects() {
+    const auto& sel = session_.selectedObjects();
+    const scene::ObjectId lead = session_.selectedObject();
+    if (sel.size() < 2u || !lead.isValid()) {
+        auto st = core::Status::fail(
+            core::ErrorCode::InvalidState,
+            "Select child object(s) then Shift/Ctrl-select parent object last to parent");
+        recordStatus(st, {});
+        return st;
+    }
+    std::vector<std::unique_ptr<scene::ISceneCommand>> steps;
+    for (const auto id : sel) {
+        if (id != lead) {
+            steps.push_back(std::make_unique<scene::ReparentObjectCommand>(id, lead));
+        }
+    }
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::CompoundTransactionCommand>("Parent Objects", std::move(steps)));
+    recordStatus(st, "Parented selected objects");
+    return st;
+}
+
+core::Status EditorController::unparentSelectedObjects() {
+    std::vector<scene::ObjectId> sel = session_.selectedObjects();
+    if (sel.empty() && session_.selectedObject().isValid()) {
+        sel.push_back(session_.selectedObject());
+    }
+    if (sel.empty()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Select object(s) to unparent");
+        recordStatus(st, {});
+        return st;
+    }
+    std::vector<std::unique_ptr<scene::ISceneCommand>> steps;
+    for (const auto id : sel) {
+        steps.push_back(std::make_unique<scene::ReparentObjectCommand>(id, scene::ObjectId::invalid()));
+    }
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::CompoundTransactionCommand>("Unparent Objects", std::move(steps)));
+    recordStatus(st, "Unparented selected objects to world root");
+    return st;
+}
+
+core::Status EditorController::freezeObjectTransforms(scene::ObjectId id) {
+    auto& sc = session_.document().scene;
+    const auto* obj = sc.findObject(id);
+    if (obj == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Select an object to freeze transformations");
+        recordStatus(st, {});
+        return st;
+    }
+    if (obj->locked) {
+        auto st = core::Status::fail(core::ErrorCode::ValidationError, "Object is locked");
+        recordStatus(st, {});
+        return st;
+    }
+
+    const math::Mat4 local_mat = obj->local_transform.toMatrix();
+    std::vector<std::unique_ptr<scene::ISceneCommand>> steps;
+
+    if (obj->mesh_id.has_value()) {
+        const scene::MeshId mid = obj->mesh_id.value();
+        (void)sc.ensureEditableMesh(mid);
+        const auto* ma = sc.findMesh(mid);
+        if (ma != nullptr && ma->editable_mesh.has_value()) {
+            std::size_t users = 0;
+            for (const auto& other : sc.objects()) {
+                if (other.mesh_id == mid) ++users;
+            }
+            if (users == 1u) {
+                scene::EditableMesh baked = ma->editable_mesh.value();
+                std::vector<std::uint32_t> all_verts(baked.vertexCount());
+                for (std::size_t vi = 0; vi < all_verts.size(); ++vi) {
+                    all_verts[vi] = static_cast<std::uint32_t>(vi);
+                }
+                if (!all_verts.empty()) {
+                    auto tr_st = baked.transformVertices(all_verts, local_mat);
+                    if (!tr_st) {
+                        recordStatus(tr_st, {});
+                        return tr_st;
+                    }
+                    steps.push_back(std::make_unique<scene::ModifyMeshCommand>(
+                        mid, std::move(baked), "Bake Frozen Mesh", false));
+                }
+            }
+        }
+    }
+
+    steps.push_back(std::make_unique<scene::SetTransformCommand>(id, math::Transform::identity(), false));
+    auto st = session_.commandStack().execute(
+        sc,
+        std::make_unique<scene::CompoundTransactionCommand>("Freeze Transformations", std::move(steps)));
+    recordStatus(st, "Froze transformations on '" + obj->name + "'");
+    return st;
+}
+
+core::Status EditorController::centerObjectPivot(scene::ObjectId id) {
+    const auto* obj = session_.document().scene.findObject(id);
+    if (obj == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Select an object to center pivot");
+        recordStatus(st, {});
+        return st;
+    }
+    math::Vec3 target_piv{0.0f, 0.0f, 0.0f};
+    if (obj->mesh_id.has_value()) {
+        if (const auto* ma = session_.document().scene.findMesh(obj->mesh_id.value());
+            ma != nullptr && ma->local_bounds.isValid()) {
+            target_piv = ma->local_bounds.center();
+        }
+    }
+    return setObjectPivotOffset(id, target_piv, false);
+}
+
+core::Status EditorController::setObjectLocked(scene::ObjectId id, bool locked) {
+    const auto* obj = session_.document().scene.findObject(id);
+    if (obj == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Object not found");
+        recordStatus(st, {});
+        return st;
+    }
+    scene::SetObjectMetadataCommand::MetadataState next{
+        .locked = locked,
+        .locked_channels_mask = obj->locked_channels_mask,
+        .pivot_offset = obj->pivot_offset,
+        .custom_attributes = obj->custom_attributes,
+    };
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetObjectMetadataCommand>(
+            id, std::move(next), locked ? "Lock Object" : "Unlock Object"));
+    recordStatus(st, (locked ? "Locked '" : "Unlocked '") + obj->name + "'");
+    return st;
+}
+
+core::Status EditorController::setObjectChannelLocks(scene::ObjectId id, std::uint16_t mask) {
+    const auto* obj = session_.document().scene.findObject(id);
+    if (obj == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Object not found");
+        recordStatus(st, {});
+        return st;
+    }
+    scene::SetObjectMetadataCommand::MetadataState next{
+        .locked = obj->locked,
+        .locked_channels_mask = mask,
+        .pivot_offset = obj->pivot_offset,
+        .custom_attributes = obj->custom_attributes,
+    };
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetObjectMetadataCommand>(id, std::move(next), "Set Channel Locks"));
+    recordStatus(st, "Updated channel locks on '" + obj->name + "'");
+    return st;
+}
+
+core::Status EditorController::setObjectPivotOffset(
+    scene::ObjectId id,
+    const math::Vec3& pivot_offset,
+    bool allow_coalesce) {
+    const auto* obj = session_.document().scene.findObject(id);
+    if (obj == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Object not found");
+        recordStatus(st, {});
+        return st;
+    }
+    scene::SetObjectMetadataCommand::MetadataState next{
+        .locked = obj->locked,
+        .locked_channels_mask = obj->locked_channels_mask,
+        .pivot_offset = pivot_offset,
+        .custom_attributes = obj->custom_attributes,
+    };
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetObjectMetadataCommand>(
+            id, std::move(next), "Set Pivot Offset", allow_coalesce, 1u));
+    recordStatus(st, "Updated pivot on '" + obj->name + "'");
+    return st;
+}
+
+core::Status EditorController::addCustomAttribute(
+    scene::ObjectId id,
+    scene::CustomAttribute attr) {
+    const auto* obj = session_.document().scene.findObject(id);
+    if (obj == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Select an object to add custom attribute");
+        recordStatus(st, {});
+        return st;
+    }
+    if (attr.name.empty()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Custom attribute name must not be empty");
+        recordStatus(st, {});
+        return st;
+    }
+    for (const auto& ex : obj->custom_attributes) {
+        if (ex.name == attr.name) {
+            auto st = core::Status::fail(core::ErrorCode::AlreadyExists, "Attribute '" + attr.name + "' already exists");
+            recordStatus(st, {});
+            return st;
+        }
+    }
+    if (attr.has_limits) {
+        attr.value = std::clamp(attr.value, attr.min_value, attr.max_value);
+    }
+    scene::SetObjectMetadataCommand::MetadataState next{
+        .locked = obj->locked,
+        .locked_channels_mask = obj->locked_channels_mask,
+        .pivot_offset = obj->pivot_offset,
+        .custom_attributes = obj->custom_attributes,
+    };
+    next.custom_attributes.push_back(attr);
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetObjectMetadataCommand>(id, std::move(next), "Add Custom Attribute"));
+    recordStatus(st, "Added attribute '" + attr.name + "'");
+    return st;
+}
+
+core::Status EditorController::setCustomAttributeValue(
+    scene::ObjectId id,
+    std::string_view attr_name,
+    double value,
+    bool allow_coalesce) {
+    const auto* obj = session_.document().scene.findObject(id);
+    if (obj == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Object not found");
+        recordStatus(st, {});
+        return st;
+    }
+    scene::SetObjectMetadataCommand::MetadataState next{
+        .locked = obj->locked,
+        .locked_channels_mask = obj->locked_channels_mask,
+        .pivot_offset = obj->pivot_offset,
+        .custom_attributes = obj->custom_attributes,
+    };
+    bool found = false;
+    for (auto& ca : next.custom_attributes) {
+        if (ca.name == attr_name) {
+            if (ca.locked) {
+                auto st = core::Status::fail(core::ErrorCode::ValidationError, "Attribute '" + ca.name + "' is locked");
+                recordStatus(st, {});
+                return st;
+            }
+            ca.value = ca.has_limits ? std::clamp(value, ca.min_value, ca.max_value) : value;
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Custom attribute not found: " + std::string(attr_name));
+        recordStatus(st, {});
+        return st;
+    }
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetObjectMetadataCommand>(
+            id, std::move(next), "Set Custom Attribute", allow_coalesce, 2u));
+    recordStatus(st, "Updated '" + std::string(attr_name) + "'");
+    return st;
+}
+
+core::Status EditorController::deleteCustomAttribute(
+    scene::ObjectId id,
+    std::string_view attr_name) {
+    const auto* obj = session_.document().scene.findObject(id);
+    if (obj == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Object not found");
+        recordStatus(st, {});
+        return st;
+    }
+    scene::SetObjectMetadataCommand::MetadataState next{
+        .locked = obj->locked,
+        .locked_channels_mask = obj->locked_channels_mask,
+        .pivot_offset = obj->pivot_offset,
+        .custom_attributes = obj->custom_attributes,
+    };
+    const auto erased = std::erase_if(
+        next.custom_attributes,
+        [attr_name](const scene::CustomAttribute& ca) { return ca.name == attr_name; });
+    if (erased == 0) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Custom attribute not found");
+        recordStatus(st, {});
+        return st;
+    }
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetObjectMetadataCommand>(id, std::move(next), "Delete Custom Attribute"));
+    recordStatus(st, "Deleted attribute '" + std::string(attr_name) + "'");
+    return st;
+}
+
+core::Result<std::uint32_t> EditorController::createDisplayLayer(
+    std::string layer_name,
+    bool assign_selected) {
+    std::vector<scene::DisplayLayer> layers = session_.document().scene.displayLayers();
+    std::uint32_t next_id = 1u;
+    for (const auto& l : layers) {
+        next_id = std::max(next_id, l.id + 1u);
+    }
+    if (layer_name.empty()) {
+        layer_name = "layer" + std::to_string(next_id);
+    }
+    scene::DisplayLayer created{
+        .id = next_id,
+        .name = std::move(layer_name),
+        .visible = true,
+        .playback_visible = true,
+        .display_type = scene::DisplayLayerType::Normal,
+        .color = {0.34f, 0.56f, 0.86f},
+    };
+    if (assign_selected) {
+        for (const auto oid : session_.selectedObjects()) {
+            for (auto& existing : layers) {
+                std::erase(existing.members, oid);
+            }
+            created.members.push_back(oid);
+        }
+    }
+    const std::string created_name = created.name;
+    layers.push_back(std::move(created));
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetDisplayLayersCommand>(std::move(layers), "Create Display Layer"));
+    if (!st) {
+        recordStatus(st, {});
+        return st.error();
+    }
+    recordStatus(core::Status::ok(), "Created display layer '" + created_name + "'");
+    return core::Result<std::uint32_t>::ok(next_id);
+}
+
+core::Status EditorController::renameDisplayLayer(std::uint32_t layer_id, std::string new_name) {
+    if (new_name.empty()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Layer name must not be empty");
+        recordStatus(st, {});
+        return st;
+    }
+    std::vector<scene::DisplayLayer> layers = session_.document().scene.displayLayers();
+    bool found = false;
+    for (auto& l : layers) {
+        if (l.id == layer_id) { l.name = new_name; found = true; break; }
+    }
+    if (!found) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Display layer not found");
+        recordStatus(st, {});
+        return st;
+    }
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetDisplayLayersCommand>(std::move(layers), "Rename Display Layer"));
+    recordStatus(st, "Renamed display layer to '" + new_name + "'");
+    return st;
+}
+
+core::Status EditorController::deleteDisplayLayer(std::uint32_t layer_id) {
+    std::vector<scene::DisplayLayer> layers = session_.document().scene.displayLayers();
+    const auto erased = std::erase_if(layers, [layer_id](const scene::DisplayLayer& l) { return l.id == layer_id; });
+    if (erased == 0) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Display layer not found");
+        recordStatus(st, {});
+        return st;
+    }
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetDisplayLayersCommand>(std::move(layers), "Delete Display Layer"));
+    recordStatus(st, "Deleted display layer (objects preserved in scene)");
+    return st;
+}
+
+core::Status EditorController::updateDisplayLayer(
+    std::uint32_t layer_id,
+    bool visible,
+    bool playback_visible,
+    scene::DisplayLayerType display_type,
+    const math::Vec3& color) {
+    std::vector<scene::DisplayLayer> layers = session_.document().scene.displayLayers();
+    bool found = false;
+    for (auto& l : layers) {
+        if (l.id == layer_id) {
+            l.visible = visible;
+            l.playback_visible = playback_visible;
+            l.display_type = display_type;
+            l.color = color;
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Display layer not found");
+        recordStatus(st, {});
+        return st;
+    }
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetDisplayLayersCommand>(std::move(layers), "Update Display Layer"));
+    recordStatus(st, "Updated display layer state");
+    return st;
+}
+
+core::Status EditorController::assignSelectedToDisplayLayer(std::uint32_t layer_id) {
+    const auto& sel = session_.selectedObjects();
+    if (sel.empty()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Select objects first to assign to layer");
+        recordStatus(st, {});
+        return st;
+    }
+    std::vector<scene::DisplayLayer> layers = session_.document().scene.displayLayers();
+    scene::DisplayLayer* target = nullptr;
+    for (auto& l : layers) {
+        if (l.id == layer_id) target = &l;
+    }
+    if (target == nullptr) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "Display layer not found");
+        recordStatus(st, {});
+        return st;
+    }
+    for (const auto oid : sel) {
+        for (auto& l : layers) {
+            std::erase(l.members, oid);
+        }
+        target->members.push_back(oid);
+    }
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetDisplayLayersCommand>(std::move(layers), "Assign Objects to Layer"));
+    recordStatus(st, "Assigned selected objects to layer");
+    return st;
+}
+
+core::Status EditorController::removeSelectedFromDisplayLayer(std::uint32_t layer_id) {
+    std::vector<scene::DisplayLayer> layers = session_.document().scene.displayLayers();
+    for (auto& l : layers) {
+        if (l.id == layer_id) {
+            for (const auto oid : session_.selectedObjects()) {
+                std::erase(l.members, oid);
+            }
+        }
+    }
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetDisplayLayersCommand>(std::move(layers), "Remove Objects from Layer"));
+    recordStatus(st, "Removed selected objects from layer");
+    return st;
+}
+
+core::Status EditorController::selectDisplayLayerObjects(std::uint32_t layer_id) {
+    for (const auto& l : session_.document().scene.displayLayers()) {
+        if (l.id == layer_id) {
+            return selectObjects(l.members);
+        }
+    }
+    auto st = core::Status::fail(core::ErrorCode::NotFound, "Display layer not found");
+    recordStatus(st, {});
+    return st;
+}
+
+void EditorController::setTimelineSettings(const scene::TimelineSettings& settings) noexcept {
+    session_.document().scene.setTimeline(settings);
+    session_.document().scene.evaluateAnimationAtFrame(session_.document().scene.timeline().current_frame);
+    ++state_revision_;
+}
+
+void EditorController::setCurrentFrame(float frame) noexcept {
+    session_.setTimelinePlaying(false);
+    session_.document().scene.evaluateAnimationAtFrame(frame);
+    ++state_revision_;
+}
+
+void EditorController::setTimelinePlaying(bool playing) noexcept {
+    if (playing) {
+        session_.setRigAnimationEnabled(false);
+    }
+    session_.setTimelinePlaying(playing);
+    ++state_revision_;
+    last_status_is_error_ = false;
+    last_status_message_ = playing ? "Timeline playback started" : "Timeline playback paused";
+}
+
+core::Status EditorController::setKeyframeOnSelected(std::optional<float> frame_opt) {
+    std::vector<scene::ObjectId> targets = session_.selectedObjects();
+    if (targets.empty() && session_.selectedObject().isValid()) {
+        targets.push_back(session_.selectedObject());
+    }
+    if (targets.empty()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Select object(s) before setting keyframe");
+        recordStatus(st, {});
+        return st;
+    }
+    const float frame = frame_opt.value_or(session_.document().scene.timeline().current_frame);
+    std::vector<scene::ObjectAnimationTrack> tracks = session_.document().scene.animationTracks();
+
+    for (const auto oid : targets) {
+        const auto* obj = session_.document().scene.findObject(oid);
+        if (obj == nullptr) continue;
+        const math::Vec3 rad = obj->local_transform.rotation.toEulerXYZ();
+        const scene::TransformKeyframe kf{
+            .frame = frame,
+            .position = obj->local_transform.position,
+            .rotation_deg = {math::radToDeg(rad.x), math::radToDeg(rad.y), math::radToDeg(rad.z)},
+            .scale = obj->local_transform.scale,
+            .visible = obj->visible,
+        };
+        scene::ObjectAnimationTrack* tr_ptr = nullptr;
+        for (auto& tr : tracks) {
+            if (tr.object_id == oid) { tr_ptr = &tr; break; }
+        }
+        if (tr_ptr == nullptr) {
+            tracks.push_back(scene::ObjectAnimationTrack{.object_id = oid, .keyframes = {kf}});
+        } else {
+            bool replaced = false;
+            for (auto& k : tr_ptr->keyframes) {
+                if (std::fabs(k.frame - frame) <= 1.0e-3f) {
+                    k = kf;
+                    replaced = true;
+                    break;
+                }
+            }
+            if (!replaced) {
+                tr_ptr->keyframes.push_back(kf);
+            }
+        }
+    }
+
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetAnimationTracksCommand>(std::move(tracks), "Set Keyframe"));
+    recordStatus(st, "Set keyframe at frame " + std::to_string(static_cast<int>(std::round(frame))));
+    return st;
+}
+
+core::Status EditorController::deleteKeyframeOnSelected(std::optional<float> frame_opt) {
+    std::vector<scene::ObjectId> targets = session_.selectedObjects();
+    if (targets.empty() && session_.selectedObject().isValid()) {
+        targets.push_back(session_.selectedObject());
+    }
+    if (targets.empty()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidState, "Select object(s) to delete keyframe");
+        recordStatus(st, {});
+        return st;
+    }
+    const float frame = frame_opt.value_or(session_.document().scene.timeline().current_frame);
+    std::vector<scene::ObjectAnimationTrack> tracks = session_.document().scene.animationTracks();
+    std::size_t removed = 0;
+    for (auto& tr : tracks) {
+        if (std::find(targets.begin(), targets.end(), tr.object_id) != targets.end()) {
+            removed += std::erase_if(tr.keyframes, [frame](const scene::TransformKeyframe& k) {
+                return std::fabs(k.frame - frame) <= 1.0e-3f;
+            });
+        }
+    }
+    if (removed == 0) {
+        auto st = core::Status::fail(core::ErrorCode::NotFound, "No keyframe at current frame on selected object");
+        recordStatus(st, {});
+        return st;
+    }
+    auto st = session_.commandStack().execute(
+        session_.document().scene,
+        std::make_unique<scene::SetAnimationTracksCommand>(std::move(tracks), "Delete Keyframe"));
+    recordStatus(st, "Deleted keyframe at frame " + std::to_string(static_cast<int>(std::round(frame))));
+    return st;
+}
+
+core::Status EditorController::executeCommandLine(std::string_view command_text) {
+    // Strip optional trailing semicolons (MEL habit) and whitespace; NEVER execute arbitrary code or shell!
+    std::string cleaned;
+    cleaned.reserve(command_text.size());
+    for (char ch : command_text) {
+        if (ch == ';') cleaned.push_back(' ');
+        else cleaned.push_back(ch);
+    }
+    std::istringstream iss(cleaned);
+    std::vector<std::string> tokens;
+    std::string tok;
+    while (iss >> tok) {
+        tokens.push_back(std::move(tok));
+    }
+    if (tokens.empty()) {
+        auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Command Line: enter a valid FE3D command (type 'help')");
+        recordStatus(st, {});
+        return st;
+    }
+
+    auto lowerStr = [](std::string s) {
+        for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return s;
+    };
+    auto parseNum = [](const std::string& s, float& out) -> bool {
+        char* endp = nullptr;
+        const float v = std::strtof(s.c_str(), &endp);
+        if (endp == s.c_str() || *endp != '\0' || !std::isfinite(v)) return false;
+        out = v;
+        return true;
+    };
+
+    const std::string verb = lowerStr(tokens[0]);
+
+    if (verb == "help") {
+        recordStatus(
+            core::Status::ok(),
+            "Commands: polyCube, polySphere, polyCylinder, polyCone, polyPlane, polyTorus, camera, "
+            "directionalLight, pointLight, spotLight, areaLight, select <name|-cl|-all|-hi>, move <x y z>, "
+            "rotate <x y z>, scale <x y z>, setAttr <ch> <val>, addAttr <name> [val], rename <name>, "
+            "duplicate, delete, group, parent, unparent, freezeTransforms, resetTransforms, centerPivot, "
+            "setKeyframe, currentTime <f>, play, stop, undo, redo, viewFit");
+        return core::Status::ok();
+    }
+
+    if (verb == "polycube")     return addPresetObject(ScenePreset::Cube).hasValue() ? core::Status::ok() : core::Status::fail(core::ErrorCode::InvalidState, last_status_message_);
+    if (verb == "polysphere")   return addPresetObject(ScenePreset::Sphere).hasValue() ? core::Status::ok() : core::Status::fail(core::ErrorCode::InvalidState, last_status_message_);
+    if (verb == "polycylinder") return addPresetObject(ScenePreset::Cylinder).hasValue() ? core::Status::ok() : core::Status::fail(core::ErrorCode::InvalidState, last_status_message_);
+    if (verb == "polycone")     return addPresetObject(ScenePreset::Cone).hasValue() ? core::Status::ok() : core::Status::fail(core::ErrorCode::InvalidState, last_status_message_);
+    if (verb == "polyplane")    return addPresetObject(ScenePreset::Plane).hasValue() ? core::Status::ok() : core::Status::fail(core::ErrorCode::InvalidState, last_status_message_);
+    if (verb == "polytorus")    return addPresetObject(ScenePreset::Torus).hasValue() ? core::Status::ok() : core::Status::fail(core::ErrorCode::InvalidState, last_status_message_);
+    if (verb == "locator" || verb == "spacelocator") return addPresetObject(ScenePreset::EmptyPivot).hasValue() ? core::Status::ok() : core::Status::fail(core::ErrorCode::InvalidState, last_status_message_);
+    if (verb == "camera")       return addPresetObject(ScenePreset::Camera).hasValue() ? core::Status::ok() : core::Status::fail(core::ErrorCode::InvalidState, last_status_message_);
+    if (verb == "directionallight") return addPresetObject(ScenePreset::DirectionalLight).hasValue() ? core::Status::ok() : core::Status::fail(core::ErrorCode::InvalidState, last_status_message_);
+    if (verb == "pointlight")   return addPresetObject(ScenePreset::PointLight).hasValue() ? core::Status::ok() : core::Status::fail(core::ErrorCode::InvalidState, last_status_message_);
+    if (verb == "spotlight")    return addPresetObject(ScenePreset::SpotLight).hasValue() ? core::Status::ok() : core::Status::fail(core::ErrorCode::InvalidState, last_status_message_);
+    if (verb == "arealight")    return addPresetObject(ScenePreset::AreaLight).hasValue() ? core::Status::ok() : core::Status::fail(core::ErrorCode::InvalidState, last_status_message_);
+
+    if (verb == "select") {
+        if (tokens.size() < 2u) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Usage: select <objectName | -cl | -all | -hi>");
+            recordStatus(st, {});
+            return st;
+        }
+        const std::string arg1 = lowerStr(tokens[1]);
+        if (arg1 == "-cl" || arg1 == "-clear" || arg1 == "none") return selectObject(scene::ObjectId::invalid());
+        if (arg1 == "-all" || arg1 == "-ado") return selectAllObjects();
+        if (arg1 == "-hi" || arg1 == "-hierarchy") return selectHierarchy();
+
+        std::vector<scene::ObjectId> found_ids;
+        for (std::size_t i = 1; i < tokens.size(); ++i) {
+            if (const auto* by_name = session_.document().scene.findObjectByName(tokens[i])) {
+                found_ids.push_back(by_name->id);
+            } else {
+                auto st = core::Status::fail(core::ErrorCode::NotFound, "Object not found: '" + tokens[i] + "'");
+                recordStatus(st, {});
+                return st;
+            }
+        }
+        return selectObjects(found_ids);
+    }
+
+    if (verb == "move" || verb == "rotate" || verb == "scale") {
+        const auto* obj = session_.document().scene.findObject(session_.selectedObject());
+        if (obj == nullptr) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidState, "Select an object before running '" + verb + "'");
+            recordStatus(st, {});
+            return st;
+        }
+        bool relative = false;
+        std::size_t val_idx = 1;
+        if (tokens.size() >= 5u && (tokens[1] == "-r" || tokens[1] == "-relative")) {
+            relative = true;
+            val_idx = 2;
+        }
+        if (tokens.size() < val_idx + 3u) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Usage: " + verb + " [-r] <x> <y> <z>");
+            recordStatus(st, {});
+            return st;
+        }
+        float vx = 0.0f, vy = 0.0f, vz = 0.0f;
+        if (!parseNum(tokens[val_idx], vx) || !parseNum(tokens[val_idx + 1], vy) || !parseNum(tokens[val_idx + 2], vz)) {
+            auto st = core::Status::fail(core::ErrorCode::ValidationError, "Numeric arguments required for '" + verb + "'");
+            recordStatus(st, {});
+            return st;
+        }
+        math::Vec3 pos = obj->local_transform.position;
+        const math::Vec3 cur_rad = obj->local_transform.rotation.toEulerXYZ();
+        math::Vec3 rot{math::radToDeg(cur_rad.x), math::radToDeg(cur_rad.y), math::radToDeg(cur_rad.z)};
+        math::Vec3 scl = obj->local_transform.scale;
+        if (verb == "move") {
+            pos = relative ? (pos + math::Vec3{vx, vy, vz}) : math::Vec3{vx, vy, vz};
+        } else if (verb == "rotate") {
+            rot = relative ? (rot + math::Vec3{vx, vy, vz}) : math::Vec3{vx, vy, vz};
+        } else {
+            scl = relative ? math::Vec3{scl.x * vx, scl.y * vy, scl.z * vz} : math::Vec3{vx, vy, vz};
+        }
+        return setObjectTransformEulerDegrees(obj->id, pos, rot, scl, false);
+    }
+
+    if (verb == "setattr") {
+        const auto* obj = session_.document().scene.findObject(session_.selectedObject());
+        if (obj == nullptr || tokens.size() < 3u) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Usage: setAttr <channelName> <value> (with object selected)");
+            recordStatus(st, {});
+            return st;
+        }
+        float v = 0.0f;
+        if (!parseNum(tokens[2], v)) {
+            auto st = core::Status::fail(core::ErrorCode::ValidationError, "Attribute value must be numeric");
+            recordStatus(st, {});
+            return st;
+        }
+        std::string ch = tokens[1];
+        if (const auto dot = ch.rfind('.'); dot != std::string::npos) ch = ch.substr(dot + 1);
+        const std::string chl = lowerStr(ch);
+        math::Vec3 pos = obj->local_transform.position;
+        const math::Vec3 cur_rad = obj->local_transform.rotation.toEulerXYZ();
+        math::Vec3 rot{math::radToDeg(cur_rad.x), math::radToDeg(cur_rad.y), math::radToDeg(cur_rad.z)};
+        math::Vec3 scl = obj->local_transform.scale;
+
+        if (chl == "tx" || chl == "translatex") pos.x = v;
+        else if (chl == "ty" || chl == "translatey") pos.y = v;
+        else if (chl == "tz" || chl == "translatez") pos.z = v;
+        else if (chl == "rx" || chl == "rotatex") rot.x = v;
+        else if (chl == "ry" || chl == "rotatey") rot.y = v;
+        else if (chl == "rz" || chl == "rotatez") rot.z = v;
+        else if (chl == "sx" || chl == "scalex") scl.x = v;
+        else if (chl == "sy" || chl == "scaley") scl.y = v;
+        else if (chl == "sz" || chl == "scalez") scl.z = v;
+        else if (chl == "v" || chl == "visibility") return setObjectVisibility(obj->id, v != 0.0f);
+        else return setCustomAttributeValue(obj->id, ch, static_cast<double>(v), false);
+        return setObjectTransformEulerDegrees(obj->id, pos, rot, scl, false);
+    }
+
+    if (verb == "addattr") {
+        if (!session_.selectedObject().isValid() || tokens.size() < 2u) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Usage: addAttr <attrName> [defaultValue]");
+            recordStatus(st, {});
+            return st;
+        }
+        float def_v = 0.0f;
+        if (tokens.size() >= 3u) (void)parseNum(tokens[2], def_v);
+        return addCustomAttribute(session_.selectedObject(), scene::CustomAttribute{.name = tokens[1], .value = static_cast<double>(def_v)});
+    }
+
+    if (verb == "rename") {
+        if (!session_.selectedObject().isValid() || tokens.size() < 2u) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Usage: rename <newName>");
+            recordStatus(st, {});
+            return st;
+        }
+        return renameObject(session_.selectedObject(), tokens[1]);
+    }
+
+    if (verb == "duplicate") return duplicateSelectedObject().hasValue() ? core::Status::ok() : core::Status::fail(core::ErrorCode::InvalidState, last_status_message_);
+    if (verb == "delete" || verb == "dodelete") return deleteSelectedObject();
+    if (verb == "group") return groupSelectedObjects(tokens.size() >= 2u ? tokens[1] : std::string{}).hasValue() ? core::Status::ok() : core::Status::fail(core::ErrorCode::InvalidState, last_status_message_);
+    if (verb == "parent") return parentSelectedObjects();
+    if (verb == "unparent") return unparentSelectedObjects();
+    if (verb == "makeidentity" || verb == "freezetransforms") return freezeObjectTransforms(session_.selectedObject());
+    if (verb == "resettransforms") return resetObjectTransform(session_.selectedObject());
+    if (verb == "centerpivot" || (verb == "xform" && tokens.size() >= 2u && lowerStr(tokens[1]) == "-cp")) {
+        return centerObjectPivot(session_.selectedObject());
+    }
+    if (verb == "hide") return setObjectVisibility(session_.selectedObject(), false);
+    if (verb == "showhidden") {
+        if (session_.selectedObject().isValid()) return setObjectVisibility(session_.selectedObject(), true);
+        for (const auto& obj : session_.document().scene.objects()) {
+            if (!obj.visible) (void)setObjectVisibility(obj.id, true);
+        }
+        return core::Status::ok();
+    }
+    if (verb == "setkeyframe") return setKeyframeOnSelected();
+    if (verb == "currenttime") {
+        float f = 1.0f;
+        if (tokens.size() < 2u || !parseNum(tokens[1], f)) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Usage: currentTime <frame>");
+            recordStatus(st, {});
+            return st;
+        }
+        setCurrentFrame(f);
+        recordStatus(core::Status::ok(), "Current time set to frame " + std::to_string(static_cast<int>(std::round(f))));
+        return core::Status::ok();
+    }
+    if (verb == "play") { setTimelinePlaying(true); return core::Status::ok(); }
+    if (verb == "stop") { setTimelinePlaying(false); return core::Status::ok(); }
+    if (verb == "undo") return undo();
+    if (verb == "redo") return redo();
+    if (verb == "viewfit") {
+        if (tokens.size() >= 2u && lowerStr(tokens[1]) == "-all") return frameAllScene();
+        return frameSelectionOrScene();
+    }
+
+    auto err = core::Status::fail(
+        core::ErrorCode::ValidationError,
+        "Unknown FE3D command '" + tokens[0] + "'. Type 'help' for supported structured commands.");
+    recordStatus(err, {});
+    return err;
 }
 
 core::Status EditorController::setCameraComponent(
@@ -1560,10 +2689,7 @@ core::Status EditorController::undo() {
     const std::string desc(session_.commandStack().nextUndoDescription());
     auto st = session_.commandStack().undo(session_.document().scene);
     if (st) {
-        if (session_.selectedObject().isValid() &&
-            session_.document().scene.findObject(session_.selectedObject()) == nullptr) {
-            session_.setSelectedObject({});
-        }
+        session_.sanitizeObjectSelection();
         session_.sanitizeMeshSelection();
         refreshMaterialPreview();
         const auto active_cam = session_.document().scene.activeCamera();
@@ -1588,10 +2714,7 @@ core::Status EditorController::redo() {
     const std::string desc(session_.commandStack().nextRedoDescription());
     auto st = session_.commandStack().redo(session_.document().scene);
     if (st) {
-        if (session_.selectedObject().isValid() &&
-            session_.document().scene.findObject(session_.selectedObject()) == nullptr) {
-            session_.setSelectedObject({});
-        }
+        session_.sanitizeObjectSelection();
         session_.sanitizeMeshSelection();
         refreshMaterialPreview();
         const auto active_cam = session_.document().scene.activeCamera();

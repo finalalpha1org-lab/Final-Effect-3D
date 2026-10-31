@@ -145,6 +145,7 @@ jobs:
           test -f build/ci-wasm/editor.css
           test -f build/ci-wasm/studios.js
           test -f build/ci-wasm/editor.js
+          test -f build/ci-wasm/maya_workspace.js
 
       - name: Install Playwright & Headless Chromium
         working-directory: web/e2e
