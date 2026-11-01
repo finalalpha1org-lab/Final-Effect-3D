@@ -210,6 +210,18 @@ void WorkspaceManager::applyPreset(WorkspacePreset preset) {
             next.panels[static_cast<std::size_t>(WorkspacePanelId::Timeline)].visible = true;
             next.panels[static_cast<std::size_t>(WorkspacePanelId::AssetBrowser)].visible = true;
             break;
+
+        case WorkspacePreset::MayaClassic:
+            next.layout_name = "Maya Classic";
+            next.focused_panel = WorkspacePanelId::Viewport3D;
+            next.left_dock_width_ratio = 0.18f;
+            next.right_dock_width_ratio = 0.25f;
+            next.bottom_dock_height_ratio = 0.20f;
+            next.panels[static_cast<std::size_t>(WorkspacePanelId::SceneOutliner)].visible = true;
+            next.panels[static_cast<std::size_t>(WorkspacePanelId::Properties)].visible = true;
+            next.panels[static_cast<std::size_t>(WorkspacePanelId::Timeline)].visible = true;
+            next.panels[static_cast<std::size_t>(WorkspacePanelId::Console)].visible = true;
+            break;
     }
     state_ = std::move(next);
     sanitizeFocusAndRatios();
@@ -218,6 +230,19 @@ void WorkspaceManager::applyPreset(WorkspacePreset preset) {
 core::Status WorkspaceManager::applyPresetByName(std::string_view preset_name) {
     if (preset_name == "default" || preset_name == "Default Studio") {
         applyPreset(WorkspacePreset::DefaultStudio);
+        return core::Status::ok();
+    }
+    if (preset_name == "maya_classic" || preset_name == "Maya Classic") {
+        applyPreset(WorkspacePreset::MayaClassic);
+        return core::Status::ok();
+    }
+    if (preset_name == "rigging" || preset_name == "Rigging") {
+        applyPreset(WorkspacePreset::MayaClassic);
+        state_.layout_name = "Rigging";
+        return core::Status::ok();
+    }
+    if (preset_name == "fx" || preset_name == "FX") {
+        applyPreset(WorkspacePreset::VFX);
         return core::Status::ok();
     }
     if (preset_name == "layout" || preset_name == "Layout") {

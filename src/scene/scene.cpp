@@ -2,8 +2,10 @@
 // Copyright (C) 2026 Final Effect 3D Contributors
 
 #include "finaleffect/scene/scene.hpp"
+#include "finaleffect/math/constants.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 namespace finaleffect::scene {
@@ -26,6 +28,9 @@ void Scene::clear() {
     object_index_.clear();
     active_camera_id_ = ObjectId::invalid();
     environment_ = EnvironmentLighting{};
+    display_layers_.clear();
+    timeline_ = TimelineSettings{};
+    animation_tracks_.clear();
     next_object_id_ = 1;
     next_mesh_id_ = 1;
     next_material_id_ = 1;
@@ -491,6 +496,11 @@ void Scene::eraseSingleObject(ObjectId id) noexcept {
     }
     objects_.pop_back();
     object_index_.erase(it);
+
+    for (auto& layer : display_layers_) {
+        std::erase(layer.members, id);
+    }
+    std::erase_if(animation_tracks_, [id](const ObjectAnimationTrack& tr) { return tr.object_id == id; });
 }
 
 core::Status Scene::setParent(ObjectId child_id, ObjectId new_parent_id) {
@@ -595,6 +605,172 @@ core::Status Scene::setObjectName(ObjectId id, std::string new_name) {
     }
     obj->name = std::move(new_name);
     return core::Status::ok();
+}
+
+core::Status Scene::setObjectLocked(ObjectId id, bool locked) {
+    auto* obj = findObjectMutable(id);
+    if (obj == nullptr) {
+        return core::Status::fail(core::ErrorCode::NotFound, "Scene object not found");
+    }
+    obj->locked = locked;
+    return core::Status::ok();
+}
+
+core::Status Scene::setObjectChannelLocks(ObjectId id, std::uint16_t mask) {
+    auto* obj = findObjectMutable(id);
+    if (obj == nullptr) {
+        return core::Status::fail(core::ErrorCode::NotFound, "Scene object not found");
+    }
+    obj->locked_channels_mask = mask;
+    return core::Status::ok();
+}
+
+core::Status Scene::setObjectPivotOffset(ObjectId id, const math::Vec3& pivot_offset) {
+    if (!pivot_offset.isFinite()) {
+        return core::Status::fail(core::ErrorCode::ValidationError, "Pivot offset must be finite");
+    }
+    auto* obj = findObjectMutable(id);
+    if (obj == nullptr) {
+        return core::Status::fail(core::ErrorCode::NotFound, "Scene object not found");
+    }
+    obj->pivot_offset = pivot_offset;
+    return core::Status::ok();
+}
+
+core::Status Scene::setObjectCustomAttributes(
+    ObjectId id,
+    std::vector<CustomAttribute> attributes) {
+    for (const auto& attr : attributes) {
+        if (attr.name.empty() || !std::isfinite(attr.value)) {
+            return core::Status::fail(
+                core::ErrorCode::ValidationError,
+                "Custom attribute requires a non-empty name and finite value");
+        }
+    }
+    auto* obj = findObjectMutable(id);
+    if (obj == nullptr) {
+        return core::Status::fail(core::ErrorCode::NotFound, "Scene object not found");
+    }
+    obj->custom_attributes = std::move(attributes);
+    return core::Status::ok();
+}
+
+core::Status Scene::setDisplayLayers(std::vector<DisplayLayer> layers) {
+    for (auto& layer : layers) {
+        if (layer.name.empty()) {
+            return core::Status::fail(core::ErrorCode::ValidationError, "Display layer name must not be empty");
+        }
+        std::erase_if(layer.members, [this](ObjectId oid) { return findObject(oid) == nullptr; });
+    }
+    display_layers_ = std::move(layers);
+    return core::Status::ok();
+}
+
+const DisplayLayer* Scene::findObjectDisplayLayer(ObjectId id) const noexcept {
+    if (!id.isValid() || display_layers_.empty()) {
+        return nullptr;
+    }
+    const SceneObject* cursor = findObject(id);
+    std::size_t guard = 0;
+    const std::size_t max_depth = objects_.size() + 1;
+    while (cursor != nullptr && ++guard <= max_depth) {
+        for (const auto& layer : display_layers_) {
+            if (std::find(layer.members.begin(), layer.members.end(), cursor->id) != layer.members.end()) {
+                return &layer;
+            }
+        }
+        if (!cursor->parent_id.isValid()) {
+            break;
+        }
+        cursor = findObject(cursor->parent_id);
+    }
+    return nullptr;
+}
+
+void Scene::setTimeline(const TimelineSettings& settings) noexcept {
+    TimelineSettings s = settings;
+    if (!std::isfinite(s.start_frame)) s.start_frame = 1.0f;
+    if (!std::isfinite(s.end_frame) || s.end_frame <= s.start_frame) s.end_frame = s.start_frame + 239.0f;
+    s.playback_start = std::clamp(s.playback_start, s.start_frame, s.end_frame - 1.0f);
+    s.playback_end = std::clamp(s.playback_end, s.playback_start + 1.0f, s.end_frame);
+    s.current_frame = std::clamp(s.current_frame, s.start_frame, s.end_frame);
+    s.fps = std::clamp(std::isfinite(s.fps) ? s.fps : 24.0f, 1.0f, 240.0f);
+    timeline_ = s;
+}
+
+const ObjectAnimationTrack* Scene::findAnimationTrack(ObjectId id) const noexcept {
+    for (const auto& tr : animation_tracks_) {
+        if (tr.object_id == id) {
+            return &tr;
+        }
+    }
+    return nullptr;
+}
+
+core::Status Scene::setAnimationTracks(std::vector<ObjectAnimationTrack> tracks) {
+    std::erase_if(tracks, [this](const ObjectAnimationTrack& tr) {
+        return !tr.object_id.isValid() || findObject(tr.object_id) == nullptr || tr.keyframes.empty();
+    });
+    for (auto& tr : tracks) {
+        std::sort(tr.keyframes.begin(), tr.keyframes.end(), [](const TransformKeyframe& a, const TransformKeyframe& b) {
+            return a.frame < b.frame;
+        });
+    }
+    animation_tracks_ = std::move(tracks);
+    return core::Status::ok();
+}
+
+void Scene::evaluateAnimationAtFrame(float frame) {
+    if (!std::isfinite(frame)) {
+        return;
+    }
+    timeline_.current_frame = std::clamp(frame, timeline_.start_frame, timeline_.end_frame);
+    const float f = timeline_.current_frame;
+    for (const auto& tr : animation_tracks_) {
+        if (tr.keyframes.empty()) {
+            continue;
+        }
+        auto* obj = findObjectMutable(tr.object_id);
+        if (obj == nullptr) {
+            continue;
+        }
+        TransformKeyframe eval = tr.keyframes.front();
+        if (f <= tr.keyframes.front().frame) {
+            eval = tr.keyframes.front();
+        } else if (f >= tr.keyframes.back().frame) {
+            eval = tr.keyframes.back();
+        } else {
+            for (std::size_t i = 0; i + 1 < tr.keyframes.size(); ++i) {
+                const auto& k0 = tr.keyframes[i];
+                const auto& k1 = tr.keyframes[i + 1];
+                if (f >= k0.frame && f <= k1.frame) {
+                    const float span = std::max(1.0e-5f, k1.frame - k0.frame);
+                    const float t = std::clamp((f - k0.frame) / span, 0.0f, 1.0f);
+                    eval.frame = f;
+                    eval.position = k0.position + (k1.position - k0.position) * t;
+                    eval.rotation_deg = k0.rotation_deg + (k1.rotation_deg - k0.rotation_deg) * t;
+                    eval.scale = k0.scale + (k1.scale - k0.scale) * t;
+                    eval.visible = k0.visible;
+                    break;
+                }
+            }
+        }
+        math::Transform next_tf;
+        next_tf.position = eval.position;
+        next_tf.rotation = math::Quat::fromEulerXYZ(math::Vec3{
+            math::degToRad(eval.rotation_deg.x),
+            math::degToRad(eval.rotation_deg.y),
+            math::degToRad(eval.rotation_deg.z)});
+        next_tf.scale = {
+            std::fabs(eval.scale.x) < 1.0e-4f ? 1.0e-4f : eval.scale.x,
+            std::fabs(eval.scale.y) < 1.0e-4f ? 1.0e-4f : eval.scale.y,
+            std::fabs(eval.scale.z) < 1.0e-4f ? 1.0e-4f : eval.scale.z,
+        };
+        if (next_tf.isValid()) {
+            obj->local_transform = next_tf;
+        }
+        obj->visible = eval.visible;
+    }
 }
 
 core::Status Scene::assignMesh(ObjectId id, std::optional<MeshId> mesh_id) {

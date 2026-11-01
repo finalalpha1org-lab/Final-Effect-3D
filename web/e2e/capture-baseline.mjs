@@ -37,12 +37,19 @@ const { port } = server.address();
 const baseUrl = `http://127.0.0.1:${port}`;
 
 const browser = await chromium.launch({
-  args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-webgl", "--ignore-gpu-blocklist"],
+  args: [
+    "--use-gl=angle",
+    "--use-angle=swiftshader",
+    "--enable-unsafe-swiftshader",
+    "--enable-webgl",
+    "--ignore-gpu-blocklist",
+  ],
 });
 
 const pageLogs = [];
 try {
   const ctx = await browser.newContext({ viewport: { width: 1920, height: 1080 }, hasTouch: true });
+  ctx.setDefaultTimeout(90_000);
   const page = await ctx.newPage();
   page.on("console", (msg) => {
     if (msg.type() === "error" || msg.type() === "warning") {

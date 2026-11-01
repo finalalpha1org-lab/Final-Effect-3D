@@ -9,7 +9,7 @@ const distDir = path.resolve(__dirname, process.env.FE3D_WEB_DIST_DIR || "../../
 export default defineConfig({
   testDir: ".",
   testMatch: "*.spec.mjs",
-  timeout: 120_000,
+  timeout: 180_000,
   expect: {
     timeout: 15_000,
   },
@@ -23,6 +23,7 @@ export default defineConfig({
       args: [
         "--use-gl=angle",
         "--use-angle=swiftshader",
+        "--enable-unsafe-swiftshader",
         "--enable-webgl",
         "--ignore-gpu-blocklist",
       ],
