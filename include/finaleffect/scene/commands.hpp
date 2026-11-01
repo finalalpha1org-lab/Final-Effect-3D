@@ -120,6 +120,10 @@ private:
         std::optional<MaterialId> material_id;
         std::optional<CameraComponent> camera;
         AnyLightComponent light;
+        bool locked{false};
+        std::uint16_t locked_channels_mask{0};
+        math::Vec3 pivot_offset{0.0f, 0.0f, 0.0f};
+        std::vector<CustomAttribute> custom_attributes;
     };
 
     struct RemovedLightLinkRef {
@@ -132,6 +136,8 @@ private:
     std::vector<ObjectSnapshot> deleted_snapshots_;
     std::vector<ObjectId> reparented_children_;
     std::vector<RemovedLightLinkRef> removed_light_links_;
+    std::vector<DisplayLayer> previous_display_layers_;
+    std::vector<ObjectAnimationTrack> previous_animation_tracks_;
     ObjectId previous_active_camera_{ObjectId::invalid()};
 };
 
@@ -398,6 +404,84 @@ public:
 private:
     std::string label_;
     std::vector<std::unique_ptr<ISceneCommand>> steps_;
+};
+
+class SetObjectMetadataCommand final : public ISceneCommand {
+public:
+    struct MetadataState {
+        bool locked{false};
+        std::uint16_t locked_channels_mask{0};
+        math::Vec3 pivot_offset{0.0f, 0.0f, 0.0f};
+        std::vector<CustomAttribute> custom_attributes;
+    };
+
+    SetObjectMetadataCommand(
+        ObjectId object_id,
+        MetadataState new_state,
+        std::string label = "Edit Object Attributes",
+        bool allow_coalesce = false,
+        std::uint64_t coalesce_group = 0);
+
+    [[nodiscard]] std::string_view description() const noexcept override { return label_; }
+    [[nodiscard]] std::size_t estimatedBytes() const noexcept override;
+
+    [[nodiscard]] core::Status execute(Scene& scene) override;
+    [[nodiscard]] core::Status undo(Scene& scene) override;
+    [[nodiscard]] bool tryCoalesceWith(const ISceneCommand& incoming) noexcept override;
+
+private:
+    ObjectId object_id_;
+    MetadataState new_state_;
+    MetadataState previous_state_{};
+    std::string label_;
+    bool captured_previous_{false};
+    bool allow_coalesce_{false};
+    std::uint64_t coalesce_group_{0};
+};
+
+class SetDisplayLayersCommand final : public ISceneCommand {
+public:
+    SetDisplayLayersCommand(
+        std::vector<DisplayLayer> new_layers,
+        std::string label = "Edit Display Layers");
+
+    [[nodiscard]] std::string_view description() const noexcept override { return label_; }
+    [[nodiscard]] std::size_t estimatedBytes() const noexcept override;
+
+    [[nodiscard]] core::Status execute(Scene& scene) override;
+    [[nodiscard]] core::Status undo(Scene& scene) override;
+
+private:
+    std::vector<DisplayLayer> new_layers_;
+    std::vector<DisplayLayer> previous_layers_;
+    std::string label_;
+    bool captured_previous_{false};
+};
+
+class SetAnimationTracksCommand final : public ISceneCommand {
+public:
+    SetAnimationTracksCommand(
+        std::vector<ObjectAnimationTrack> new_tracks,
+        std::string label = "Set Keyframe");
+
+    [[nodiscard]] std::string_view description() const noexcept override { return label_; }
+    [[nodiscard]] std::size_t estimatedBytes() const noexcept override;
+
+    [[nodiscard]] core::Status execute(Scene& scene) override;
+    [[nodiscard]] core::Status undo(Scene& scene) override;
+
+private:
+    struct PoseSnapshot {
+        ObjectId id;
+        math::Transform local_transform;
+        bool visible{true};
+    };
+
+    std::vector<ObjectAnimationTrack> new_tracks_;
+    std::vector<ObjectAnimationTrack> previous_tracks_;
+    std::vector<PoseSnapshot> previous_poses_;
+    std::string label_;
+    bool captured_previous_{false};
 };
 
 struct CommandStackLimits {

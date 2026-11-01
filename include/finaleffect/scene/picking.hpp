@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
+#include <vector>
 
 namespace finaleffect::scene {
 
@@ -19,6 +20,11 @@ struct RaycastOptions {
     bool ignore_invisible{true};
     bool backface_cull{false};
     float max_distance{std::numeric_limits<float>::max()};
+    bool respect_display_layers{true};
+    bool allow_meshes{true};
+    bool allow_lights{true};
+    bool allow_cameras{true};
+    const std::vector<ObjectId>* isolated_objects{nullptr};
 };
 
 struct RaycastHit {

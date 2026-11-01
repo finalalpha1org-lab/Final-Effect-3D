@@ -194,32 +194,35 @@
   </section>
 
   <!-- ===================================================================== -->
-  <!-- LEVEL 3: PROFESSIONAL BLENDER-INSPIRED 3D STUDIO WORKSPACE            -->
+  <!-- LEVEL 3: AUTODESK MAYA CLASSIC-STYLE 3D STUDIO WORKSPACE (STAGE 1)    -->
   <!-- ===================================================================== -->
   <div class="studio-shell" id="app-studio-3d" data-testid="studio-shell">
-    <!-- TOP REGION: Row 1 — Brand/Home, App Menus, 12 Workspace Tabs, Project Actions -->
+    <!-- TOP REGION: Row 1 (Main Menu Bar) + Row 2 (Status Line) + Row 3 (Shelf) -->
     <header class="studio-header">
-      <div class="topbar-primary">
+      <!-- ROW 1: MAYA MAIN MENU BAR + CONTEXT-AWARE MENU SETS + WORKSPACE SELECTOR -->
+      <div class="topbar-primary" id="maya-main-menubar" data-testid="maya-main-menubar">
         <div class="topbar-left">
-          <button type="button" class="home-nav-btn" id="btn-go-home" data-testid="btn-go-home" title="Return to Main Home &amp; Studio Launcher">
+          <button type="button" class="home-nav-btn" id="btn-go-home" data-testid="btn-go-home" data-help="Return to Final Effect 3D Home &amp; Project Launcher" title="Return to Main Home &amp; Studio Launcher">
             <span class="btn-ic" data-icon="logo"></span>
-            <span class="home-nav-label">Home</span>
+            <span class="home-nav-label">FE3D</span>
           </button>
 
-          <!-- Application Menus -->
-          <nav class="menubar" aria-label="Application Menu">
+          <!-- Maya Common Menus + Dynamic Menu-Set Menus -->
+          <nav class="menubar" id="maya-menubar-nav" aria-label="Application Menu">
             <div class="menu-item">
               <button type="button" class="menu-trigger" data-menu-trigger="file" data-testid="menu-file">File</button>
               <div class="menu-dropdown" data-menu-panel="file" hidden>
-                <button type="button" data-menu-cmd="new_showcase" id="btn-new-project" data-testid="btn-new-project">New Showcase Project</button>
+                <button type="button" data-menu-cmd="new_showcase" id="btn-new-project" data-testid="btn-new-project">New Showcase Scene</button>
                 <button type="button" data-menu-cmd="new_cube">New General Cube Scene</button>
-                <button type="button" data-menu-cmd="new_empty">New Empty Stage</button>
+                <button type="button" data-menu-cmd="new_empty">New Empty Scene</button>
                 <div class="menu-sep"></div>
-                <button type="button" data-menu-cmd="open_file">Open .fe3d / Bundle…</button>
-                <button type="button" data-menu-cmd="save_fe3d">Save Portable .fe3d</button>
-                <button type="button" data-menu-cmd="export_bundle">Export .fe3d + .fe3dbin Bundle</button>
+                <button type="button" data-menu-cmd="open_file">Open Scene (.fe3d)…</button>
+                <button type="button" data-menu-cmd="save_fe3d">Save Scene (.fe3d) <kbd>Ctrl+S</kbd></button>
+                <button type="button" data-menu-cmd="export_bundle">Export Binary Bundle (.fe3dbin)</button>
                 <div class="menu-sep"></div>
-                <button type="button" data-menu-cmd="go_home">Project Launcher &amp; Studios…</button>
+                <button type="button" data-menu-cmd="load_hdri_dialog">Import HDRI Environment (.hdr)…</button>
+                <div class="menu-sep"></div>
+                <button type="button" data-menu-cmd="go_home">Project Manager / Home…</button>
               </div>
             </div>
 
@@ -228,67 +231,131 @@
               <div class="menu-dropdown" data-menu-panel="edit" hidden>
                 <button type="button" data-menu-cmd="undo">Undo <kbd>Ctrl+Z</kbd></button>
                 <button type="button" data-menu-cmd="redo">Redo <kbd>Ctrl+Y</kbd></button>
+                <button type="button" data-maya-cmd="repeat_last_tool">Repeat Last Tool <kbd>Y</kbd></button>
                 <div class="menu-sep"></div>
-                <button type="button" data-menu-cmd="duplicate">Duplicate Object</button>
-                <button type="button" data-menu-cmd="delete_obj">Delete Selected <kbd>Del</kbd></button>
-                <button type="button" data-menu-cmd="deselect">Clear Selection</button>
+                <button type="button" data-menu-cmd="duplicate">Duplicate <kbd>Ctrl+D</kbd></button>
+                <button type="button" data-maya-cmd="duplicate_special">Duplicate Special (+Offset)</button>
+                <button type="button" data-menu-cmd="delete_obj">Delete <kbd>Del</kbd></button>
                 <div class="menu-sep"></div>
-                <button type="button" data-menu-cmd="preferences">Preferences…</button>
+                <button type="button" data-maya-cmd="group" data-testid="menu-cmd-group">Group <kbd>Ctrl+G</kbd></button>
+                <button type="button" data-maya-cmd="parent" data-testid="menu-cmd-parent">Parent <kbd>P</kbd></button>
+                <button type="button" data-maya-cmd="unparent" data-testid="menu-cmd-unparent">Unparent <kbd>Shift+P</kbd></button>
+                <div class="menu-sep"></div>
+                <button type="button" data-menu-cmd="preferences">Settings / Preferences…</button>
               </div>
             </div>
 
             <div class="menu-item">
-              <button type="button" class="menu-trigger" data-menu-trigger="add" data-testid="menu-add">Add</button>
+              <button type="button" class="menu-trigger" data-menu-trigger="add" data-testid="menu-add">Create</button>
               <div class="menu-dropdown" data-menu-panel="add" hidden>
-                <button type="button" data-preset="cube">Mesh &rarr; Cube</button>
-                <button type="button" data-preset="sphere">Mesh &rarr; UV Sphere</button>
-                <button type="button" data-preset="pyramid">Mesh &rarr; Pyramid</button>
-                <button type="button" data-preset="plane">Mesh &rarr; Grid Plane</button>
+                <div class="menu-section-lbl">Polygon Primitives</div>
+                <button type="button" data-preset="sphere" data-testid="menu-create-sphere">Polygon Sphere</button>
+                <button type="button" data-preset="cube" data-testid="menu-create-cube">Polygon Cube</button>
+                <button type="button" data-preset="cylinder" data-testid="menu-create-cylinder">Polygon Cylinder</button>
+                <button type="button" data-preset="cone" data-testid="menu-create-cone">Polygon Cone</button>
+                <button type="button" data-preset="torus" data-testid="menu-create-torus">Polygon Torus</button>
+                <button type="button" data-preset="plane" data-testid="menu-create-plane">Polygon Plane</button>
+                <button type="button" data-preset="pyramid">Polygon Pyramid</button>
                 <div class="menu-sep"></div>
-                <button type="button" data-preset="light" data-testid="menu-add-directional-light">Light &rarr; Directional Light</button>
-                <button type="button" data-preset="point_light" data-testid="menu-add-point-light">Light &rarr; Point Light</button>
-                <button type="button" data-preset="spot_light" data-testid="menu-add-spot-light">Light &rarr; Spot Light</button>
-                <button type="button" data-preset="area_light" data-testid="menu-add-area-light">Light &rarr; Area Light</button>
+                <div class="menu-section-lbl">Lights</div>
+                <button type="button" data-preset="light" data-testid="menu-add-directional-light">Directional Light</button>
+                <button type="button" data-preset="point_light" data-testid="menu-add-point-light">Point Light</button>
+                <button type="button" data-preset="spot_light" data-testid="menu-add-spot-light">Spot Light</button>
+                <button type="button" data-preset="area_light" data-testid="menu-add-area-light">Area Light</button>
                 <div class="menu-sep"></div>
-                <button type="button" data-preset="pivot">Empty Pivot</button>
+                <div class="menu-section-lbl">Cameras &amp; Helpers</div>
                 <button type="button" data-preset="camera">Camera</button>
+                <button type="button" data-preset="locator" data-testid="menu-create-locator">Locator</button>
+                <button type="button" data-maya-cmd="create_empty_group">Empty Group</button>
               </div>
             </div>
 
             <div class="menu-item">
-              <button type="button" class="menu-trigger" data-menu-trigger="workspace" data-testid="menu-workspace">Workspace</button>
-              <div class="menu-dropdown" data-menu-panel="workspace" hidden>
-                <button type="button" data-menu-cmd="save_custom_layout" data-testid="cmd-save-custom-layout">Save Current Layout as Custom</button>
-                <button type="button" data-menu-cmd="restore_custom_layout" data-testid="cmd-restore-custom-layout">Restore Saved Custom Layout</button>
-                <button type="button" data-menu-cmd="reset_layout" data-testid="cmd-reset-layout">Reset Active Workspace Layout</button>
+              <button type="button" class="menu-trigger" data-menu-trigger="select" data-testid="menu-select">Select</button>
+              <div class="menu-dropdown" data-menu-panel="select" hidden>
+                <button type="button" data-maya-cmd="select_all" data-testid="menu-cmd-select-all">All <kbd>Ctrl+A</kbd></button>
+                <button type="button" data-menu-cmd="deselect">Deselect All</button>
+                <button type="button" data-maya-cmd="invert_selection">Invert Selection</button>
+                <button type="button" data-maya-cmd="select_hierarchy">Hierarchy</button>
+                <button type="button" data-maya-cmd="select_similar">Similar</button>
                 <div class="menu-sep"></div>
-                <button type="button" data-panel-toggle="scene_outliner" data-testid="toggle-panel-outliner">Toggle Scene Outliner</button>
-                <button type="button" data-panel-toggle="properties" data-testid="toggle-panel-properties">Toggle Properties Inspector</button>
-                <button type="button" data-panel-toggle="material_editor" data-testid="toggle-panel-materials">Toggle Material Editor</button>
-                <button type="button" data-panel-toggle="asset_browser" data-testid="toggle-panel-assets">Toggle Asset Browser</button>
-                <button type="button" data-panel-toggle="timeline" data-testid="toggle-panel-timeline">Toggle Timeline</button>
-                <button type="button" data-panel-toggle="console" data-testid="toggle-panel-console">Toggle Console</button>
+                <button type="button" data-maya-cmd="mode_object">Object Mode <kbd>F8</kbd></button>
+                <button type="button" data-maya-cmd="mode_vertex">Vertex <kbd>F9</kbd></button>
+                <button type="button" data-maya-cmd="mode_edge">Edge <kbd>F10</kbd></button>
+                <button type="button" data-maya-cmd="mode_face">Face <kbd>F11</kbd></button>
               </div>
             </div>
 
             <div class="menu-item">
-              <button type="button" class="menu-trigger" data-menu-trigger="view" data-testid="menu-view">View</button>
+              <button type="button" class="menu-trigger" data-menu-trigger="modify" data-testid="menu-modify">Modify</button>
+              <div class="menu-dropdown" data-menu-panel="modify" hidden>
+                <button type="button" data-maya-cmd="freeze_transforms" data-testid="menu-cmd-freeze-transforms">Freeze Transformations</button>
+                <button type="button" data-maya-cmd="reset_transforms" data-testid="menu-cmd-reset-transforms">Reset Transformations</button>
+                <button type="button" data-maya-cmd="center_pivot" data-testid="menu-cmd-center-pivot">Center Pivot</button>
+                <button type="button" data-maya-cmd="edit_pivot">Bake / Edit Pivot Tool <kbd>D</kbd></button>
+                <div class="menu-sep"></div>
+                <button type="button" data-maya-cmd="lock_node">Lock Selected Node</button>
+                <button type="button" data-maya-cmd="unlock_node">Unlock Selected Node</button>
+                <div class="menu-sep"></div>
+                <button type="button" data-maya-cmd="open_add_attr">Add Custom Attribute…</button>
+              </div>
+            </div>
+
+            <div class="menu-item">
+              <button type="button" class="menu-trigger" data-menu-trigger="view" data-testid="menu-view">Display</button>
               <div class="menu-dropdown" data-menu-panel="view" hidden>
-                <button type="button" data-menu-cmd="frame_selection">Frame Selected / Scene <kbd>F</kbd></button>
-                <button type="button" data-menu-cmd="toggle_toolshelf" data-testid="cmd-toggle-toolshelf">Toggle Left Tool Shelf</button>
-                <button type="button" data-menu-cmd="toggle_right_dock" data-testid="cmd-toggle-right-dock">Toggle Right Inspector Area</button>
-                <button type="button" data-menu-cmd="toggle_bottom_dock" data-testid="cmd-toggle-bottom-dock">Toggle Bottom Area</button>
-                <button type="button" data-menu-cmd="toggle_hud">Toggle Viewport HUD</button>
+                <button type="button" data-menu-cmd="frame_selection">Frame Selection <kbd>F</kbd></button>
+                <button type="button" data-maya-cmd="frame_all">Frame All <kbd>A</kbd></button>
                 <div class="menu-sep"></div>
-                <button type="button" data-menu-cmd="toggle_camera_view" data-testid="cmd-toggle-camera-view">Toggle Active Camera View</button>
-                <button type="button" data-menu-cmd="toggle_editor_helpers" data-testid="cmd-toggle-editor-helpers">Toggle Scene Helpers</button>
-                <button type="button" data-menu-cmd="toggle_editor_grid" data-testid="cmd-toggle-editor-grid">Toggle Ground Grid</button>
+                <button type="button" data-maya-cmd="hide_selection">Hide Selection <kbd>H</kbd></button>
+                <button type="button" data-maya-cmd="show_selection">Show Selected / Hidden <kbd>Shift+H</kbd></button>
+                <button type="button" data-maya-cmd="toggle_isolate">Isolate Select</button>
+                <div class="menu-sep"></div>
+                <button type="button" data-menu-cmd="toggle_editor_grid" data-testid="cmd-toggle-editor-grid">Grid</button>
+                <button type="button" data-menu-cmd="toggle_editor_helpers" data-testid="cmd-toggle-editor-helpers">Heads Up / Scene Helpers</button>
+                <button type="button" data-menu-cmd="toggle_hud">Heads Up Display Overlay</button>
+                <button type="button" data-menu-cmd="toggle_camera_view" data-testid="cmd-toggle-camera-view">Look Through Active Camera</button>
+                <div class="menu-sep"></div>
+                <div class="menu-section-lbl">UI Elements</div>
+                <button type="button" data-menu-cmd="toggle_toolshelf" data-testid="cmd-toggle-toolshelf">Tool Box</button>
+                <button type="button" data-menu-cmd="toggle_right_dock" data-testid="cmd-toggle-right-dock">Channel Box / Attribute Editor</button>
+                <button type="button" data-menu-cmd="toggle_bottom_dock" data-testid="cmd-toggle-bottom-dock">Time Slider &amp; Bottom Dock</button>
+              </div>
+            </div>
+
+            <div class="menu-item">
+              <button type="button" class="menu-trigger" data-menu-trigger="windows" data-testid="menu-windows">Windows</button>
+              <div class="menu-dropdown" data-menu-panel="windows" hidden>
+                <button type="button" data-maya-cmd="focus_outliner">Outliner</button>
+                <button type="button" data-maya-cmd="focus_channel_box">Channel Box / Layer Editor</button>
+                <button type="button" data-maya-cmd="focus_attribute_editor">Attribute Editor</button>
+                <button type="button" data-maya-cmd="focus_tool_settings">Tool Settings</button>
+                <button type="button" data-maya-cmd="focus_material_editor">Hypershade / PBR Material Editor</button>
+                <div class="menu-sep"></div>
+                <button type="button" data-maya-cmd="float_outliner" data-testid="cmd-float-outliner">Tear Off Outliner (Floating)</button>
+                <button type="button" data-maya-cmd="float_channel_box" data-testid="cmd-float-channel-box">Tear Off Channel Box (Floating)</button>
+                <button type="button" data-maya-cmd="redock_all_panels" data-testid="cmd-redock-all">Dock All Floating Panels</button>
+                <div class="menu-sep"></div>
+                <button type="button" data-menu-cmd="preferences">Settings / Preferences / Hotkeys…</button>
+              </div>
+            </div>
+
+            <!-- Dynamic Context-Aware Menu Set Menus (Modeling / Rigging / Animation / FX / Rendering + Arnold) -->
+            <div class="maya-menuset-menus" id="maya-menuset-menus" data-testid="maya-menuset-menus"></div>
+
+            <div class="menu-item">
+              <button type="button" class="menu-trigger" data-menu-trigger="help" data-testid="menu-help">Help</button>
+              <div class="menu-dropdown" data-menu-panel="help" hidden>
+                <button type="button" data-maya-cmd="cmd_help">Command Line Reference (help)</button>
+                <button type="button" data-menu-cmd="preferences">Hotkey &amp; Workspace Preferences…</button>
+                <div class="menu-sep"></div>
+                <button type="button" data-maya-cmd="about_fe3d">About Final Effect 3D (GPLv3)</button>
               </div>
             </div>
           </nav>
         </div>
 
-        <!-- 12 Blender-Inspired Workspace Tabs (Scrollable Horizontal Strip + Overflow Chevrons) -->
+        <!-- Compact Workspace Tabs Strip (Preserves all 12 workspaces + overflow controls) -->
         <div class="workspace-tabs-wrap" id="workspace-tabs-wrap">
           <button type="button" class="ws-scroll-btn" id="btn-ws-scroll-left" data-testid="btn-ws-scroll-left" hidden aria-label="Scroll Workspace Tabs Left" title="Scroll Workspace Tabs Left">&lsaquo;</button>
           <div class="workspace-tab-strip" id="workspace-tabs" data-testid="workspace-tabs" role="tablist" aria-label="3D Studio Workspaces"></div>
@@ -297,6 +364,7 @@
 
         <!-- Synced select preserved for programmatic & mobile compact access -->
         <select id="workspace-preset-select" data-testid="workspace-preset-select" class="sr-workspace-select" title="Active Workspace">
+          <option value="maya_classic">Maya Classic</option>
           <option value="layout">Layout</option>
           <option value="modeling">Modeling</option>
           <option value="sculpting">Sculpting</option>
@@ -311,197 +379,422 @@
           <option value="video_editing">Video Editing</option>
         </select>
 
-        <!-- Right Quick Actions: Project Badge, Open/Save, Undo/Redo, Preferences -->
+        <!-- Right-Most Maya Workspace Selector & Project Telemetry -->
         <div class="topbar-right">
           <span class="project-active-pill" id="active-project-pill" data-testid="active-project-pill" title="Active Project">Showcase</span>
           <span class="engine-mini-badge" id="engine-version-badge" data-testid="engine-badge">v0.5.0</span>
-          <button type="button" class="tb-btn" id="btn-undo" data-testid="btn-undo" disabled title="Undo (Ctrl+Z)"><span class="btn-ic" data-icon="undo"></span><span class="tb-txt">Undo</span></button>
-          <button type="button" class="tb-btn" id="btn-redo" data-testid="btn-redo" disabled title="Redo (Ctrl+Y)"><span class="btn-ic" data-icon="redo"></span><span class="tb-txt">Redo</span></button>
-          <button type="button" class="tb-btn" id="btn-open-project" data-testid="btn-open-project" title="Open .fe3d or .fe3dbin bundle"><span class="btn-ic" data-icon="folder"></span><span class="tb-txt">Open</span></button>
-          <button type="button" class="tb-btn" id="btn-export-fe3d" data-testid="btn-export-fe3d" title="Save portable .fe3d (v1.2)"><span class="btn-ic" data-icon="save"></span><span class="tb-txt">Save</span></button>
-          <button type="button" class="tb-btn hide-xs" id="btn-export-bundle" data-testid="btn-export-bundle" title="Export .fe3d + .fe3dbin binary mesh archive">Bundle</button>
-          <button type="button" class="tb-btn tb-icon-only" id="btn-studio-settings" data-testid="btn-studio-settings" title="Studio &amp; Layout Preferences"><span class="btn-ic" data-icon="settings"></span></button>
+
+          <div class="menu-item maya-ws-menu-item">
+            <button type="button" class="menu-trigger maya-ws-trigger" data-menu-trigger="workspace" data-testid="menu-workspace" title="Maya Workspace Layout Presets">
+              <span class="maya-ws-lbl">Workspace:</span>
+              <strong id="maya-ws-active-name">Maya Classic</strong>
+              <span aria-hidden="true">&#9662;</span>
+            </button>
+            <div class="menu-dropdown" data-menu-panel="workspace" hidden>
+              <button type="button" data-maya-ws="maya_classic" data-testid="cmd-ws-maya-classic">Maya Classic (Default)</button>
+              <button type="button" data-maya-ws="modeling">Modeling Standard</button>
+              <button type="button" data-maya-ws="rigging">Rigging</button>
+              <button type="button" data-maya-ws="animation">Animation</button>
+              <button type="button" data-maya-ws="uv_editing">UV Editing</button>
+              <button type="button" data-maya-ws="shading">Hypershade / LookDev</button>
+              <button type="button" data-maya-ws="rendering">Rendering</button>
+              <div class="menu-sep"></div>
+              <button type="button" data-menu-cmd="save_custom_layout" data-testid="cmd-save-custom-layout">Save Current Workspace</button>
+              <button type="button" data-menu-cmd="restore_custom_layout" data-testid="cmd-restore-custom-layout">Restore Saved Workspace</button>
+              <button type="button" data-menu-cmd="reset_layout" data-testid="cmd-reset-layout">Reset Current Workspace</button>
+              <div class="menu-sep"></div>
+              <button type="button" data-panel-toggle="scene_outliner" data-testid="toggle-panel-outliner">Toggle Outliner</button>
+              <button type="button" data-panel-toggle="properties" data-testid="toggle-panel-properties">Toggle Attribute Editor</button>
+              <button type="button" data-panel-toggle="material_editor" data-testid="toggle-panel-materials">Toggle Material Editor</button>
+              <button type="button" data-panel-toggle="asset_browser" data-testid="toggle-panel-assets">Toggle Asset Browser</button>
+              <button type="button" data-panel-toggle="timeline" data-testid="toggle-panel-timeline">Toggle Time Slider</button>
+              <button type="button" data-panel-toggle="console" data-testid="toggle-panel-console">Toggle Script Log</button>
+            </div>
+          </div>
+
+          <button type="button" class="tb-btn tb-icon-only" id="btn-studio-settings" data-testid="btn-studio-settings" title="Preferences, Hotkeys &amp; Shelves"><span class="btn-ic" data-icon="settings"></span></button>
         </div>
       </div>
 
-      <!-- Row 2: Blender-Style Viewport & Contextual Mode Header -->
-      <div class="topbar-subbar" id="topbar-subbar">
-        <div class="subbar-group" role="toolbar" aria-label="Interaction Mode">
-          <button type="button" class="mode-pill is-active" data-edit-mode="object" id="btn-mode-object" data-testid="btn-mode-object" title="Object Mode (1 / Tab)">Object</button>
-          <button type="button" class="mode-pill" data-edit-mode="vertex" id="btn-mode-vertex" data-testid="btn-mode-vertex" disabled title="Vertex Mode (2)"><span class="btn-ic" data-icon="vertex"></span>Vertex</button>
-          <button type="button" class="mode-pill" data-edit-mode="edge" id="btn-mode-edge" data-testid="btn-mode-edge" disabled title="Edge Mode (3)"><span class="btn-ic" data-icon="edge"></span>Edge</button>
-          <button type="button" class="mode-pill" data-edit-mode="face" id="btn-mode-face" data-testid="btn-mode-face" disabled title="Face Mode (4 / Tab)"><span class="btn-ic" data-icon="face"></span>Face</button>
+      <!-- ROW 2: MAYA STATUS LINE (Menu Set, Scene Icons, Component/Object Masks, Snapping, Render, Sidebar Toggles) -->
+      <div class="maya-status-line" id="maya-status-line" data-testid="maya-status-line" role="toolbar" aria-label="Maya Status Line">
+        <!-- Menu Set Selector -->
+        <label class="maya-menuset-box" title="Active Maya Menu Set (Switches top menus without altering scene)">
+          <select id="maya-menuset-select" data-testid="maya-menuset-select" aria-label="Menu Set">
+            <option value="modeling">Modeling</option>
+            <option value="rigging">Rigging</option>
+            <option value="animation">Animation</option>
+            <option value="fx">FX</option>
+            <option value="rendering">Rendering</option>
+          </select>
+        </label>
+
+        <div class="statusline-sep"></div>
+
+        <!-- File & Undo/Redo Quick Icons -->
+        <div class="statusline-group" aria-label="Scene File and History">
+          <button type="button" class="tb-btn" id="btn-open-project" data-testid="btn-open-project" data-help="Open a portable .fe3d scene or .fe3dbin bundle" title="Open Scene (.fe3d)"><span class="btn-ic" data-icon="folder"></span><span class="tb-txt">Open</span></button>
+          <button type="button" class="tb-btn" id="btn-export-fe3d" data-testid="btn-export-fe3d" data-help="Save portable .fe3d v1.3 project file (Ctrl+S)" title="Save Scene (.fe3d)"><span class="btn-ic" data-icon="save"></span><span class="tb-txt">Save</span></button>
+          <button type="button" class="tb-btn hide-xs" id="btn-export-bundle" data-testid="btn-export-bundle" data-help="Export .fe3d + binary .fe3dbin mesh archive" title="Export Binary Bundle">Bundle</button>
+          <button type="button" class="tb-btn" id="btn-undo" data-testid="btn-undo" disabled data-help="Undo last scene command (Ctrl+Z)" title="Undo (Ctrl+Z)"><span class="btn-ic" data-icon="undo"></span><span class="tb-txt">Undo</span></button>
+          <button type="button" class="tb-btn" id="btn-redo" data-testid="btn-redo" disabled data-help="Redo undone command (Ctrl+Y)" title="Redo (Ctrl+Y)"><span class="btn-ic" data-icon="redo"></span><span class="tb-txt">Redo</span></button>
         </div>
 
-        <div class="subbar-divider"></div>
+        <div class="statusline-sep"></div>
 
-        <div class="subbar-group" role="toolbar" aria-label="Transform Orientation">
-          <span class="subbar-lbl">Orient</span>
-          <button type="button" class="tb-btn" id="btn-gizmo-space" data-testid="btn-gizmo-space" title="Toggle World / Local transform orientation">World</button>
+        <!-- Maya Object / Component Mode Selector (F8 - F12) -->
+        <div class="statusline-group" role="toolbar" aria-label="Object and Component Selection Mode">
+          <button type="button" class="mode-pill is-active" data-edit-mode="object" id="btn-mode-object" data-testid="btn-mode-object" data-help="Object Selection Mode (F8)" title="Select by Object Type (F8)">Object</button>
+          <button type="button" class="mode-pill" data-edit-mode="vertex" id="btn-mode-vertex" data-testid="btn-mode-vertex" disabled data-help="Vertex Component Selection Mode (F9)" title="Vertex Component Mode (F9)"><span class="btn-ic" data-icon="vertex"></span>Vertex</button>
+          <button type="button" class="mode-pill" data-edit-mode="edge" id="btn-mode-edge" data-testid="btn-mode-edge" disabled data-help="Edge Component Selection Mode (F10)" title="Edge Component Mode (F10)"><span class="btn-ic" data-icon="edge"></span>Edge</button>
+          <button type="button" class="mode-pill" data-edit-mode="face" id="btn-mode-face" data-testid="btn-mode-face" disabled data-help="Polygon Face Component Selection Mode (F11)" title="Face Component Mode (F11)"><span class="btn-ic" data-icon="face"></span>Face</button>
+          <button type="button" class="tb-btn" id="btn-gizmo-space" data-testid="btn-gizmo-space" data-help="Toggle Manipulator Coordinate Space (World / Object Local)" title="Manipulator Axis Orientation (World / Local)">World</button>
         </div>
 
-        <div class="subbar-divider"></div>
+        <div class="statusline-sep"></div>
 
-        <!-- Contextual Object Tools -->
-        <div class="subbar-group" id="ctx-object-tools" role="toolbar" aria-label="Object Operations">
-          <button type="button" class="tb-btn" data-preset="cube" data-testid="btn-add-cube" title="Add Cube">+ Cube</button>
-          <button type="button" class="tb-btn" data-preset="sphere" data-testid="btn-add-sphere" title="Add UV Sphere">+ Sphere</button>
-          <button type="button" class="tb-btn" data-preset="pyramid" data-testid="btn-add-pyramid" title="Add Pyramid">+ Pyramid</button>
-          <button type="button" class="tb-btn hide-compact" data-preset="plane" data-testid="btn-add-plane" title="Add Plane">+ Plane</button>
-          <button type="button" class="tb-btn hide-compact" data-preset="pivot" data-testid="btn-add-pivot" title="Add Empty Pivot">+ Pivot</button>
-          <button type="button" class="tb-btn hide-compact" data-preset="light" data-testid="btn-add-light" title="Add Directional Light">+ Light</button>
-          <button type="button" class="tb-btn hide-compact" data-preset="camera" data-testid="btn-add-camera" title="Add Camera">+ Camera</button>
+        <!-- Maya Object Type Selection Masks -->
+        <div class="statusline-group" role="toolbar" aria-label="Selection Masks">
+          <span class="statusline-mini-lbl">Mask</span>
+          <button type="button" class="sl-icon-btn is-active" data-sel-mask="surfaces" data-testid="mask-surfaces" data-help="Selection Mask: Toggle Polygon Surfaces selectable in viewport" title="Select Surfaces / Meshes"><span class="btn-ic" data-icon="cube"></span></button>
+          <button type="button" class="sl-icon-btn is-active" data-sel-mask="lights" data-testid="mask-lights" data-help="Selection Mask: Toggle Lights selectable in viewport" title="Select Lights"><span class="btn-ic" data-icon="light"></span></button>
+          <button type="button" class="sl-icon-btn is-active" data-sel-mask="cameras" data-testid="mask-cameras" data-help="Selection Mask: Toggle Cameras selectable in viewport" title="Select Cameras"><span class="btn-ic" data-icon="camera"></span></button>
+          <button type="button" class="sl-icon-btn is-active" data-sel-mask="helpers" data-testid="mask-helpers" data-help="Selection Mask: Toggle Locators &amp; Transform Groups selectable" title="Select Locators / Groups"><span class="btn-ic" data-icon="pivot"></span></button>
+        </div>
+
+        <div class="statusline-sep"></div>
+
+        <!-- Maya Snapping Controls -->
+        <div class="statusline-group" role="toolbar" aria-label="Snapping Controls">
+          <span class="statusline-mini-lbl">Snap</span>
+          <button type="button" class="sl-icon-btn" data-snap-toggle="grid" data-testid="snap-grid" data-help="Snap to Grids (X): Quantize translation to world grid step" title="Snap to Grids (X)"><span class="btn-ic" data-icon="snapGrid"></span></button>
+          <button type="button" class="sl-icon-btn" data-snap-toggle="curve" data-testid="snap-curve" data-help="Snap to Curves / Edges (C): Snap transforms to nearest mesh edge" title="Snap to Curves / Edges (C)"><span class="btn-ic" data-icon="snapCurve"></span></button>
+          <button type="button" class="sl-icon-btn" data-snap-toggle="point" data-testid="snap-point" data-help="Snap to Points / Vertices (V): Snap transforms to nearest vertex or pivot" title="Snap to Points (V)"><span class="btn-ic" data-icon="snapPoint"></span></button>
+          <button type="button" class="sl-icon-btn" data-snap-toggle="surface" data-testid="snap-surface" data-help="Snap to Live Surface: Project translated object onto underlying surface" title="Snap to Surface"><span class="btn-ic" data-icon="snapSurface"></span></button>
+        </div>
+
+        <div class="statusline-sep"></div>
+
+        <!-- Render Frame Preview Trigger -->
+        <div class="statusline-group" aria-label="Render Controls">
+          <button type="button" class="sl-icon-btn" id="btn-render-frame-preview" data-testid="btn-render-frame-preview" data-help="Render Current Frame (Clean final frame without editor grid or gizmos)" title="Render Current Frame"><span class="btn-ic" data-icon="renderFrame"></span></button>
+        </div>
+
+        <div class="statusline-spacer"></div>
+
+        <!-- Maya Right-Side Editor Quick Toggles -->
+        <div class="statusline-group statusline-right-toggles" aria-label="Right Panel Quick Toggles">
+          <button type="button" class="tb-btn is-active" data-right-mode-btn="split" data-testid="btn-right-mode-split" title="Show Both Channel Box / Layers &amp; Attribute Editor">CB+AE</button>
+          <button type="button" class="tb-btn" data-right-mode-btn="cb" data-testid="btn-right-mode-cb" title="Focus Channel Box / Layer Editor"><span class="btn-ic" data-icon="channelBox"></span>CB</button>
+          <button type="button" class="tb-btn" data-right-mode-btn="ae" data-testid="btn-right-mode-ae" title="Focus Attribute Editor"><span class="btn-ic" data-icon="objectProps"></span>AE</button>
+          <button type="button" class="tb-btn" data-right-mode-btn="tools" data-testid="btn-right-mode-tools" title="Focus Tool Settings"><span class="btn-ic" data-icon="settings"></span>Tool</button>
+          <div class="subbar-right-mobile">
+            <button type="button" class="tb-btn" id="btn-landscape-inspector-toggle" data-testid="btn-landscape-inspector-toggle" title="Toggle Outliner &amp; Editors Drawer">Panels</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ROW 3: MAYA CUSTOMIZABLE SHELF (Shelf Tabs + Customizable Tool Icons + Pinned Scene Actions) -->
+      <div class="topbar-subbar maya-shelf-bar" id="topbar-subbar" data-testid="maya-shelf-bar">
+        <div class="maya-shelf-tabs-row">
+          <button type="button" class="shelf-gear-btn" id="btn-shelf-gear" data-testid="btn-shelf-gear" title="Shelf Options: New, Rename, Add Tool, Reset Shelves">&#9881;</button>
+          <div class="maya-shelf-tabs" id="maya-shelf-tabs" data-testid="maya-shelf-tabs" role="tablist" aria-label="Maya Tool Shelves"></div>
+        </div>
+
+        <div class="maya-shelf-icons-row">
+          <!-- Customizable Per-Shelf Icon Strip (Populated by maya_workspace.js, persisted in localStorage) -->
+          <div class="maya-shelf-icons" id="maya-shelf-icons" data-testid="maya-shelf-icons" role="toolbar" aria-label="Active Shelf Commands"></div>
+
           <div class="subbar-divider"></div>
-          <button type="button" class="tb-btn" id="btn-duplicate" data-testid="btn-duplicate" disabled title="Duplicate selected object">Duplicate</button>
-          <button type="button" class="tb-btn tb-btn-danger" id="btn-delete" data-testid="btn-delete" disabled title="Delete selected object (Del)">Delete</button>
-          <button type="button" class="tb-btn" id="btn-frame" data-testid="btn-frame" title="Frame selection or scene (F)"><span class="btn-ic" data-icon="frame"></span>Frame</button>
-          <button type="button" class="tb-btn tb-btn-accent" id="btn-toggle-rig" data-testid="btn-toggle-rig" title="Toggle showcase rig animation (Space)">Pause Rig</button>
-        </div>
 
-        <!-- Contextual Mesh Edit Quick Bar (visible alongside Object bar when in Vertex/Edge/Face mode) -->
-        <div class="subbar-group" id="ctx-mesh-subbar" hidden role="toolbar" aria-label="Mesh Edit Quick Tools">
-          <div class="subbar-divider"></div>
-          <button type="button" class="tb-btn" data-mesh-quick="extrude" title="Extrude selected faces">Extrude</button>
-          <button type="button" class="tb-btn" data-mesh-quick="boundary" title="Select open boundary hole loop">Select Hole</button>
-          <button type="button" class="tb-btn" data-mesh-quick="fill" title="Fill selected boundary vertices">Fill Face</button>
-          <button type="button" class="tb-btn tb-btn-danger" data-mesh-quick="delete" title="Delete selected mesh elements">Del Elem</button>
-        </div>
+          <!-- Pinned Quick-Access Scene Strip (Always available across shelves) -->
+          <div class="subbar-group" id="ctx-object-tools" role="toolbar" aria-label="Quick Scene Operations">
+            <button type="button" class="tb-btn" data-preset="cube" data-testid="btn-add-cube" title="Create Polygon Cube">+ Cube</button>
+            <button type="button" class="tb-btn" data-preset="sphere" data-testid="btn-add-sphere" title="Create Polygon Sphere">+ Sphere</button>
+            <button type="button" class="tb-btn" data-preset="pyramid" data-testid="btn-add-pyramid" title="Create Polygon Pyramid">+ Pyramid</button>
+            <button type="button" class="tb-btn hide-compact" data-preset="plane" data-testid="btn-add-plane" title="Create Polygon Plane">+ Plane</button>
+            <button type="button" class="tb-btn hide-compact" data-preset="pivot" data-testid="btn-add-pivot" title="Create Locator / Empty Pivot">+ Pivot</button>
+            <button type="button" class="tb-btn hide-compact" data-preset="light" data-testid="btn-add-light" title="Create Directional Light">+ Light</button>
+            <button type="button" class="tb-btn hide-compact" data-preset="camera" data-testid="btn-add-camera" title="Create Camera">+ Camera</button>
+            <div class="subbar-divider"></div>
+            <button type="button" class="tb-btn" id="btn-duplicate" data-testid="btn-duplicate" disabled title="Duplicate Selected (Ctrl+D)">Duplicate</button>
+            <button type="button" class="tb-btn tb-btn-danger" id="btn-delete" data-testid="btn-delete" disabled title="Delete Selected (Del)">Delete</button>
+            <button type="button" class="tb-btn" id="btn-frame" data-testid="btn-frame" title="Frame Selection (F)"><span class="btn-ic" data-icon="frame"></span>Frame</button>
+            <button type="button" class="tb-btn tb-btn-accent" id="btn-toggle-rig" data-testid="btn-toggle-rig" title="Toggle Showcase Turntable Rig">Pause Rig</button>
+          </div>
 
-        <!-- Mobile Landscape Quick Drawer Toggle -->
-        <div class="subbar-right-mobile">
-          <button type="button" class="tb-btn" id="btn-landscape-inspector-toggle" data-testid="btn-landscape-inspector-toggle" title="Toggle Outliner &amp; Inspector Drawer">
-            Panels
-          </button>
+          <!-- Contextual Mesh Edit Quick Bar -->
+          <div class="subbar-group" id="ctx-mesh-subbar" hidden role="toolbar" aria-label="Mesh Edit Quick Tools">
+            <div class="subbar-divider"></div>
+            <button type="button" class="tb-btn" data-mesh-quick="extrude" title="Extrude Selected Faces">Extrude</button>
+            <button type="button" class="tb-btn" data-mesh-quick="boundary" title="Select Open Boundary Loop">Select Hole</button>
+            <button type="button" class="tb-btn" data-mesh-quick="fill" title="Fill Boundary Hole">Fill Face</button>
+            <button type="button" class="tb-btn tb-btn-danger" data-mesh-quick="delete" title="Delete Selected Mesh Elements">Del Elem</button>
+          </div>
         </div>
       </div>
     </header>
 
     <!-- MAIN STUDIO WORKSPACE GRID -->
     <div class="studio-workspace" id="studio-workspace" data-testid="studio-workspace">
-      <!-- LEFT REGION: Blender-Style Compact Tool Shelf -->
-      <aside class="tool-shelf" id="tool-shelf" data-testid="tool-shelf" aria-label="Viewport Tool Shelf">
+      <!-- LEFT REGION: Authentic Maya Vertical Tool Box (Q / W / E / R / T / D / Y + Layout Quick Icons) -->
+      <aside class="tool-shelf" id="tool-shelf" data-testid="tool-shelf" aria-label="Maya Tool Box">
         <div class="shelf-group">
-          <button type="button" class="shelf-btn" id="btn-tool-select" data-testid="btn-tool-select" title="Select / Pick (Click or Tap)">
+          <button type="button" class="shelf-btn" data-maya-tool="select" id="btn-tool-select" data-testid="btn-tool-select" data-help="Select Tool (Q): Click to select, Shift/Ctrl+Click to multi-select" title="Select Tool (Q)">
             <span class="btn-ic" data-icon="select"></span>
             <span class="shelf-lbl">Select</span>
           </button>
-          <button type="button" class="shelf-btn is-active" data-gizmo-mode="translate" id="btn-gizmo-translate" data-testid="btn-gizmo-translate" title="Move Gizmo (W)">
+          <button type="button" class="shelf-btn is-active" data-gizmo-mode="translate" data-maya-tool="move" id="btn-gizmo-translate" data-testid="btn-gizmo-translate" data-help="Move Tool (W): Drag XYZ axes or planes to translate selection" title="Move Tool (W)">
             <span class="btn-ic" data-icon="move"></span>
             <span class="shelf-lbl">Move</span>
           </button>
-          <button type="button" class="shelf-btn" data-gizmo-mode="rotate" id="btn-gizmo-rotate" data-testid="btn-gizmo-rotate" title="Rotate Gizmo (E)">
+          <button type="button" class="shelf-btn" data-gizmo-mode="rotate" data-maya-tool="rotate" id="btn-gizmo-rotate" data-testid="btn-gizmo-rotate" data-help="Rotate Tool (E): Drag XYZ rings to rotate selection" title="Rotate Tool (E)">
             <span class="btn-ic" data-icon="rotate"></span>
             <span class="shelf-lbl">Rotate</span>
           </button>
-          <button type="button" class="shelf-btn" data-gizmo-mode="scale" id="btn-gizmo-scale" data-testid="btn-gizmo-scale" title="Scale Gizmo (R)">
+          <button type="button" class="shelf-btn" data-gizmo-mode="scale" data-maya-tool="scale" id="btn-gizmo-scale" data-testid="btn-gizmo-scale" data-help="Scale Tool (R): Drag handles to scale selection" title="Scale Tool (R)">
             <span class="btn-ic" data-icon="scale"></span>
             <span class="shelf-lbl">Scale</span>
+          </button>
+          <button type="button" class="shelf-btn" data-maya-tool="universal" id="btn-tool-universal" data-testid="btn-tool-universal" data-help="Universal Manipulator: Combined transform context" title="Universal Manipulator">
+            <span class="btn-ic" data-icon="universal"></span>
+            <span class="shelf-lbl">Univ</span>
+          </button>
+          <button type="button" class="shelf-btn" data-maya-tool="show_manip" id="btn-tool-show-manip" data-testid="btn-tool-show-manip" data-help="Show Manipulator Tool (T): Contextual light/camera/object manipulator" title="Show Manipulator (T)">
+            <span class="btn-ic" data-icon="showManip"></span>
+            <span class="shelf-lbl">Manip</span>
+          </button>
+          <button type="button" class="shelf-btn" data-maya-tool="pivot" id="btn-tool-pivot" data-testid="btn-tool-pivot" data-help="Edit Pivot Tool (D): Drag gizmo to offset object pivot without moving geometry" title="Edit Pivot (D)">
+            <span class="btn-ic" data-icon="pivot"></span>
+            <span class="shelf-lbl">Pivot</span>
+          </button>
+          <button type="button" class="shelf-btn" id="btn-tool-last" data-testid="btn-tool-last" data-help="Activate Last Used Tool (Y)" title="Last Tool (Y)">
+            <span class="btn-ic" data-icon="redo"></span>
+            <span class="shelf-lbl">Last</span>
           </button>
         </div>
 
         <div class="shelf-sep"></div>
 
+        <!-- Maya Quick Layout Buttons at Bottom of Tool Box -->
         <div class="shelf-group">
-          <button type="button" class="shelf-btn" data-preset="cube" title="Add Cube"><span class="btn-ic" data-icon="cube"></span><span class="shelf-lbl">Cube</span></button>
-          <button type="button" class="shelf-btn" data-preset="sphere" title="Add UV Sphere"><span class="btn-ic" data-icon="sphere"></span><span class="shelf-lbl">Sphere</span></button>
-          <button type="button" class="shelf-btn" data-preset="pyramid" title="Add Pyramid"><span class="btn-ic" data-icon="pyramid"></span><span class="shelf-lbl">Pyram</span></button>
-          <button type="button" class="shelf-btn" data-preset="light" title="Add Directional Light"><span class="btn-ic" data-icon="light"></span><span class="shelf-lbl">Light</span></button>
-          <button type="button" class="shelf-btn" data-preset="camera" title="Add Camera"><span class="btn-ic" data-icon="camera"></span><span class="shelf-lbl">Cam</span></button>
+          <button type="button" class="shelf-btn" data-quick-layout="persp" data-testid="btn-ql-persp" title="Single Perspective View"><span class="btn-ic" data-icon="cube"></span><span class="shelf-lbl">Persp</span></button>
+          <button type="button" class="shelf-btn" data-quick-layout="outliner_persp" data-testid="btn-ql-outliner" title="Dock Outliner Left + Perspective View"><span class="btn-ic" data-icon="outliner"></span><span class="shelf-lbl">Outln</span></button>
+          <button type="button" class="shelf-btn" data-preset="cylinder" title="Create Polygon Cylinder"><span class="btn-ic" data-icon="cylinder"></span><span class="shelf-lbl">Cyl</span></button>
+          <button type="button" class="shelf-btn" data-preset="torus" title="Create Polygon Torus"><span class="btn-ic" data-icon="torus"></span><span class="shelf-lbl">Torus</span></button>
         </div>
 
         <div class="shelf-spacer"></div>
 
-        <button type="button" class="shelf-collapse-btn" id="btn-collapse-shelf" data-testid="btn-collapse-shelf" title="Collapse / Expand Tool Shelf">
+        <button type="button" class="shelf-collapse-btn" id="btn-collapse-shelf" data-testid="btn-collapse-shelf" title="Collapse / Expand Tool Box">
           &laquo;
         </button>
       </aside>
 
-      <!-- CENTER REGION: Priority 3D Viewport + Draggable Horizontal Splitter + Bottom Editor Area -->
+      <!-- OPTIONAL LEFT DOCK (Used when Outliner or Tool Settings is docked on the Left side!) -->
+      <aside class="studio-dock dock-left" id="dock-left" data-testid="dock-left" hidden aria-label="Left Docked Panel"></aside>
+      <div class="dock-splitter dock-splitter-v" id="splitter-left" data-testid="splitter-left" hidden role="separator" aria-orientation="vertical" title="Drag to resize Left Dock"></div>
+
+      <!-- CENTER REGION: Maya Viewport Panel (Panel Menu + Panel Toolbar + WebGL2 Stage) + Time/Range Dock -->
       <div class="center-column" id="center-column">
-        <main class="viewport-stage" id="viewport-stage" data-testid="viewport-stage">
-          <!-- Honest Workspace Foundation Notice Strip (Shown only on foundation workspaces) -->
-          <div class="workspace-foundation-banner" id="workspace-foundation-banner" data-testid="workspace-foundation-banner" hidden>
-            <strong id="wf-banner-title">Workspace Foundation</strong>
-            <span id="wf-banner-detail"></span>
-          </div>
-
-          <canvas id="fe3d-canvas" data-testid="viewport-canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
-
-          <!-- Top-Left Non-Intrusive Scene Telemetry Pills -->
-          <div class="viewport-overlay-top" id="viewport-hud-top" data-testid="viewport-hud-top">
-            <span class="vp-pill" id="vp-camera-pill" data-testid="vp-camera-pill">Camera: MainCamera</span>
-            <span class="vp-pill" id="vp-selection-pill" data-testid="vp-selection-pill">No Selection</span>
-            <span class="vp-pill vp-pill-accent" id="vp-mode-pill" data-testid="vp-mode-pill">OBJECT &middot; MOVE (WORLD)</span>
-          </div>
-
-          <!-- Top-Right Blender-Inspired Touch & Navigation Gizmo Cluster -->
-          <div class="viewport-nav-cluster" id="viewport-nav-cluster" data-testid="viewport-nav-cluster" aria-label="Viewport Camera and Touch Controls">
-            <button type="button" class="vp-nav-btn is-active" data-touch-nav="orbit" data-testid="vp-touch-orbit" title="1-Finger Touch Drag: Orbit Camera"><span class="btn-ic" data-icon="orbit"></span><span class="vp-nav-lbl">Orbit</span></button>
-            <button type="button" class="vp-nav-btn" data-touch-nav="pan" data-testid="vp-touch-pan" title="1-Finger Touch Drag: Pan Camera"><span class="btn-ic" data-icon="pan"></span><span class="vp-nav-lbl">Pan</span></button>
-            <button type="button" class="vp-nav-btn" data-touch-nav="zoom" data-testid="vp-touch-zoom" title="1-Finger Touch Drag: Dolly Zoom"><span class="btn-ic" data-icon="zoom"></span><span class="vp-nav-lbl">Zoom</span></button>
-            <button type="button" class="vp-nav-btn" id="btn-touch-multiselect" data-testid="btn-touch-multiselect" title="Additive Multi-Selection Mode for Touch (Shift equivalent)">+Multi</button>
-            <button type="button" class="vp-nav-btn" id="btn-vp-restore-shelf" data-testid="btn-vp-restore-shelf" hidden title="Restore Left Tool Shelf">Tools</button>
-            <button type="button" class="vp-nav-btn" id="btn-vp-restore-right" data-testid="btn-vp-restore-right" hidden title="Restore Right Outliner &amp; Inspector">Inspector</button>
-          </div>
-
-          <!-- Interactive 3D XYZ View Navigation Gizmo (Controls Editor Observer Camera Only) -->
-          <div class="viewport-view-gizmo" id="viewport-view-gizmo" data-testid="viewport-view-gizmo" role="group" aria-label="3D View Orientation Gizmo">
-            <div class="view-gizmo-sphere-wrap">
-              <canvas id="view-nav-gizmo-canvas" data-testid="view-nav-gizmo-canvas" width="96" height="96" aria-label="Interactive 3D XYZ View Gizmo — Click axis or diagonal to orient view, drag to orbit editor camera"></canvas>
-              <span class="view-gizmo-hover-tip" id="view-gizmo-hover-tip" data-testid="view-gizmo-hover-tip" hidden></span>
+        <div class="maya-viewport-panel" id="maya-viewport-panel">
+          <div class="vp-panel-header-strip">
+          <!-- Maya Viewport Panel Menu Bar -->
+          <div class="vp-panel-menubar" id="vp-panel-menubar" data-testid="vp-panel-menubar" role="menubar" aria-label="Viewport Panel Menus">
+            <div class="menu-item">
+              <button type="button" class="vp-menu-trigger" data-menu-trigger="vp_view" data-testid="vp-menu-view">View</button>
+              <div class="menu-dropdown" data-menu-panel="vp_view" hidden>
+                <button type="button" data-menu-cmd="frame_selection">Frame Selection <kbd>F</kbd></button>
+                <button type="button" data-maya-cmd="frame_all">Frame All <kbd>A</kbd></button>
+                <button type="button" data-maya-cmd="home_view">Default View (Home)</button>
+                <div class="menu-sep"></div>
+                <button type="button" data-menu-cmd="toggle_camera_view">Look Through Active Camera</button>
+                <button type="button" data-maya-cmd="select_active_camera">Select Active Camera</button>
+              </div>
             </div>
-            <div class="view-gizmo-subcontrols">
-              <button type="button" class="view-gizmo-mini-btn" id="btn-nav-home-view" data-testid="btn-nav-home-view" title="Reset Editor Viewport to Home View">Home</button>
-              <button type="button" class="view-gizmo-mini-btn" id="btn-nav-proj-toggle" data-testid="btn-nav-proj-toggle" title="Toggle Editor Viewport Projection (Perspective / Orthographic)">Persp</button>
+
+            <div class="menu-item">
+              <button type="button" class="vp-menu-trigger" data-menu-trigger="vp_shading" data-testid="vp-menu-shading">Shading</button>
+              <div class="menu-dropdown" data-menu-panel="vp_shading" hidden>
+                <button type="button" data-vp-shading="wireframe" data-testid="vp-cmd-wireframe">Wireframe <kbd>4</kbd></button>
+                <button type="button" data-vp-shading="shaded" data-testid="vp-cmd-shaded">Smooth Shade All <kbd>5</kbd></button>
+                <button type="button" data-vp-shading="shaded_textured" data-testid="vp-cmd-textured">Hardware Texturing / PBR <kbd>6</kbd></button>
+                <div class="menu-sep"></div>
+                <button type="button" data-maya-cmd="toggle_wos" data-testid="vp-cmd-wire-on-shaded">Wireframe on Shaded</button>
+                <button type="button" data-maya-cmd="toggle_xray" data-testid="vp-cmd-xray">X-Ray</button>
+                <button type="button" data-maya-cmd="toggle_default_mat" data-testid="vp-cmd-default-mat">Use Default Material</button>
+              </div>
             </div>
+
+            <div class="menu-item">
+              <button type="button" class="vp-menu-trigger" data-menu-trigger="vp_lighting" data-testid="vp-menu-lighting">Lighting</button>
+              <div class="menu-dropdown" data-menu-panel="vp_lighting" hidden>
+                <button type="button" data-maya-cmd="lighting_default" data-testid="vp-cmd-default-lighting">Use Default Lighting (Headlamp)</button>
+                <button type="button" data-maya-cmd="lighting_all" data-testid="vp-cmd-all-lights">Use All Lights <kbd>7</kbd></button>
+              </div>
+            </div>
+
+            <div class="menu-item">
+              <button type="button" class="vp-menu-trigger" data-menu-trigger="vp_show" data-testid="vp-menu-show">Show</button>
+              <div class="menu-dropdown" data-menu-panel="vp_show" hidden>
+                <button type="button" data-menu-cmd="toggle_editor_grid">Grid</button>
+                <button type="button" data-menu-cmd="toggle_editor_helpers">Cameras &amp; Light Helpers</button>
+                <button type="button" data-menu-cmd="toggle_hud">Heads Up Display</button>
+                <div class="menu-sep"></div>
+                <button type="button" data-maya-cmd="toggle_isolate">Isolate Select</button>
+              </div>
+            </div>
+
+            <div class="menu-item">
+              <button type="button" class="vp-menu-trigger" data-menu-trigger="vp_renderer" data-testid="vp-menu-renderer">Renderer</button>
+              <div class="menu-dropdown" data-menu-panel="vp_renderer" hidden>
+                <button type="button" disabled>Viewport 2.0 (C++20 WebGL 2.0 GGX) &#10003;</button>
+                <div class="menu-sep"></div>
+                <button type="button" data-maya-cmd="render_current_frame">Render Current Frame…</button>
+              </div>
+            </div>
+
+            <div class="menu-item">
+              <button type="button" class="vp-menu-trigger" data-menu-trigger="vp_panels" data-testid="vp-menu-panels">Panels</button>
+              <div class="menu-dropdown" data-menu-panel="vp_panels" hidden>
+                <button type="button" data-vp-preset="perspective">Perspective (persp)</button>
+                <button type="button" data-vp-preset="top">Orthographic &rarr; Top (+Y)</button>
+                <button type="button" data-vp-preset="front">Orthographic &rarr; Front (+Z)</button>
+                <button type="button" data-vp-preset="right">Orthographic &rarr; Side (+X)</button>
+              </div>
+            </div>
+
+            <span class="vp-panel-tag">Viewport 2.0</span>
           </div>
 
-          <div class="viewport-overlay-bottom" id="viewport-hud-bottom">
-            <span><b>Click/Tap</b> Select &middot; <b>Drag Gizmo</b> Transform &middot; <b>RMB Drag / 1-Finger</b> Orbit &middot; <b>RMB Click</b> Context Menu &middot; <b>2-Finger</b> Pinch Zoom &amp; Pan &middot; <b>W/E/R</b> Gizmo &middot; <b>1-4</b> Mode</span>
+          <!-- Maya Viewport Icon Toolbar -->
+          <div class="vp-panel-toolbar" id="vp-panel-toolbar" data-testid="vp-panel-toolbar" role="toolbar" aria-label="Viewport Display Toolbar">
+            <select id="vp-camera-select" data-testid="vp-camera-select" class="vp-cam-select" title="Viewport Camera / View Preset">
+              <option value="persp">persp</option>
+              <option value="top">top</option>
+              <option value="front">front</option>
+              <option value="right">side</option>
+              <option value="active_cam">Active Scene Camera</option>
+            </select>
+            <div class="vp-tb-sep"></div>
+            <button type="button" class="vp-tb-btn" data-vp-shading="wireframe" data-testid="btn-vp-wireframe" title="Wireframe (4)">4 Wire</button>
+            <button type="button" class="vp-tb-btn" data-vp-shading="shaded" data-testid="btn-vp-shaded" title="Smooth Shade All (5)">5 Shade</button>
+            <button type="button" class="vp-tb-btn is-active" data-vp-shading="shaded_textured" data-testid="btn-vp-textured" title="Shaded &amp; Textured PBR (6)">6 PBR</button>
+            <button type="button" class="vp-tb-btn" id="btn-vp-wos" data-testid="btn-vp-wos" title="Wireframe on Shaded">WoS</button>
+            <button type="button" class="vp-tb-btn" id="btn-vp-default-mat" data-testid="btn-vp-default-mat" title="Use Default Clay Material">DefMat</button>
+            <div class="vp-tb-sep"></div>
+            <button type="button" class="vp-tb-btn is-active" id="btn-vp-all-lights" data-testid="btn-vp-all-lights" title="Use All Scene Lights (7) / Headlamp">7 Lights</button>
+            <button type="button" class="vp-tb-btn" id="btn-vp-xray" data-testid="btn-vp-xray" title="X-Ray Semi-Transparent Shading"><span class="btn-ic" data-icon="xray"></span>X-Ray</button>
+            <button type="button" class="vp-tb-btn" id="btn-vp-isolate" data-testid="btn-vp-isolate" title="Isolate Select"><span class="btn-ic" data-icon="isolate"></span>Isolate</button>
+            <div class="vp-tb-sep"></div>
+            <button type="button" class="vp-tb-btn is-active" id="btn-vp-grid" data-testid="btn-vp-grid" title="Toggle Ground Grid">Grid</button>
+            <button type="button" class="vp-tb-btn is-active" id="btn-vp-helpers" data-testid="btn-vp-helpers" title="Toggle Light &amp; Camera Helpers">Helpers</button>
+            <div class="vp-tb-sep"></div>
+            <span class="vp-tb-mini" title="Mesh Display Smoothness (1 / 2 / 3)">Div:</span>
+            <button type="button" class="vp-tb-btn is-active" data-vp-smooth="1" data-testid="btn-vp-smooth-1" title="Rough / Base Cage (1)">1</button>
+            <button type="button" class="vp-tb-btn" data-vp-smooth="2" data-testid="btn-vp-smooth-2" title="Cage + Overlay (2)">2</button>
+            <button type="button" class="vp-tb-btn" data-vp-smooth="3" data-testid="btn-vp-smooth-3" title="Smooth Display Level (3)">3</button>
+          </div>
           </div>
 
-          <!-- Blender-Inspired Viewport Context Menu (Clamped within Viewport Bounds) -->
-          <div class="viewport-context-menu" id="viewport-context-menu" data-testid="viewport-context-menu" role="menu" aria-label="3D Viewport Context Menu" hidden>
-            <div class="ctx-menu-header" id="ctx-menu-title">Object Context Menu</div>
-            <button type="button" role="menuitem" data-ctx-cmd="frame" data-testid="ctx-cmd-frame">Frame Selected / Scene <kbd>F</kbd></button>
-            <button type="button" role="menuitem" data-ctx-cmd="duplicate" id="ctx-cmd-duplicate" data-testid="ctx-cmd-duplicate">Duplicate Object</button>
-            <button type="button" role="menuitem" data-ctx-cmd="reset_transform" id="ctx-cmd-reset-tf" data-testid="ctx-cmd-reset-tf">Reset Transform</button>
-            <div class="menu-sep" id="ctx-mesh-sep" hidden></div>
-            <button type="button" role="menuitem" data-ctx-cmd="mesh_extrude" id="ctx-cmd-extrude" hidden>Extrude Selected Faces</button>
-            <button type="button" role="menuitem" data-ctx-cmd="mesh_boundary" id="ctx-cmd-boundary" hidden>Select Open Hole Loop</button>
-            <button type="button" role="menuitem" data-ctx-cmd="mesh_fill" id="ctx-cmd-fill" hidden>Fill Boundary Face</button>
-            <div class="menu-sep"></div>
-            <button type="button" role="menuitem" class="ctx-item-danger" data-ctx-cmd="delete" id="ctx-cmd-delete" data-testid="ctx-cmd-delete">Delete Selected <kbd>Del</kbd></button>
-            <button type="button" role="menuitem" data-ctx-cmd="deselect" data-testid="ctx-cmd-deselect">Clear Selection</button>
-          </div>
+          <main class="viewport-stage" id="viewport-stage" data-testid="viewport-stage">
+            <!-- Honest Workspace Foundation Notice Strip -->
+            <div class="workspace-foundation-banner" id="workspace-foundation-banner" data-testid="workspace-foundation-banner" hidden>
+              <strong id="wf-banner-title">Workspace Foundation</strong>
+              <span id="wf-banner-detail"></span>
+            </div>
 
-          <div class="viewport-banner" id="viewport-banner" data-testid="viewport-banner" hidden></div>
-        </main>
+            <canvas id="fe3d-canvas" data-testid="viewport-canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
 
-        <!-- Horizontal Resize Splitter between 3D Viewport and Bottom Area -->
-        <div class="dock-splitter dock-splitter-h" id="splitter-bottom" data-testid="splitter-bottom" role="separator" aria-orientation="horizontal" title="Drag to resize Bottom Editor Area"></div>
+            <!-- Top-Left Non-Intrusive Scene Telemetry Pills -->
+            <div class="viewport-overlay-top" id="viewport-hud-top" data-testid="viewport-hud-top">
+              <span class="vp-pill" id="vp-camera-pill" data-testid="vp-camera-pill">Camera: MainCamera</span>
+              <span class="vp-pill" id="vp-selection-pill" data-testid="vp-selection-pill">No Selection</span>
+              <span class="vp-pill vp-pill-accent" id="vp-mode-pill" data-testid="vp-mode-pill">OBJECT &middot; MOVE (WORLD)</span>
+            </div>
 
-        <!-- BOTTOM REGION: Reusable Multi-Editor Area (Timeline / Asset Browser / Console / Foundation Editors) -->
-        <section class="bottom-dock" id="dock-bottom" data-testid="dock-bottom" aria-label="Bottom Editor Area">
+            <!-- Top-Right Touch & Navigation Cluster -->
+            <div class="viewport-nav-cluster" id="viewport-nav-cluster" data-testid="viewport-nav-cluster" aria-label="Viewport Camera and Touch Controls">
+              <button type="button" class="vp-nav-btn is-active" data-touch-nav="orbit" data-testid="vp-touch-orbit" title="1-Finger Touch Drag: Orbit Camera"><span class="btn-ic" data-icon="orbit"></span><span class="vp-nav-lbl">Orbit</span></button>
+              <button type="button" class="vp-nav-btn" data-touch-nav="pan" data-testid="vp-touch-pan" title="1-Finger Touch Drag: Pan Camera"><span class="btn-ic" data-icon="pan"></span><span class="vp-nav-lbl">Pan</span></button>
+              <button type="button" class="vp-nav-btn" data-touch-nav="zoom" data-testid="vp-touch-zoom" title="1-Finger Touch Drag: Dolly Zoom"><span class="btn-ic" data-icon="zoom"></span><span class="vp-nav-lbl">Zoom</span></button>
+              <button type="button" class="vp-nav-btn" id="btn-touch-multiselect" data-testid="btn-touch-multiselect" title="Additive Multi-Selection Mode for Touch">+Multi</button>
+              <button type="button" class="vp-nav-btn" id="btn-vp-restore-shelf" data-testid="btn-vp-restore-shelf" hidden title="Restore Left Tool Box">Tools</button>
+              <button type="button" class="vp-nav-btn" id="btn-vp-restore-right" data-testid="btn-vp-restore-right" hidden title="Restore Right Editors">Editors</button>
+            </div>
+
+            <!-- Interactive 3D XYZ View Cube / Compass Gizmo -->
+            <div class="viewport-view-gizmo" id="viewport-view-gizmo" data-testid="viewport-view-gizmo" role="group" aria-label="3D View Orientation Gizmo">
+              <div class="view-gizmo-sphere-wrap">
+                <canvas id="view-nav-gizmo-canvas" data-testid="view-nav-gizmo-canvas" width="96" height="96" aria-label="Interactive 3D XYZ View Gizmo — Click axis or diagonal to orient view, drag to orbit editor camera"></canvas>
+                <span class="view-gizmo-hover-tip" id="view-gizmo-hover-tip" data-testid="view-gizmo-hover-tip" hidden></span>
+              </div>
+              <div class="view-gizmo-subcontrols">
+                <button type="button" class="view-gizmo-mini-btn" id="btn-nav-home-view" data-testid="btn-nav-home-view" title="Reset Editor Viewport to Home View">Home</button>
+                <button type="button" class="view-gizmo-mini-btn" id="btn-nav-proj-toggle" data-testid="btn-nav-proj-toggle" title="Toggle Editor Viewport Projection (Perspective / Orthographic)">Persp</button>
+              </div>
+            </div>
+
+            <div class="viewport-overlay-bottom" id="viewport-hud-bottom">
+              <span><b>Alt+LMB</b> Orbit &middot; <b>Alt+MMB</b> Pan &middot; <b>Alt+RMB / Wheel</b> Zoom &middot; <b>Q/W/E/R</b> Tools &middot; <b>4/5/6/7</b> Shading &middot; <b>Hold Space</b> Hotbox &middot; <b>RMB</b> Marking Menu</span>
+            </div>
+
+            <!-- Maya Context-Sensitive Radial Marking Menu + Action List (Clamped within Viewport Bounds) -->
+            <div class="viewport-context-menu maya-marking-menu" id="viewport-context-menu" data-testid="viewport-context-menu" role="menu" aria-label="Maya Marking Menu" hidden>
+              <div class="ctx-menu-header" id="ctx-menu-title">Marking Menu</div>
+              <!-- Radial Compass Pills (N: Vertex, W: Edge, E: Face, S: Object Mode) -->
+              <div class="mm-compass-grid" data-testid="marking-menu-compass">
+                <button type="button" class="mm-pill mm-north" data-mm-mode="vertex" data-testid="mm-vertex">Vertex (F9)</button>
+                <div class="mm-mid-row">
+                  <button type="button" class="mm-pill mm-west" data-mm-mode="edge" data-testid="mm-edge">Edge (F10)</button>
+                  <span class="mm-center-dot"></span>
+                  <button type="button" class="mm-pill mm-east" data-mm-mode="face" data-testid="mm-face">Face (F11)</button>
+                </div>
+                <button type="button" class="mm-pill mm-south" data-mm-mode="object" data-testid="mm-object">Object Mode (F8)</button>
+              </div>
+              <div class="menu-sep"></div>
+              <button type="button" role="menuitem" data-ctx-cmd="frame" data-testid="ctx-cmd-frame">Frame Selection <kbd>F</kbd></button>
+              <button type="button" role="menuitem" data-ctx-cmd="duplicate" id="ctx-cmd-duplicate" data-testid="ctx-cmd-duplicate">Duplicate <kbd>Ctrl+D</kbd></button>
+              <button type="button" role="menuitem" data-maya-cmd="freeze_transforms" data-testid="ctx-cmd-freeze">Freeze Transformations</button>
+              <button type="button" role="menuitem" data-maya-cmd="center_pivot" data-testid="ctx-cmd-center-pivot">Center Pivot</button>
+              <button type="button" role="menuitem" data-ctx-cmd="reset_transform" id="ctx-cmd-reset-tf" data-testid="ctx-cmd-reset-tf">Reset Transform</button>
+              <div class="menu-sep" id="ctx-mesh-sep" hidden></div>
+              <button type="button" role="menuitem" data-ctx-cmd="extrude" id="ctx-cmd-extrude" hidden>Extrude Selected Faces</button>
+              <button type="button" role="menuitem" data-ctx-cmd="select_boundary" id="ctx-cmd-boundary" hidden>Select Open Hole Loop</button>
+              <button type="button" role="menuitem" data-ctx-cmd="fill_hole" id="ctx-cmd-fill" hidden>Fill Boundary Face</button>
+              <div class="menu-sep"></div>
+              <button type="button" role="menuitem" class="ctx-item-danger" data-ctx-cmd="delete" id="ctx-cmd-delete" data-testid="ctx-cmd-delete">Delete Selected <kbd>Del</kbd></button>
+              <button type="button" role="menuitem" data-ctx-cmd="deselect" data-testid="ctx-cmd-deselect">Clear Selection</button>
+            </div>
+
+            <div class="viewport-banner" id="viewport-banner" data-testid="viewport-banner" hidden></div>
+          </main>
+        </div>
+
+        <!-- Horizontal Resize Splitter between 3D Viewport and Maya Time/Range Slider Dock -->
+        <div class="dock-splitter dock-splitter-h" id="splitter-bottom" data-testid="splitter-bottom" role="separator" aria-orientation="horizontal" title="Drag to resize Time Slider &amp; Bottom Area"></div>
+
+        <!-- BOTTOM REGION: Maya Time Slider + Range Slider + Multi-Editor Dock -->
+        <section class="bottom-dock" id="dock-bottom" data-testid="dock-bottom" aria-label="Maya Time Slider and Bottom Editors">
           <div class="bottom-dock-header">
-            <label class="editor-type-switcher" title="Switch Area Editor Type">
+            <label class="editor-type-switcher" title="Switch Bottom Panel Type">
               <span class="btn-ic" data-icon="timeline" id="bottom-editor-icon"></span>
               <select id="bottom-editor-select" data-testid="bottom-editor-select" aria-label="Bottom Area Editor Type">
-                <option value="timeline">Timeline &amp; Playback</option>
+                <option value="timeline">Time &amp; Range Slider</option>
                 <option value="asset_browser">Asset Browser</option>
-                <option value="console">System Console</option>
-                <option value="shader_foundation">Shader Editor (Foundation)</option>
-                <option value="uv_foundation">UV Editor (Foundation)</option>
-                <option value="geonodes_foundation">Geometry Nodes (Foundation)</option>
-                <option value="compositor_foundation">Compositor (Foundation)</option>
-                <option value="vse_foundation">Video Sequencer (Foundation)</option>
+                <option value="console">Script Editor / Console</option>
+                <option value="shader_foundation">Hypershade Graph (Foundation)</option>
+                <option value="uv_foundation">UV Texture Editor (Foundation)</option>
+                <option value="geonodes_foundation">Bifrost / GeoNodes (Foundation)</option>
+                <option value="compositor_foundation">Render Compositor (Foundation)</option>
+                <option value="vse_foundation">Camera Sequencer (Foundation)</option>
               </select>
             </label>
 
             <div class="bottom-dock-tabs">
-              <button type="button" class="dock-tab is-active" data-bottom-tab="timeline" id="tab-timeline" data-testid="tab-timeline">Timeline</button>
+              <button type="button" class="dock-tab is-active" data-bottom-tab="timeline" id="tab-timeline" data-testid="tab-timeline">Time Slider</button>
               <button type="button" class="dock-tab" data-bottom-tab="asset_browser" id="tab-asset-browser" data-testid="tab-asset-browser">Asset Browser</button>
-              <button type="button" class="dock-tab" data-bottom-tab="console" id="tab-console" data-testid="tab-console">Console</button>
+              <button type="button" class="dock-tab" data-bottom-tab="console" id="tab-console" data-testid="tab-console">Script / Console</button>
             </div>
 
             <div class="bottom-dock-actions">
@@ -511,25 +804,59 @@
           </div>
 
           <div class="bottom-dock-content" id="bottom-dock-content">
-            <!-- Timeline Pane -->
-            <div class="bottom-pane" id="pane-timeline" data-testid="pane-timeline">
-              <div class="timeline-transport">
-                <button type="button" class="tb-btn tb-btn-accent" id="btn-timeline-play" data-testid="btn-timeline-play">
-                  <span class="btn-ic" data-icon="play"></span>
-                  <span id="lbl-timeline-play">Play Rig</span>
-                </button>
-                <label class="tl-frame-box">
-                  <span>Frame</span>
-                  <input type="number" id="timeline-frame-num" data-testid="timeline-frame-num" min="1" max="240" value="1" />
-                </label>
-                <span class="muted-tag">Start: 1 &middot; End: 240</span>
-                <span class="tl-foundation-note">Live Showcase Rig Active &middot; Keyframe Curve Channels: Foundation</span>
-              </div>
-              <div class="timeline-scrubber-wrap">
-                <input type="range" class="timeline-scrubber" id="timeline-scrubber" data-testid="timeline-scrubber" min="1" max="240" value="1" />
-                <div class="timeline-ticks" aria-hidden="true">
-                  <span>1</span><span>40</span><span>80</span><span>120</span><span>160</span><span>200</span><span>240</span>
+            <!-- Maya Time Slider & Range Slider Pane -->
+            <div class="bottom-pane maya-timeline-pane" id="pane-timeline" data-testid="pane-timeline">
+              <!-- Row A: Maya Time Slider Ruler + Current Frame + Playback Transport + Keyframe / AutoKey -->
+              <div class="maya-timeslider-row">
+                <div class="maya-timeslider-track-wrap">
+                  <canvas id="maya-timeslider-canvas" data-testid="maya-timeslider-canvas" height="28" title="Click or drag to scrub animation frame; red ticks mark keyframes"></canvas>
+                  <input type="range" class="timeline-scrubber sr-scrubber-overlay" id="timeline-scrubber" data-testid="timeline-scrubber" min="1" max="240" step="1" value="1" aria-label="Time Slider Frame Scrubber" />
                 </div>
+
+                <label class="tl-frame-box" title="Current Frame">
+                  <input type="number" id="timeline-frame-num" data-testid="timeline-frame-num" min="-9999" max="99999" step="1" value="1" />
+                </label>
+
+                <div class="maya-transport-bar" role="toolbar" aria-label="Playback Controls">
+                  <button type="button" class="tl-btn" id="btn-tl-start" data-testid="btn-tl-start" title="Go to Start of Playback Range">|&lsaquo;</button>
+                  <button type="button" class="tl-btn" id="btn-tl-prev" data-testid="btn-tl-prev" title="Step Back One Frame">&lsaquo;|</button>
+                  <button type="button" class="tb-btn tb-btn-accent" id="btn-timeline-play" data-testid="btn-timeline-play" title="Play / Pause Animation Timeline">
+                    <span class="btn-ic" data-icon="play"></span>
+                    <span id="lbl-timeline-play">Play</span>
+                  </button>
+                  <button type="button" class="tl-btn" id="btn-tl-next" data-testid="btn-tl-next" title="Step Forward One Frame">|&rsaquo;</button>
+                  <button type="button" class="tl-btn" id="btn-tl-end" data-testid="btn-tl-end" title="Go to End of Playback Range">&rsaquo;|</button>
+                </div>
+
+                <div class="maya-key-bar" role="toolbar" aria-label="Keyframe and Auto Key">
+                  <button type="button" class="tb-btn" id="btn-tl-set-key" data-testid="btn-tl-set-key" title="Set Keyframe on Selected Object (S)"><span class="btn-ic" data-icon="keyframe"></span>Key (S)</button>
+                  <button type="button" class="tb-btn" id="btn-tl-del-key" data-testid="btn-tl-del-key" title="Delete Keyframe at Current Frame">-Key</button>
+                  <button type="button" class="tb-btn maya-autokey-btn" id="btn-tl-autokey" data-testid="btn-tl-autokey" title="Auto Keyframe Toggle (Automatically keys animated objects on transform)">Auto Key</button>
+                </div>
+              </div>
+
+              <!-- Row B: Maya Range Slider + FPS + Loop Mode -->
+              <div class="maya-rangeslider-row" data-testid="maya-rangeslider-row">
+                <input type="number" class="tl-bound-input" id="tl-start-frame" data-testid="tl-start-frame" value="1" step="1" title="Animation Start Time" />
+                <input type="number" class="tl-bound-input" id="tl-play-start" data-testid="tl-play-start" value="1" step="1" title="Playback Range Start" />
+                <div class="maya-range-bar" id="maya-range-bar" data-testid="maya-range-bar" title="Playback Sub-Range within Total Scene Range">
+                  <div class="maya-range-thumb" id="maya-range-thumb"></div>
+                </div>
+                <input type="number" class="tl-bound-input" id="tl-play-end" data-testid="tl-play-end" value="120" step="1" title="Playback Range End" />
+                <input type="number" class="tl-bound-input" id="tl-end-frame" data-testid="tl-end-frame" value="240" step="1" title="Animation End Time" />
+
+                <select id="tl-fps-select" data-testid="tl-fps-select" class="tl-select" title="Scene Frame Rate (FPS)">
+                  <option value="12">12 fps</option>
+                  <option value="24" selected>24 fps</option>
+                  <option value="25">25 fps</option>
+                  <option value="30">30 fps</option>
+                  <option value="60">60 fps</option>
+                </select>
+                <select id="tl-loop-select" data-testid="tl-loop-select" class="tl-select" title="Playback Loop Mode">
+                  <option value="continuous" selected>Loop</option>
+                  <option value="once">Play Once</option>
+                  <option value="oscillate">Oscillate</option>
+                </select>
               </div>
             </div>
 
@@ -538,17 +865,17 @@
               <div class="asset-strip" id="asset-browser-list" data-testid="asset-browser-list"></div>
             </div>
 
-            <!-- Console Pane -->
+            <!-- Console / Script Log Pane -->
             <div class="bottom-pane" id="pane-console" data-testid="pane-console" hidden>
               <div class="console-log" id="console-log-list" data-testid="console-log-list"></div>
             </div>
 
-            <!-- Honest Structural Foundation Editor Pane (Shader / UV / GeoNodes / Compositor / VSE) -->
+            <!-- Structural Foundation Editor Pane -->
             <div class="bottom-pane" id="pane-foundation-editor" data-testid="pane-foundation-editor" hidden>
               <div class="foundation-editor-box">
                 <div class="foundation-editor-head">
                   <strong id="fe-pane-title">Editor Foundation</strong>
-                  <span class="studio-status-pill is-planned">ARCHITECTURAL FOUNDATION</span>
+                  <span class="studio-status-pill is-planned">STAGE 1 CORE ARCHITECTURE</span>
                 </div>
                 <p id="fe-pane-desc"></p>
                 <div class="foundation-live-binding" id="fe-pane-binding"></div>
@@ -558,62 +885,155 @@
         </section>
       </div>
 
-      <!-- Vertical Resize Splitter between Center Column and Right Outliner/Properties Dock -->
-      <div class="dock-splitter dock-splitter-v" id="splitter-right" data-testid="splitter-right" role="separator" aria-orientation="vertical" title="Drag to resize Outliner &amp; Properties Area"></div>
+      <!-- Vertical Resize Splitter between Center Column and Right Maya Editors Dock -->
+      <div class="dock-splitter dock-splitter-v" id="splitter-right" data-testid="splitter-right" role="separator" aria-orientation="vertical" title="Drag to resize Right Dock"></div>
 
-      <!-- RIGHT REGION: Blender-Inspired Stacked Outliner + Vertical-Tabbed Properties Editor -->
-      <aside class="studio-dock dock-right" id="dock-right" data-testid="dock-right" aria-label="Scene Outliner and Properties Editor">
-        <!-- Upper Panel: Scene Outliner -->
+      <!-- RIGHT REGION: Maya Outliner + Dedicated Channel Box / Layer Editor + Tabbed Attribute Editor -->
+      <aside class="studio-dock dock-right" id="dock-right" data-testid="dock-right" aria-label="Maya Outliner, Channel Box, Layer Editor, and Attribute Editor">
+        <!-- Upper Panel: Hierarchical Maya Outliner -->
         <section class="outliner-panel" id="panel-outliner" data-testid="panel-outliner">
           <div class="area-header">
             <div class="area-title">
               <span class="btn-ic" data-icon="outliner"></span>
-              <h2>Scene Outliner</h2>
+              <h2>Outliner</h2>
             </div>
             <div class="area-header-actions">
+              <button type="button" class="ghost-btn" data-maya-cmd="group" data-testid="btn-outliner-group" title="Group Selected (Ctrl+G)">Grp</button>
+              <button type="button" class="ghost-btn" data-maya-cmd="parent" data-testid="btn-outliner-parent" title="Parent to Lead Selection (P)">Par</button>
+              <button type="button" class="ghost-btn" data-maya-cmd="unparent" data-testid="btn-outliner-unparent" title="Unparent to World Root (Shift+P)">Unp</button>
               <button type="button" class="ghost-btn" id="btn-clear-selection" data-testid="btn-clear-selection" title="Clear active selection">Deselect</button>
+              <button type="button" class="ghost-btn" id="btn-outliner-dock-toggle" data-testid="btn-outliner-dock-toggle" title="Move Outliner between Left Dock and Right Dock">&#8644;</button>
               <button type="button" class="ghost-btn mp-drawer-close-btn" data-mp-close-drawer="1" title="Collapse drawer to maximize 3D Viewport">&darr; Viewport</button>
-              <button type="button" class="icon-mini-btn desktop-only-btn" id="btn-collapse-right" data-testid="btn-collapse-right" title="Collapse Right Outliner &amp; Inspector">&raquo;</button>
+              <button type="button" class="icon-mini-btn desktop-only-btn" id="btn-collapse-right" data-testid="btn-collapse-right" title="Collapse Right Editors">&raquo;</button>
             </div>
           </div>
           <div class="outliner-search-row">
-            <input type="search" id="outliner-filter" data-testid="outliner-filter" placeholder="Filter scene objects…" autocomplete="off" />
+            <input type="search" id="outliner-filter" data-testid="outliner-filter" placeholder="Search Outliner…" autocomplete="off" />
+            <select id="outliner-type-filter" data-testid="outliner-type-filter" class="outliner-type-select" title="Filter Outliner by Node Type">
+              <option value="all">All</option>
+              <option value="mesh">Meshes</option>
+              <option value="light">Lights</option>
+              <option value="camera">Cameras</option>
+              <option value="group">Groups</option>
+            </select>
           </div>
           <div class="outliner-list" id="outliner-list" data-testid="outliner-list" role="tree" aria-label="Scene hierarchy"></div>
         </section>
 
-        <!-- Horizontal Splitter between Outliner and Properties Inspector -->
-        <div class="dock-splitter dock-splitter-h outliner-splitter" id="splitter-outliner" data-testid="splitter-outliner" role="separator" aria-orientation="horizontal" title="Drag to resize Outliner and Properties height"></div>
+        <!-- Horizontal Splitter between Outliner and Channel Box / Attribute Editor -->
+        <div class="dock-splitter dock-splitter-h outliner-splitter" id="splitter-outliner" data-testid="splitter-outliner" role="separator" aria-orientation="horizontal" title="Drag to resize Outliner height"></div>
 
-        <!-- Lower Panel: Properties / Inspector with Blender Vertical Icon Tab Rail -->
+        <!-- Dedicated Maya Channel Box & Display Layer Editor (Distinct from Attribute Editor!) -->
+        <section class="maya-cb-layer-panel" id="panel-channel-box" data-testid="panel-channel-box" aria-label="Maya Channel Box and Display Layer Editor">
+          <div class="area-header maya-cb-header">
+            <div class="area-title">
+              <span class="btn-ic" data-icon="channelBox"></span>
+              <h2>Channel Box / Layer Editor</h2>
+            </div>
+            <div class="area-header-actions">
+              <button type="button" class="ghost-btn" id="btn-cb-key-all" data-testid="btn-cb-key-all" title="Key Selected Object (S)">Key</button>
+              <button type="button" class="ghost-btn" id="btn-cb-freeze" data-testid="btn-cb-freeze" title="Freeze Transformations">Freeze</button>
+              <button type="button" class="ghost-btn" id="btn-cb-add-attr-toggle" data-testid="btn-cb-add-attr-toggle" title="Add Custom Attribute to Selected Node">+Attr</button>
+            </div>
+          </div>
+
+          <!-- Inline Add Custom Attribute Bar (Togglable) -->
+          <div class="maya-add-attr-bar" id="maya-add-attr-bar" data-testid="maya-add-attr-bar" hidden>
+            <input type="text" id="cb-new-attr-name" data-testid="cb-new-attr-name" placeholder="attrName" autocomplete="off" />
+            <input type="number" id="cb-new-attr-val" data-testid="cb-new-attr-val" value="0" step="0.1" title="Default Value" />
+            <button type="button" class="tb-btn tb-btn-accent" id="btn-cb-create-attr" data-testid="btn-cb-create-attr">Add</button>
+          </div>
+
+          <div class="maya-cb-body" id="maya-cb-body" data-testid="maya-cb-body">
+            <div class="maya-cb-empty" id="maya-cb-empty">No object selected</div>
+            <div class="maya-cb-table-wrap" id="maya-cb-table-wrap" hidden>
+              <div class="maya-cb-node-banner">
+                <strong id="maya-cb-node-name">pCube1</strong>
+                <button type="button" class="ghost-btn" id="btn-cb-lock-node" data-testid="btn-cb-lock-node" title="Lock / Unlock Entire Node">Unlock</button>
+              </div>
+              <div class="maya-cb-rows" id="maya-cb-rows" data-testid="maya-cb-rows"></div>
+            </div>
+          </div>
+
+          <!-- Display Layer Editor -->
+          <div class="maya-layer-editor" id="panel-layer-editor" data-testid="panel-layer-editor">
+            <div class="maya-layer-header">
+              <span class="maya-layer-title"><span class="btn-ic" data-icon="layers"></span>Display Layers</span>
+              <div class="maya-layer-actions">
+                <button type="button" class="ghost-btn" id="btn-layer-create-empty" data-testid="btn-layer-create-empty" title="Create Empty Display Layer">+Empty</button>
+                <button type="button" class="ghost-btn" id="btn-layer-create-selected" data-testid="btn-layer-create-selected" title="Create Layer and Assign Selected Objects">+From Sel</button>
+                <button type="button" class="ghost-btn" id="btn-layer-assign" data-testid="btn-layer-assign" title="Assign Selected Objects to Active Layer">Assign</button>
+              </div>
+            </div>
+            <div class="maya-layer-list" id="maya-layer-list" data-testid="maya-layer-list"></div>
+          </div>
+        </section>
+
+        <!-- Dedicated Maya Tool Settings Panel (Shown when Tool Settings mode is active) -->
+        <section class="maya-tool-settings-panel" id="panel-tool-settings" data-testid="panel-tool-settings" hidden aria-label="Maya Tool Settings">
+          <div class="area-header">
+            <div class="area-title">
+              <span class="btn-ic" data-icon="settings"></span>
+              <h2 id="tool-settings-heading">Tool Settings</h2>
+            </div>
+            <div class="area-header-actions">
+              <button type="button" class="ghost-btn" id="btn-reset-tool-settings" data-testid="btn-reset-tool-settings">Reset Tool</button>
+            </div>
+          </div>
+          <div class="maya-tool-settings-body">
+            <div class="inspector-card">
+              <div class="field-row">
+                <span>Active Tool</span>
+                <strong id="ts-active-tool-label">Move Tool (W)</strong>
+              </div>
+              <label class="field-row">
+                <span>Axis Orient</span>
+                <select id="ts-axis-space" data-testid="ts-axis-space">
+                  <option value="world">World</option>
+                  <option value="local">Object (Local)</option>
+                </select>
+              </label>
+              <label class="field-row">
+                <span>Grid Snap Step</span>
+                <input type="number" id="ts-grid-step" data-testid="ts-grid-step" step="0.25" min="0.05" max="50" value="0.5" />
+              </label>
+              <div class="inline-pair">
+                <button type="button" class="tb-btn" data-maya-cmd="center_pivot">Center Pivot</button>
+                <button type="button" class="tb-btn" data-maya-cmd="edit_pivot">Edit Pivot (D)</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Lower Panel: Maya Node-Tabbed Attribute Editor (Preserves 100% of Stage 5.1-5.4 Inspector Controls) -->
         <section class="properties-shell" id="properties-shell" data-testid="properties-shell">
-          <div class="props-rail" id="inspector-tabs" data-testid="inspector-tabs" role="tablist" aria-label="Properties Categories">
-            <button type="button" class="props-tab is-active" data-insp-tab="object" data-testid="insp-tab-object" title="Object &amp; Transform Properties">
-              <span class="btn-ic" data-icon="objectProps"></span>
+          <div class="props-rail" id="inspector-tabs" data-testid="inspector-tabs" role="tablist" aria-label="Attribute Editor Node Tabs">
+            <button type="button" class="props-tab is-active" data-insp-tab="object" data-testid="insp-tab-object" title="Transform Node Attributes">
+              <span class="btn-ic" data-icon="objectProps"></span><span class="ae-tab-lbl">Transform</span>
             </button>
-            <button type="button" class="props-tab" data-insp-tab="modifiers" data-testid="insp-tab-modifiers" title="Mesh Modeling, Geometry &amp; Modifier Foundation">
-              <span class="btn-ic" data-icon="modifiers"></span>
+            <button type="button" class="props-tab" data-insp-tab="modifiers" data-testid="insp-tab-modifiers" title="Mesh Shape &amp; Polygon Modeling">
+              <span class="btn-ic" data-icon="modifiers"></span><span class="ae-tab-lbl">Shape</span>
             </button>
-            <button type="button" class="props-tab" data-insp-tab="material" data-testid="insp-tab-material" title="PBR Material Properties &amp; Live 3D Sphere Preview">
-              <span class="btn-ic" data-icon="material"></span>
+            <button type="button" class="props-tab" data-insp-tab="data" data-testid="insp-tab-data" title="Camera / Light Shape Node">
+              <span class="btn-ic" data-icon="camera"></span><span class="ae-tab-lbl">Cam/Light</span>
             </button>
-            <button type="button" class="props-tab" data-insp-tab="data" data-testid="insp-tab-data" title="Camera &amp; Directional Light Data">
-              <span class="btn-ic" data-icon="camera"></span>
+            <button type="button" class="props-tab" data-insp-tab="material" data-testid="insp-tab-material" title="StandardSurface PBR Material &amp; 3D Preview">
+              <span class="btn-ic" data-icon="material"></span><span class="ae-tab-lbl">Material</span>
             </button>
-            <button type="button" class="props-tab" data-insp-tab="render" data-testid="insp-tab-render" title="Project Metadata &amp; Engine Telemetry">
-              <span class="btn-ic" data-icon="sceneData"></span>
+            <button type="button" class="props-tab" data-insp-tab="render" data-testid="insp-tab-render" title="Environment IBL, Scene &amp; Telemetry">
+              <span class="btn-ic" data-icon="sceneData"></span><span class="ae-tab-lbl">Env/Scene</span>
             </button>
-            <button type="button" class="props-tab" data-insp-tab="all" data-testid="insp-tab-all" title="Pin All Inspector Sections">
+            <button type="button" class="props-tab" data-insp-tab="all" data-testid="insp-tab-all" title="Show All Attribute Editor Tabs">
               <span class="props-all-txt">ALL</span>
             </button>
           </div>
 
           <div class="props-content-scroll" id="props-content-scroll">
-            <!-- OBJECT, TRANSFORM, MODELING & DATA INSPECTOR -->
+            <!-- OBJECT, TRANSFORM, MODELING & DATA ATTRIBUTE EDITOR -->
             <div id="panel-properties" data-testid="panel-properties">
               <div class="area-header">
                 <div class="area-title">
-                  <h2 id="props-active-heading">Object Properties</h2>
+                  <h2 id="props-active-heading">Attribute Editor</h2>
                 </div>
                 <div class="area-header-actions">
                   <span class="muted-tag" id="inspector-id-badge">None</span>
@@ -1083,13 +1503,20 @@
       <button type="button" class="mp-tab" data-mp-drawer="console" data-testid="mp-tab-console"><span class="btn-ic" data-icon="console"></span><span>Console</span></button>
     </nav>
 
-    <!-- STUDIO STATUS BAR -->
-    <footer class="studio-statusbar">
-      <div class="status-left">
+    <!-- MAYA COMMAND LINE & HELP LINE FOOTER -->
+    <footer class="studio-statusbar maya-command-footer" data-testid="maya-command-footer">
+      <div class="maya-cmdline-wrap">
+        <span class="maya-cmd-lang-pill" title="Safe Structured FE3D Command Parser (Zero eval)">FE3D</span>
+        <form id="maya-command-form" class="maya-command-form" autocomplete="off">
+          <input type="text" id="maya-command-input" data-testid="maya-command-input" placeholder="Enter FE3D command (e.g. polyCylinder, move 0 2 0, setAttr tx 3, setKeyframe, help)…" autocomplete="off" aria-label="Maya Command Line" />
+        </form>
+      </div>
+      <div class="status-left maya-cmd-feedback">
         <span class="status-dot" id="status-dot"></span>
         <span id="status-message" data-testid="status-message">Ready</span>
       </div>
-      <div class="status-right">
+      <div class="status-right maya-helpline-wrap">
+        <span class="maya-help-line" id="maya-help-line" data-testid="maya-help-line">Select Tool or Object · Hold Space for Hotbox</span>
         <span class="status-layout-pill" id="status-layout-mode" data-testid="status-layout-mode">Desktop</span>
         <span id="status-renderer" data-testid="status-renderer">WebGL 2.0</span>
       </div>
@@ -1097,12 +1524,80 @@
   </div>
 
   <!-- ===================================================================== -->
-  <!-- PREFERENCES & WORKSPACE SETTINGS MODAL (Non-Scene Persistent Prefs)   -->
+  <!-- MAYA HOLD-SPACEBAR HOTBOX, FLOATING PANEL HOST & SHELF POPUP MENU     -->
+  <!-- ===================================================================== -->
+  <div class="maya-hotbox" id="maya-hotbox" data-testid="maya-hotbox" hidden aria-label="Maya Hotbox">
+    <div class="hotbox-crosshair">
+      <div class="hotbox-zone hotbox-north">
+        <button type="button" class="hb-btn" data-maya-ws="maya_classic">Maya Classic</button>
+        <button type="button" class="hb-btn" data-vp-shading="wireframe">4 Wireframe</button>
+        <button type="button" class="hb-btn" data-vp-shading="shaded">5 Shaded</button>
+        <button type="button" class="hb-btn" data-vp-shading="shaded_textured">6 Textured</button>
+        <button type="button" class="hb-btn" data-maya-cmd="toggle_xray">X-Ray</button>
+      </div>
+      <div class="hotbox-mid">
+        <div class="hotbox-zone hotbox-west">
+          <button type="button" class="hb-btn" data-maya-tool="select">Select (Q)</button>
+          <button type="button" class="hb-btn" data-maya-tool="move">Move (W)</button>
+          <button type="button" class="hb-btn" data-maya-tool="rotate">Rotate (E)</button>
+          <button type="button" class="hb-btn" data-maya-tool="scale">Scale (R)</button>
+          <button type="button" class="hb-btn" data-maya-tool="pivot">Edit Pivot (D)</button>
+        </div>
+        <div class="hotbox-center">
+          <div class="hb-brand">Final Effect 3D</div>
+          <div class="hb-cam-grid">
+            <button type="button" class="hb-btn hb-btn-primary" data-vp-preset="perspective">Perspective</button>
+            <button type="button" class="hb-btn" data-vp-preset="top">Top (+Y)</button>
+            <button type="button" class="hb-btn" data-vp-preset="front">Front (+Z)</button>
+            <button type="button" class="hb-btn" data-vp-preset="right">Side (+X)</button>
+          </div>
+        </div>
+        <div class="hotbox-zone hotbox-east">
+          <button type="button" class="hb-btn" data-maya-cmd="focus_outliner">Outliner</button>
+          <button type="button" class="hb-btn" data-maya-cmd="focus_channel_box">Channel Box</button>
+          <button type="button" class="hb-btn" data-maya-cmd="focus_attribute_editor">Attribute Editor</button>
+          <button type="button" class="hb-btn" data-maya-cmd="freeze_transforms">Freeze Transforms</button>
+          <button type="button" class="hb-btn" data-maya-cmd="center_pivot">Center Pivot</button>
+        </div>
+      </div>
+      <div class="hotbox-zone hotbox-south">
+        <button type="button" class="hb-btn" data-maya-cmd="frame_selection">Frame (F)</button>
+        <button type="button" class="hb-btn" data-maya-cmd="frame_all">Frame All (A)</button>
+        <button type="button" class="hb-btn" data-maya-cmd="set_keyframe">Set Key (S)</button>
+        <button type="button" class="hb-btn" data-maya-cmd="group">Group (Ctrl+G)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating Undocked Panels Host -->
+  <div class="maya-floating-host" id="maya-floating-host" data-testid="maya-floating-host"></div>
+
+  <!-- Shelf Context / Gear Popup Menu -->
+  <div class="maya-popup-menu" id="maya-shelf-popup" data-testid="maya-shelf-popup" hidden></div>
+
+  <!-- Arnold / Final Frame Render View Modal -->
+  <div class="modal-backdrop" id="maya-render-modal" data-testid="maya-render-modal" hidden>
+    <div class="modal-dialog maya-render-dialog" role="dialog" aria-modal="true" aria-labelledby="maya-render-title">
+      <div class="modal-header">
+        <h2 id="maya-render-title">Render View — Final Frame (Grid &amp; Helpers Excluded)</h2>
+        <button type="button" class="ghost-btn" id="btn-close-render-modal" data-testid="btn-close-render-modal">Close</button>
+      </div>
+      <div class="modal-body">
+        <div class="maya-render-preview-wrap">
+          <img id="maya-render-preview-img" data-testid="maya-render-preview-img" alt="Rendered Final Frame" />
+        </div>
+        <div class="maya-render-meta" id="maya-render-meta">Cook-Torrance GGX PBR + Shadow Atlas + SH9/GGX IBL</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- PREFERENCES, HOTKEY EDITOR & WORKSPACE SETTINGS MODAL                 -->
   <!-- ===================================================================== -->
   <div class="modal-backdrop" id="settings-modal" data-testid="settings-modal" hidden>
     <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
       <div class="modal-header">
-        <h2 id="settings-modal-title">Preferences &amp; Workspace Layout</h2>
+        <h2 id="settings-modal-title">Preferences, Hotkey Editor &amp; Workspaces</h2>
         <button type="button" class="ghost-btn" id="btn-close-settings" data-testid="btn-close-settings">Close</button>
       </div>
       <div class="modal-body">
@@ -1118,8 +1613,8 @@
         <label class="pro-field">
           <span>Interface Density</span>
           <select id="pref-ui-density" data-testid="pref-ui-density">
-            <option value="comfortable">Standard Studio Density</option>
-            <option value="compact">High-Density Compact</option>
+            <option value="comfortable">Standard Maya Density</option>
+            <option value="compact">Ultra-Compact High Density</option>
           </select>
         </label>
         <label class="pro-field">
@@ -1128,20 +1623,31 @@
         </label>
         <label class="checkbox-row">
           <input type="checkbox" id="pref-show-hud" data-testid="pref-show-hud" checked />
-          <span>Show 3D Viewport Telemetry &amp; Shortcut Overlay</span>
+          <span>Show 3D Viewport Heads Up Display</span>
         </label>
 
         <div class="modal-actions-row">
           <button type="button" class="pro-btn" id="btn-pref-save-layout" data-testid="btn-pref-save-layout">Save Custom Workspace Layout</button>
           <button type="button" class="pro-btn" id="btn-pref-restore-layout" data-testid="btn-pref-restore-layout">Restore Saved Layout</button>
         </div>
-        <p class="foundation-note-sm">Preferences and custom dock arrangements persist in browser storage independently of <code>.fe3d</code> scene objects and materials.</p>
+
+        <!-- Customizable Maya Hotkey Editor -->
+        <div class="maya-hotkey-editor-box" data-testid="maya-hotkey-editor">
+          <div class="card-header">
+            <h3>Maya Hotkey Map (Customizable)</h3>
+            <button type="button" class="ghost-btn" id="btn-reset-hotkeys" data-testid="btn-reset-hotkeys">Reset Maya Defaults</button>
+          </div>
+          <div class="maya-hotkey-list" id="maya-hotkey-list" data-testid="maya-hotkey-list"></div>
+        </div>
+
+        <p class="foundation-note-sm">Preferences, custom shelves, hotkeys, and dock layouts persist in browser storage independently of <code>.fe3d</code> scene objects and materials.</p>
       </div>
     </div>
   </div>
 
   <script src="studios.js"></script>
   <script src="editor.js"></script>
+  <script src="maya_workspace.js"></script>
   <script src="finaleffect_web.js"></script>
 </body>
 </html>

@@ -711,6 +711,159 @@ EditableMesh EditableMesh::createUvSphere(
     return EditableMesh(std::move(verts), std::move(faces));
 }
 
+EditableMesh EditableMesh::createCylinder(
+    float radius,
+    float height,
+    std::uint32_t sectors,
+    const math::Vec3& base_color) {
+    const float r = std::max(radius, 0.05f);
+    const float half_h = 0.5f * std::max(height, 0.05f);
+    const std::uint32_t sec_count = std::max(sectors, 6u);
+
+    std::vector<EditVertex> verts;
+    verts.reserve(2u + 2u * sec_count);
+    verts.push_back(EditVertex{{0.0f, half_h, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 1.0f}}); // 0: top center
+
+    for (std::uint32_t j = 0; j < sec_count; ++j) {
+        const float theta = (static_cast<float>(j) / static_cast<float>(sec_count)) * math::kTwoPi;
+        const float sx = std::sin(theta);
+        const float cz = std::cos(theta);
+        verts.push_back(EditVertex{{sx * r, half_h, cz * r}, {sx, 0.0f, cz}, {1.0f, 1.0f, 1.0f}});
+    }
+    const std::uint32_t bot_ring = 1u + sec_count;
+    for (std::uint32_t j = 0; j < sec_count; ++j) {
+        const float theta = (static_cast<float>(j) / static_cast<float>(sec_count)) * math::kTwoPi;
+        const float sx = std::sin(theta);
+        const float cz = std::cos(theta);
+        verts.push_back(EditVertex{{sx * r, -half_h, cz * r}, {sx, 0.0f, cz}, {1.0f, 1.0f, 1.0f}});
+    }
+    const auto bot_center = static_cast<std::uint32_t>(verts.size());
+    verts.push_back(EditVertex{{0.0f, -half_h, 0.0f}, {0.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f}});
+
+    std::vector<EditFace> faces;
+    faces.reserve(3u * sec_count);
+    for (std::uint32_t j = 0; j < sec_count; ++j) {
+        const std::uint32_t next_j = (j + 1u) % sec_count;
+        EditFace top_tri;
+        top_tri.corners = {{0u, {0.5f, 0.5f}}, {1u + j, {0.0f, 1.0f}}, {1u + next_j, {1.0f, 1.0f}}};
+        top_tri.color = base_color;
+        faces.push_back(std::move(top_tri));
+
+        EditFace side_quad;
+        side_quad.corners = {
+            {1u + j, {0.0f, 1.0f}},
+            {bot_ring + j, {0.0f, 0.0f}},
+            {bot_ring + next_j, {1.0f, 0.0f}},
+            {1u + next_j, {1.0f, 1.0f}},
+        };
+        side_quad.color = base_color;
+        side_quad.smooth_shading = true;
+        faces.push_back(std::move(side_quad));
+
+        EditFace bot_tri;
+        bot_tri.corners = {{bot_ring + j, {0.0f, 0.0f}}, {bot_center, {0.5f, 0.5f}}, {bot_ring + next_j, {1.0f, 0.0f}}};
+        bot_tri.color = base_color * 0.90f;
+        faces.push_back(std::move(bot_tri));
+    }
+
+    return EditableMesh(std::move(verts), std::move(faces));
+}
+
+EditableMesh EditableMesh::createCone(
+    float radius,
+    float height,
+    std::uint32_t sectors,
+    const math::Vec3& base_color) {
+    const float r = std::max(radius, 0.05f);
+    const float half_h = 0.5f * std::max(height, 0.05f);
+    const std::uint32_t sec_count = std::max(sectors, 6u);
+
+    std::vector<EditVertex> verts;
+    verts.reserve(2u + sec_count);
+    verts.push_back(EditVertex{{0.0f, half_h, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 1.0f}}); // 0: apex
+    for (std::uint32_t j = 0; j < sec_count; ++j) {
+        const float theta = (static_cast<float>(j) / static_cast<float>(sec_count)) * math::kTwoPi;
+        const float sx = std::sin(theta);
+        const float cz = std::cos(theta);
+        verts.push_back(EditVertex{{sx * r, -half_h, cz * r}, {sx, 0.4f, cz}, {1.0f, 1.0f, 1.0f}});
+    }
+    const auto base_center = static_cast<std::uint32_t>(verts.size());
+    verts.push_back(EditVertex{{0.0f, -half_h, 0.0f}, {0.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f}});
+
+    std::vector<EditFace> faces;
+    faces.reserve(2u * sec_count);
+    for (std::uint32_t j = 0; j < sec_count; ++j) {
+        const std::uint32_t next_j = (j + 1u) % sec_count;
+        EditFace side_tri;
+        side_tri.corners = {{0u, {0.5f, 1.0f}}, {1u + j, {0.0f, 0.0f}}, {1u + next_j, {1.0f, 0.0f}}};
+        side_tri.color = base_color;
+        side_tri.smooth_shading = true;
+        faces.push_back(std::move(side_tri));
+
+        EditFace bot_tri;
+        bot_tri.corners = {{1u + j, {0.0f, 0.0f}}, {base_center, {0.5f, 0.5f}}, {1u + next_j, {1.0f, 0.0f}}};
+        bot_tri.color = base_color * 0.88f;
+        faces.push_back(std::move(bot_tri));
+    }
+
+    return EditableMesh(std::move(verts), std::move(faces));
+}
+
+EditableMesh EditableMesh::createTorus(
+    float major_radius,
+    float minor_radius,
+    std::uint32_t major_segments,
+    std::uint32_t minor_segments,
+    const math::Vec3& base_color) {
+    const float R = std::max(major_radius, 0.12f);
+    const float r = std::clamp(minor_radius, 0.03f, R * 0.85f);
+    const std::uint32_t maj_count = std::max(major_segments, 6u);
+    const std::uint32_t min_count = std::max(minor_segments, 6u);
+
+    std::vector<EditVertex> verts;
+    verts.reserve(static_cast<std::size_t>(maj_count) * min_count);
+    for (std::uint32_t i = 0; i < maj_count; ++i) {
+        const float theta = (static_cast<float>(i) / static_cast<float>(maj_count)) * math::kTwoPi;
+        const float st = std::sin(theta);
+        const float ct = std::cos(theta);
+        for (std::uint32_t j = 0; j < min_count; ++j) {
+            const float phi = (static_cast<float>(j) / static_cast<float>(min_count)) * math::kTwoPi;
+            const float sp = std::sin(phi);
+            const float cp = std::cos(phi);
+            const float rc = R + r * cp;
+            const math::Vec3 pos{st * rc, r * sp, ct * rc};
+            const math::Vec3 nrm = math::Vec3{st * cp, sp, ct * cp}.normalized();
+            verts.push_back(EditVertex{pos, nrm, {1.0f, 1.0f, 1.0f}});
+        }
+    }
+
+    std::vector<EditFace> faces;
+    faces.reserve(static_cast<std::size_t>(maj_count) * min_count);
+    for (std::uint32_t i = 0; i < maj_count; ++i) {
+        const std::uint32_t next_i = (i + 1u) % maj_count;
+        for (std::uint32_t j = 0; j < min_count; ++j) {
+            const std::uint32_t next_j = (j + 1u) % min_count;
+            const std::uint32_t v00 = i * min_count + j;
+            const std::uint32_t v10 = next_i * min_count + j;
+            const std::uint32_t v11 = next_i * min_count + next_j;
+            const std::uint32_t v01 = i * min_count + next_j;
+
+            EditFace f;
+            f.corners = {
+                {v00, {0.0f, 0.0f}},
+                {v10, {1.0f, 0.0f}},
+                {v11, {1.0f, 1.0f}},
+                {v01, {0.0f, 1.0f}},
+            };
+            f.color = base_color;
+            f.smooth_shading = true;
+            faces.push_back(std::move(f));
+        }
+    }
+
+    return EditableMesh(std::move(verts), std::move(faces));
+}
+
 std::vector<std::uint32_t> EditableMesh::collectSelectedVertexIndices(
     EditMode mode,
     const MeshElementSelection& selection) const {
