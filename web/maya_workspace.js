@@ -2170,8 +2170,7 @@
     const cmdForm = document.getElementById("maya-command-form");
     const cmdInput = document.getElementById("maya-command-input");
     if (cmdForm && cmdInput) {
-      cmdForm.addEventListener("submit", (ev) => {
-        ev.preventDefault();
+      const submitMayaCommand = () => {
         const text = cmdInput.value.trim();
         if (!text) return;
         commandHistory.push(text);
@@ -2180,10 +2179,18 @@
         saveStoredJson(CMD_HISTORY_KEY, commandHistory);
         dispatch({ action: "execute_command_line", command: text });
         cmdInput.value = "";
+      };
+
+      cmdForm.addEventListener("submit", (ev) => {
+        ev.preventDefault();
+        submitMayaCommand();
       });
 
       cmdInput.addEventListener("keydown", (ev) => {
-        if (ev.key === "ArrowUp" && commandHistory.length > 0) {
+        if (ev.key === "Enter") {
+          ev.preventDefault();
+          submitMayaCommand();
+        } else if (ev.key === "ArrowUp" && commandHistory.length > 0) {
           ev.preventDefault();
           commandHistoryIdx = Math.max(0, commandHistoryIdx - 1);
           cmdInput.value = commandHistory[commandHistoryIdx] || "";

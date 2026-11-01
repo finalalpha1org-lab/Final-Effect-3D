@@ -4198,6 +4198,7 @@
     });
 
     document.querySelectorAll('input[type="text"], input[type="number"]').forEach((input) => {
+      if (input.id === "maya-command-input") return;
       input.addEventListener("keydown", (ev) => {
         if (ev.key === "Enter") {
           ev.preventDefault();

@@ -4348,11 +4348,18 @@ body[data-layout-mode="landscape"] {
   --bottom-dock-h: 78px;
 }
 
+body[data-layout-mode="landscape"] .maya-shelf-icons-row {
+  height: 31px;
+}
+
 body[data-layout-mode="landscape"] .maya-status-line,
+body[data-layout-mode="landscape"] .maya-menuset-menus,
 body[data-layout-mode="landscape"] .maya-shelf-tabs-row,
 body[data-layout-mode="landscape"] #maya-shelf-icons,
 body[data-layout-mode="landscape"] .vp-panel-header-strip,
 body[data-layout-mode="landscape"] .maya-rangeslider-row,
-body[data-layout-mode="landscape"] .maya-command-form {
+body[data-layout-mode="landscape"] .maya-command-form,
+body[data-layout-mode="landscape"] #maya-help-line,
+body[data-layout-mode="portrait"] .maya-menuset-menus {
   display: none !important;
 }

@@ -3141,7 +3141,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await cmdInput.press("Enter");
     const hackedVal = await page.evaluate(() => window.__HACKED__);
     expect(hackedVal).toBeUndefined();
-    await expect(page.getByTestId("status-message")).toContainText("Unknown command");
+    await expect(page.getByTestId("status-message")).toContainText("Unknown FE3D command");
     await cmdInput.blur();
 
     // 3. Hold Spacebar Hotbox & Stationary RMB Radial Marking Menu
