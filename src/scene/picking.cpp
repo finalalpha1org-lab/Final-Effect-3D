@@ -4,7 +4,6 @@
 #include "finaleffect/scene/picking.hpp"
 #include "finaleffect/scene/scene.hpp"
 
-#include <algorithm>
 #include <cmath>
 
 namespace finaleffect::scene {
@@ -38,23 +37,8 @@ std::optional<RaycastHit> raycastScene(
                 continue;
             }
         }
-        if (!obj.mesh_id.has_value() || !options.allow_meshes) {
+        if (!obj.mesh_id.has_value()) {
             continue;
-        }
-        if (options.respect_display_layers) {
-            if (const auto* layer = scene.findObjectDisplayLayer(obj.id);
-                layer != nullptr &&
-                (!layer->visible || layer->display_type != DisplayLayerType::Normal)) {
-                continue;
-            }
-        }
-        if (options.isolated_objects != nullptr) {
-            if (std::find(
-                    options.isolated_objects->begin(),
-                    options.isolated_objects->end(),
-                    obj.id) == options.isolated_objects->end()) {
-                continue;
-            }
         }
 
         const auto* mesh_asset = scene.findMesh(obj.mesh_id.value());

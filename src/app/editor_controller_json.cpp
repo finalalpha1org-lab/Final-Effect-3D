@@ -151,6 +151,13 @@ std::string EditorController::serializeStateJson() const {
     proj.setKey("description", doc.metadata.description);
     proj.setKey("engine_version", doc.metadata.engine_version);
     proj.setKey("scene_name", scene.name());
+    {
+        JsonArray warn_arr;
+        for (const auto& w : doc.load_warnings) {
+            warn_arr.emplace_back(w);
+        }
+        proj.setKey("load_warnings", std::move(warn_arr));
+    }
     root.setKey("project", std::move(proj));
 
     const auto cam_st = session_.activeCameraState();

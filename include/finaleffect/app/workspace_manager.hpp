@@ -32,7 +32,6 @@ enum class WorkspacePreset : std::uint8_t {
     UvEditing = 10,
     Animation2D = 11,
     VideoEditing = 12,
-    MayaClassic = 13,
 };
 
 struct PanelRect {

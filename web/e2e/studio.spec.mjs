@@ -2917,7 +2917,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await page.getByTestId("outliner-item-HeroCube").click();
     const beforeMs = await page.evaluate(() => {
       const s = window.__FE3D_STUDIO__.getState();
-      return { count: s.objects.length, sel: s.viewport.selected_object_id, cam: s.viewport.eye };
+      return { count: s.objects.length, sel: s.viewport.selected_object_id, cam: s.viewport.camera_position };
     });
 
     await page.getByTestId("maya-menuset-select").selectOption("rendering");
@@ -2939,7 +2939,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
 
     const afterMs = await page.evaluate(() => {
       const s = window.__FE3D_STUDIO__.getState();
-      return { count: s.objects.length, sel: s.viewport.selected_object_id, cam: s.viewport.eye };
+      return { count: s.objects.length, sel: s.viewport.selected_object_id, cam: s.viewport.camera_position };
     });
     expect(afterMs).toEqual(beforeMs);
 
@@ -2992,13 +2992,13 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
 
     // Alt + LMB Orbit, Alt + MMB Pan, Alt + RMB Dolly Zoom
     const vpRect = await page.locator("#fe3d-canvas").boundingBox();
-    const eye0 = await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.eye.slice());
+    const eye0 = await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.camera_position.slice());
     await page.keyboard.down("Alt");
     await page.mouse.move(vpRect.x + 400, vpRect.y + 300);
     await page.mouse.down({ button: "left" });
     await page.mouse.move(vpRect.x + 490, vpRect.y + 260, { steps: 5 });
     await page.mouse.up({ button: "left" });
-    const eye1 = await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.eye.slice());
+    const eye1 = await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.camera_position.slice());
     expect(Math.hypot(eye1[0] - eye0[0], eye1[1] - eye0[1], eye1[2] - eye0[2])).toBeGreaterThan(0.2);
 
     await page.mouse.move(vpRect.x + 400, vpRect.y + 300);
@@ -3006,7 +3006,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await page.mouse.move(vpRect.x + 470, vpRect.y + 240, { steps: 5 });
     await page.mouse.up({ button: "right" });
     await page.keyboard.up("Alt");
-    const eye2 = await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.eye.slice());
+    const eye2 = await page.evaluate(() => window.__FE3D_STUDIO__.getState().viewport.camera_position.slice());
     expect(Math.hypot(eye2[0] - eye1[0], eye2[1] - eye1[1], eye2[2] - eye1[2])).toBeGreaterThan(0.15);
     // Alt+RMB drag must NOT leave stationary Marking Menu open
     await expect(page.getByTestId("viewport-context-menu")).toBeHidden();
@@ -3135,13 +3135,14 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await cmdInput.type("polyTorus");
     // While typing 'polyTorus' (contains 'r', 's', 'y'), active tool must NOT change and HeroCube must remain selected!
     await cmdInput.press("Enter");
-    await expect(page.getByTestId("outliner-item-Torus")).toBeVisible();
+    await expect(page.getByTestId("outliner-item-pTorus")).toBeVisible();
 
     await cmdInput.fill('eval("window.__HACKED__ = 1")');
     await cmdInput.press("Enter");
     const hackedVal = await page.evaluate(() => window.__HACKED__);
     expect(hackedVal).toBeUndefined();
     await expect(page.getByTestId("status-message")).toContainText("Unknown command");
+    await cmdInput.blur();
 
     // 3. Hold Spacebar Hotbox & Stationary RMB Radial Marking Menu
     await page.locator("#fe3d-canvas").click({ position: { x: 200, y: 200 } });

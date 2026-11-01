@@ -2912,7 +2912,8 @@ body[data-layout-mode="portrait"][data-mp-drawer="console"] .maya-viewport-panel
 body[data-layout-mode="portrait"] .vp-panel-header-strip,
 body[data-layout-mode="portrait"] .maya-shelf-tabs-row,
 body[data-layout-mode="portrait"] #maya-shelf-icons,
-body[data-layout-mode="portrait"] .maya-command-form {
+body[data-layout-mode="portrait"] .maya-command-form,
+body[data-layout-mode="portrait"] #maya-help-line {
   display: none !important;
 }
 
@@ -4088,6 +4089,7 @@ body[data-layout-mode="portrait"] .pro-btn {
   background: #232323;
   border-top: 1px solid #151515;
   gap: 8px;
+  overflow: hidden;
 }
 
 .maya-cmdline-wrap {
