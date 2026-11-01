@@ -7,13 +7,16 @@
 
 ---
 
-## 1. Visual Identity & Brand Differentiation
+## 1. Visual Identity & Brand Differentiation (APPROVED BINDING DECISION)
+
+> **Product Owner Decision Record (`A1 — Binding`):**  
+> **Obsidian Slate · Prism Cyan (`#27B6D9`) · Solar Amber (`#F29D38`)** is the officially approved, permanent visual identity of Final Effect 3D. It must not be replaced with a generic Blender or Autodesk Maya theme. **Coral Emerald (`#38C695`)** is retained strictly as a secondary semantic color for non-lead multi-selection and success states—never as a replacement for Solar Amber.
 
 Final Effect 3D establishes an unmistakable visual signature engineered for **8+ hour low-fatigue 3D workstation sessions**:
 
 * **Why Not Maya Gray (`#2b2b2b` / `#3b3b3b`)?** Legacy neutral warm-grays flatten hierarchy between headers, docks, and recessed inputs.
 * **Why Not Blender Blue-Charcoal (`#303030` / `#4772b3` pill buttons)?** Rounded consumer pills and heavy inner drop-shadows waste horizontal density in numeric matrices.
-* **The Final Effect 3D Signature**: Cool-neutral **Obsidian Slate** surfaces (`2–4%` cool blue-slate undertone for crisp contrast against warm lit 3D models) paired with **Prism Cyan (`#27B6D9`)** for active tools/UI focus and **Solar Amber (`#F29D38`)** exclusively for **Active Lead 3D Selection**, giving artists instantaneous peripheral separation between *UI Chrome Focus* (Cyan) and *Scene Selection State* (Amber/Teal).
+* **The Final Effect 3D Signature**: Cool-neutral **Obsidian Slate** surfaces (`2–4%` cool blue-slate undertone for crisp contrast against warm lit 3D models) paired with **Prism Cyan (`#27B6D9`)** for active tools, UI focus, selected workspace indicators, and primary interaction accents, and **Solar Amber (`#F29D38`)** exclusively for **Active/Lead 3D Object Selection** and its associated **Outliner Lead-Selection Indicator**—giving artists instantaneous peripheral separation between *UI Chrome Focus* (Cyan), *Lead Selection* (Solar Amber), and *Secondary Multi-Selection* (Coral Emerald `#38C695`).
 
 ---
 
@@ -108,14 +111,38 @@ Final Effect 3D establishes an unmistakable visual signature engineered for **8+
 12. **Tree Views (`OutlinerTree`)**: Virtualized `21px` rows (capable of `10,000+` objects at `60 FPS` without DOM bloat), guide lines on hover, drop-target insertion indicators (`above`, `onto-parent`, `below`), and right-aligned action columns.
 13. **Property Sections (`AccordionCard`)**: Collapsible `22px` header with chevron, persistent open/closed state per user workspace, `6px` internal vertical gap.
 14. **Tooltips**: Delayed `350 ms` hover popover showing: **Title**, **1-sentence functional description**, **Keyboard Shortcut pill**, and **FE3D Command equivalent** (e.g., `Command: bevel`).
-15. **Context Menus & 8-Direction Radial Compass**: Stationary `RMB` opens the compact Radial Compass (`110px` radius) + optional secondary linear action list below; cursor movement `> 28px` highlights directional wedge immediately.
+15. **Three Distinct Contextual & Command Menus (Never Combined)**:
+    * **Context Action Menu (`Space`)**: Compact, keyboard-navigable vertical popover (`240px–300px` width) opened for the currently focused editor and active interaction mode (`Object`, `Vertex/Edge/Face`, `Outliner`, `Timeline`, etc.). Supports `Up/Down` arrow traversal, `Enter` to invoke, and `Escape` to dismiss. Pressing `Space` **only opens** the menu—it never executes a destructive or mutating action merely because `Space` was pressed.
+    * **Global Command Palette (`Ctrl+K` or `F3`)**: Centered `520px` fuzzy-search modal indexing every registered application command, menu item, tool, and workspace with shortcut badges.
+    * **8-Direction Radial Action Compass (`Stationary RMB` in 3D Viewport)**: Spatial directional compass (`110px` radius) providing rapid viewport mode and context wedges; cursor movement `> 28px` highlights directional wedges immediately, and `Escape` or clicking outside dismisses cleanly.
 16. **Modal Dialogs**: Non-destructive dark backdrop (`rgba(8, 10, 14, 0.62)`), draggable header, `Escape` cancel, explicit primary/cancel footer buttons, focus-trapped for keyboard navigation.
 17. **Progress Indicators**: Deterministic progress bars with stage text + item count (used only for real asynchronous tasks: WASM boot, large `.fe3dbin` load, HDRI spherical-harmonics bake, multi-sample render, physics bake).
 
 ---
 
-## 5. Core Interaction & Usability Contracts
+## 5. Core Interaction, Approved Keymap & Focus-Guard Contracts
 
-* **Input Focus Guard**: Whenever focus is inside an `<input>`, `<textarea>`, numeric field, or Command Bar, single-key viewport/tool shortcuts (`Q/W/E/R/S/F/Delete/Space/1..7`) are strictly suppressed so typing object names or expressions never mutates the scene accidentally.
-* **Undo/Redo Feedback**: Every undoable mutation updates the footer status pill (`Undid: Extrude Faces`) and marks `ProjectDocument` dirty (`*`). Drag operations (`Gizmo`, `MMB Scrub`, `Color Picker`, `Slider`) coalesce intermediate frames into **one** atomic undo step (`allow_coalesce = true`), while `Escape` mid-drag aborts cleanly back to the pre-drag state.
-* **Configurable UI Scale & HiDPI**: Global `--fe-ui-scale` factor (`0.85`, `1.0`, `1.15`, `1.25`, `1.5`) scales typography and row heights cleanly on `1080p`, `1440p`, and `4K` monitors while keeping the 3D Viewport rendered at native `devicePixelRatio` resolution.
+### 5.1 Approved Global Shortcut Bindings (`A3 — Binding Decision`)
+
+All global shortcuts are registered in the centralized `ShortcutRegistry` (user-remappable in `Preferences -> Keymap` and stored in `AppPreferences`, never inside scene `.fe3d` files):
+
+| Shortcut | Approved Binding Behavior | System Invoked |
+| :--- | :--- | :--- |
+| **`Space`** | **Open Context Action Menu** for the focused editor & active interaction context | System 1: Context Action Menu |
+| **`Shift + Space`** | **Play / Pause** active animation timeline or active physics simulation | Transport / Playback Controller |
+| **`Ctrl + Space`** | **Maximize / Restore** the Studio Area (or Quad Viewport sub-panel) under pointer | Workspace Area Manager |
+| **`Ctrl + K`** or **`F3`** | **Open Global Command Palette** (fuzzy search across all registered commands) | System 2: Global Command Palette |
+| **`RMB` in Viewport** | **Open 8-Direction Radial Action Compass** *(stationary click `< 4px` drag)* | System 3: Radial Action Compass |
+
+> **Superseded Draft Note:** Earlier Stage 0 draft text proposed `Space = Play/Pause` and mentioned `Tab` as an alias for the Radial Compass. Those draft bindings are permanently superseded: `Space` exclusively opens the Context Action Menu, `Shift+Space` controls Play/Pause, `RMB` in the viewport opens the Radial Action Compass, and `Tab` remains available for Object ↔ Edit mode toggling without conflict.
+
+### 5.2 Strict Keyboard Focus Guard & Shortcut Conflict Policy
+
+1. **Text & Numeric Input Supremacy**: Whenever keyboard focus is owned by an `<input>`, `<textarea>`, `[contenteditable]`, `ChannelNumberField`, search box, inline Outliner rename field, or `FE3D` Command Bar:
+   * **`Space` inserts a literal space character (`' '`)** and **never** opens the Context Action Menu.
+   * **`Shift + Space` does not hijack text entry** and **never** triggers Timeline Play/Pause while typing.
+   * All single-key and `Shift`+letter editor/viewport shortcuts (`Q/W/E/R/T/D/Y`, `S`, `F`, `A`, `H`, `X/C/V`, `1..7`, `Delete`, `Backspace`) are strictly suppressed so typing object names (e.g., `"Spot Light 01"`), search queries, or math expressions never mutates the scene or changes tools.
+   * `Escape` blurs/cancels the active input edit (restoring the pre-edit text value), returning focus cleanly to the parent Studio Area.
+2. **Conflict Resolution Precedence**: Active Modal Drag (`Escape`/`RMB` cancel) `>` Text-Editing Focus Guard `>` Open Menu/Modal (`Up/Down/Enter/Escape`) `>` Focused Editor Local Keymap `>` Global Application Keymap.
+3. **Undo/Redo Feedback**: Every undoable mutation updates the footer status pill (`Undid: Extrude Faces`) and marks `ProjectDocument` dirty (`*`). Drag operations (`Gizmo`, `MMB Scrub`, `Color Picker`, `Slider`) coalesce intermediate frames into **one** atomic undo step (`allow_coalesce = true`), while `Escape` mid-drag aborts cleanly back to the pre-drag state.
+4. **Configurable UI Scale & HiDPI**: Global `--fe-ui-scale` factor (`0.85`, `1.0`, `1.15`, `1.25`, `1.5`) scales typography and row heights cleanly on `1080p`, `1440p`, and `4K` monitors while keeping the 3D Viewport rendered at native `devicePixelRatio` resolution.

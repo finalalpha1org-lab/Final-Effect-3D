@@ -54,13 +54,13 @@ The **Home / Project Hub** is the professional entry point to Final Effect 3D. I
   * Right: Conditional **`Resume Active Session (<ProjectName.fe3d>)`** accent button (shown whenever a Studio session is already loaded in memory) + **`Preferences (Ctrl+,)`** button.
 * **Left Navigation Rail (`228px` fixed width on `1920×1080`; `204px` on `1366×768`)**:
   * **Primary CTA Stack**: `+ New Project… (Ctrl+N)` (`Solar Amber` / `Prism Cyan` primary button) and `Open Project… (Ctrl+O)` (opens `.fe3d`, `.fe3d` + `.fe3dbin` pair).
-  * **Hub Views**:
-    1. `Projects & Start` *(Default view: Quick Templates strip + Recent Projects)*
-    2. `Templates` *(Full categorized template browser with metadata setup)*
-    3. `Recovery & Autosave` *(Real autosave ring-buffer snapshots & crash recovery)*
-    4. `Asset Libraries` *(Configured asset directories & starter PBR/Mesh packs as Asset Browser ships)*
-    5. `Learning & Documentation` *(Built-in offline/repo docs viewer: Controls Guide, Shortcut Map, `.fe3d` Spec, Command Grammar)*
-  * **Bottom System Links**: `Application Preferences (Ctrl+,)` and `About / GPU & Version Info`.
+  * **Hub Views (Stage 1 Operational Scope vs. Future Extensions)**:
+    1. `Projects & Start` *(Default view: Quick Templates strip + Recent Projects + Search/Sort)*
+    2. `Templates` *(Categorized real C++ engine templates + New Project configuration)*
+    3. `Recovery & Autosave` *(Connected to real autosave snapshots when implemented, or displays an honest unavailable/not-configured state—never fabricated snapshots)*
+    4. `Preferences (Ctrl+,)` *(Functional settings only: Navigation profile, UI density/scale, Startup view, Recent history management)*
+    5. `About / System Info` *(Truthful application version, commit/build target, graphics backend, `.fe3d` schema version, and GNU GPL v3.0 license)*
+    * *(Future-stage views—such as cross-project `Asset Libraries` (`Stage 6`)—are unlocked strictly when their C++ backing subsystems ship; Stage 1 never renders dead or placeholder navigation tabs.)*
 * **Main Hub Content Area (`flex: 1`, `max-width: 1440px`, scrollable vertically only)**:
   * Top utility row with **Instant Search Input (`Ctrl+F`)**, tag/type filter (`All`, `Pinned ★`, `Bundles`), Sort selector (`LastOpened`, `Name A–Z`, `File Size`), and `Grid` / `Compact Table` view toggle.
 * **Bottom Status Strip (`26px` height)**:
@@ -79,12 +79,12 @@ Clicking a quick template card opens the project immediately with sensible defau
   * `Units & Grid Scale` (`Meters — 1.0`, `Centimeters — 0.01`, `Millimeters — 0.001`; persisted in project metadata/editor settings)
   * `Default Frame Rate` (`24 fps`, `30 fps`, `60 fps` -> initializes `scene::TimelineSettings::fps`)
   * `Initial Workspace` (auto-selected by template, e.g., `Layout`, `Modeling`, `Shading`)
-* **Template Categories** (backed by `EditorController::createNewProject(ProjectTemplate, ...)`):
-  * **General**: `General 3D Scene` (HeroCube, Camera, Key Directional Light, Ground Grid)
-  * **Modeling**: `Clean Modeling Stage` (Empty origin with procedural +Y grid & `Modeling` workspace active)
-  * **LookDev & Shading**: `Shader Ball Studio` (High-tessellation UV sphere + studio softbox HDRI IBL + `Shading` workspace)
-  * **Lighting & Rendering**: `Three-Point Lighting Stage` (Backdrop cyclorama plane + Key/Fill/Rim lights + PCF shadows)
-  * *(Additional categories—`Sculpting Base Mesh`, `Animation Rig Stage`, `2D/VSE Sequence`—are unlocked strictly in the stages that implement their C++ backing systems.)*
+* **Template Categories** (backed directly by real `EditorController::createNewProject(ProjectTemplate, ...)` presets—zero fake templates):
+  * **General (`ProjectTemplate::StarterShowcase`)**: `Starter Showcase` (HeroCube, Camera, Directional Key Light, Ground Grid)
+  * **Minimal (`ProjectTemplate::MinimalCube`)**: `Minimal Cube` (Single centered polygon cube + default camera & light)
+  * **Modeling (`ProjectTemplate::EmptyStage`)**: `Empty Modeling Stage` (Clean origin with procedural `+Y` grid ready for authoring)
+  * **LookDev & Shading (`ProjectTemplate::ShaderBall`)**: `Shader Ball Studio` (UV Shader sphere + PBR material + environment lighting)
+  * *(Additional templates—such as `Three-Point Lighting Stage`, `Sculpting Base Mesh`, `Animation Rig Stage`, and `2D/VSE Sequence`—are exposed only when backed by real C++ template builders.)*
 
 ### 3.2 Open Project (`.fe3d` & `.fe3dbin`)
 * Supports both single-file inline `.fe3d` JSON projects (`v1.0`, `v1.1`, `v1.2`, `v1.3+`) and split binary bundles (`.fe3d` + companion `.fe3dbin`).
@@ -131,11 +131,112 @@ Clicking a quick template card opens the project immediately with sensible defau
 
 ---
 
-## 5. Keyboard Accessibility in the Home Hub
+## 5. Complete Visual Wireframes for All 6 Required Home Views & Dialogs
 
-* `Ctrl+N`: Focus / open New Project configuration
-* `Ctrl+O`: Trigger Open `.fe3d` file dialog
-* `Ctrl+F` or `/`: Focus Project Search input
+### 5.1 Wireframe A — Empty Home State (Clean First Launch, Zero Fake Projects)
+```text
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│ [◈] FINAL EFFECT 3D   v0.6.0 · GPL-3.0 · WebGL 2.0                          [⚙ Prefs]   │
+├──────────────────────┬───────────────────────────────────────────────────────────────────┤
+│  [ + New Project… ]  │  START FROM REAL TEMPLATE                                         │
+│  [ 📂 Open .fe3d… ]  │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌───────────┐ │
+│                      │  │ Starter      │ │ Minimal Cube │ │ Empty Stage  │ │ Shader    │ │
+│  ● Projects & Start  │  │ Showcase     │ │              │ │              │ │ Ball      │ │
+│  ○ Templates         │  └──────────────┘ └──────────────┘ └──────────────┘ └───────────┘ │
+│  ○ Recovery          │  ───────────────────────────────────────────────────────────────  │
+│  ○ Preferences       │  RECENT PROJECTS (0)                                              │
+│  ○ About / System    │  ┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐  │
+│                      │  │  No recent projects yet.                                    │  │
+│                      │  │  Create a project from a template above (Ctrl+N) or open    │  │
+│                      │  │  an existing .fe3d / .fe3dbin project from disk (Ctrl+O).   │  │
+│                      │  └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘  │
+└──────────────────────┴───────────────────────────────────────────────────────────────────┘
+```
+
+### 5.2 Wireframe B — Populated Recent Projects (Grid & Table Modes + Search/Pin)
+```text
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│ [🔍 Filter by name, filename, or path… (Ctrl+F)      ]  Sort:[Last Opened ▾] [⊞ Grid|≡]  │
+├──────────────────────────────────────────────────────────────────────────────────────────┤
+│ ┌───────────────────────┐  ┌───────────────────────┐  ┌───────────────────────┐          │
+│ │ [Real Captured Thumb] │  │ [Neutral No-Thumb SVG]│  │ [⚠ Missing on Disk]   │          │
+│ │ ★ Robot_Arm_v04.fe3d  │  │ Crate_Blockout.fe3d   │  │ Old_Test.fe3d         │          │
+│ │ 14m ago · 42.8 KB     │  │ Yesterday · 9.4 KB    │  │ Path not found        │          │
+│ │ [Open]         [★][⋯] │  │ [Open]         [☆][⋯] │  │ [Locate…]    [Remove] │          │
+│ └───────────────────────┘  └───────────────────────┘  └───────────────────────┘          │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 5.3 Wireframe C — New Project Dialog (`Ctrl+N`)
+```text
+┌─ New Project ─────────────────────────────────────────────────────────────── [✕ Esc] ────┐
+│  Project Name *     [ Untitled Project                                      ]            │
+│  Author             [ Studio Artist                                         ]            │
+│  Template           (●) Starter Showcase   ( ) Minimal Cube                              │
+│                     ( ) Empty Stage        ( ) Shader Ball                               │
+│  Scene Units        [ Meters (1.0) ▾ ]     Frame Rate   [ 24 fps ▾ ]                     │
+│  [!] Unsaved warning (shown ONLY if active Studio session has unsaved edits):            │
+│      "Current project 'Test.fe3d*' has unsaved changes that will be replaced."           │
+├──────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                   [ Cancel (Esc) ]  [ Create Project ▸ ] │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 5.4 Wireframe D — Open Project Flow & Corrupted File Error State (`Ctrl+O`)
+```text
+┌─ Open Project (.fe3d / .fe3dbin) ─────────────────────────────────────────── [✕ Esc] ────┐
+│  ┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐   │
+│  │  Drop a .fe3d file (plus optional companion .fe3dbin) here, or click Browse…      │   │
+│  │                     [ 📂 Browse Local Files… ]                                    │   │
+│  └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘   │
+│  [✓] Load project workspace layout   │ Mode: File System Access API (or Browser Upload)  │
+│  ┌─ ⚠ Failed to Open 'corrupt_mesh.fe3d' ────────────────────────────────────────────┐   │
+│  │ ParseError (line 48, col 12): Expected ',' or ']' in mesh polygon index array.    │   │
+│  │ Your currently open Studio session was preserved without modification.            │   │
+│  └───────────────────────────────────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 5.5 Wireframe E — Recovery & Autosave Screen (Connected vs. Honest Unavailable State)
+```text
+┌─ Recovery & Autosave ────────────────────────────────────────────────────────────────────┐
+│  CASE 1 (Real Autosave Store Active & Snapshots Present):                                │
+│  ┌─────────────────────────────────────────────────────────────────────────────────────┐ │
+│  │ ● Mech_Torso_v03.fe3d (Autosave Slot 0) · Captured 3m ago · 5 objects · 38.2 KB     │ │
+│  │                                                 [ Recover into Studio ] [ Discard ] │ │
+│  └─────────────────────────────────────────────────────────────────────────────────────┘ │
+│  CASE 2 (Honest Empty / Not-Yet-Enabled State — Zero Fabricated Entries):                │
+│  ┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐   │
+│  │  No recovery snapshots are stored in this environment.                            │   │
+│  │  Save your work explicitly with Ctrl+S (.fe3d) at key milestones.                 │   │
+│  └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘   │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 5.6 Wireframe F — Preferences (`Ctrl+,`) & About / System Info Views
+```text
+┌─ Application Preferences (Stored Separately from Scene .fe3d Files) ──────── [✕ Esc] ────┐
+│  [Interface] [Input & Navigation] [Startup & Files]                                      │
+│  UI Scale / Density      [ 100% (Default Desktop) ▾ ]  (85% · 100% · 115% · 125% · 150%) │
+│  Startup Environment     [ Open Home / Project Hub ▾ ] (Hub · Blank Starter Scene)       │
+│  Viewport Navigation     [ FE3D Hybrid (MMB + Alt) ▾ ] (Hybrid · Blender · Maya)         │
+│  Recent Projects Limit   [ 20 items ▾ ]                [ Clear Unpinned Recent History ] │
+├──────────────────────────────────────────────────────────────────────────────────────────┤
+│  ABOUT / SYSTEM INFO: Final Effect 3D v0.6.0-dev · License: GNU GPL v3.0-or-later        │
+│  Platform: Desktop Web (WASM + WebGL 2.0) / Native Desktop (C++20 + OpenGL 3.3 Core)     │
+│  Renderer: <Real GL_RENDERER / UNMASKED_RENDERER_WEBGL> · Schema: .fe3d v1.3 / .fe3dbin  │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 6. Keyboard Accessibility & Input Focus Guard in the Home Hub
+
+* `Ctrl+N`: Open New Project dialog
+* `Ctrl+O`: Trigger Open `.fe3d` project dialog
+* `Ctrl+F` or `/`: Focus Project Search input (when not already inside a text input)
+* `Ctrl+K` or `F3`: Open Global Command Palette (scoped to Hub actions while in Home Hub)
 * `Ctrl+,`: Open Application Preferences
 * `Enter`: Open highlighted Template or Recent Project card
-* `Escape`: Close modal or return to active 3D Studio session (when `Resume Active Session` is available)
+* `Escape`: Close active dialog/palette or return to active 3D Studio session (when `Resume Active Session` is available)
+* **Strict Focus Guard (`A3`)**: Typing `Space`, `Shift+Space`, `/`, or single-letter keys inside the Search bar or New Project text fields inserts normal characters and never triggers Hub or Studio shortcuts.

@@ -22,13 +22,13 @@ Every editor in Final Effect 3D implements a common architectural interface (`IE
 
 ### Editor 1: Layout / General (`workspace: layout`)
 * **Purpose**: Scene assembly, object blocking, camera staging, lighting placement, and general look-through inspection.
-* **Main UI Layout**: Left Tool Rail (`44px`) | Center `3D Viewport` (`70%` width, Single or Quad 4-View) above `Timeline` (`108px` height) | Right stacked `Scene Outliner` (`32%` height) + `Quick Channels & Inspector` (`68%` height).
+* **Main UI Layout**: Left Tool Rail (`44px`) | **Default Left Dock**: `Scene Outliner & Display Layers` (`220px`, independently resizable/collapsible/redockable) | Center `3D Viewport` (Single or Quad 4-View) above `Timeline` (`88px` height) | **Right Dock**: separate `Quick Channels & Inspector` (`300px`).
 * **Tool Organization**: `Select (Q)`, `Move (W)`, `Rotate (E)`, `Scale (R)`, `Universal (T)`, `Edit Pivot (D)`, plus Quick Shelf primitives (`Cube`, `Sphere`, `Cylinder`, `Cone`, `Torus`, `Plane`, `Camera`, `Lights`, `Empty`).
 * **Menus**: `Object`, `Create`, `Select`, `View`, `Shading`, `Display`, `Panels`.
 * **Tool Settings**: Gizmo Orientation (`World`/`Local`/`View`), Pivot (`Active`/`Median`/`BBox`), Grid/Vertex/Edge Snapping (`Step`, `Angle Step`), Selection Masks.
 * **Properties**: Full Quick Channels + Object Transform, Display Layer, Assigned Material summary, Camera/Light parameters.
-* **Keyboard Shortcuts**: `Q/W/E/R/T/D`, `F` Frame Selection, `A` Frame All, `Ctrl+D` Duplicate, `Ctrl+G` Group, `Ctrl+P` / `Alt+P` Parent/Unparent, `H` Hide, `Shift+H` Show, `4/5/6/7` Shading modes, `Ctrl+Space` Maximize Area.
-* **Mouse Interactions**: `LMB` Click/Box-Select & Gizmo drag; `MMB` / `Alt+LMB` Orbit; `Shift+MMB` / `Alt+MMB` Pan; `Wheel` / `Alt+RMB` Zoom; `RMB` Radial Compass.
+* **Keyboard Shortcuts**: `Q/W/E/R/T/D`, `Space` Context Action Menu, `Shift+Space` Play/Pause, `Ctrl+Space` Maximize Area, `Ctrl+K` / `F3` Global Command Palette, `F` Frame Selection, `A` Frame All, `Ctrl+D` Duplicate, `Ctrl+G` Group, `Ctrl+P` / `Alt+P` Parent/Unparent, `H` Hide, `Shift+H` Show, `4/5/6/7` Shading modes.
+* **Mouse Interactions**: `LMB` Click/Box-Select & Gizmo drag; `MMB` / `Alt+LMB` Orbit; `Shift+MMB` / `Alt+MMB` Pan; `Wheel` / `Alt+RMB` Zoom; `RMB` 8-Direction Radial Action Compass.
 * **Context Menus**: `Duplicate`, `Delete`, `Group`, `Parent/Unparent`, `Center Pivot`, `Freeze Transforms`, `Assign Material ▸`, `Move to Layer ▸`, `Isolate Select`.
 * **Engine Integration**: `StudioSession`, `EditorController`, `TransformGizmo`, `OrbitCameraController`, `Scene`, `picking`. *(Operational today; Quad 4-View & Box Marquee added in Stage 3.)*
 * **Dependencies**: Core `scene`, `rendering`, `app`.
@@ -38,7 +38,7 @@ Every editor in Final Effect 3D implements a common architectural interface (`IE
 
 ### Editor 2: Modeling (`workspace: modeling`)
 * **Purpose**: Direct topological polygon mesh creation, component editing (`Vertex`, `Edge`, `Face`), precision surface beveling/bridging/cutting, and non-destructive modifiers.
-* **Main UI Layout**: Left Modeling Tool Rail (`44px` or `120px` labeled) | Full-height Center `3D Viewport` with Wireframe-on-Shaded enabled by default + bottom-left **Operator Adjust HUD** | Right `Outliner` (`24%`) + `Quick Channels & Geometry/Modifier Inspector` (`76%`) — *Timeline collapsed by default to maximize vertical modeling space*.
+* **Main UI Layout**: Left Modeling Tool Rail (`44px` or `120px` labeled) | **Default Left Dock**: `Scene Outliner` (`200px`, collapsible) | Full-height Center `3D Viewport` with Wireframe-on-Shaded enabled by default + bottom-left **Operator Adjust HUD** | **Right Dock**: separate `Quick Channels & Geometry/Modifier Inspector` (`300px`) — *Timeline collapsed by default to maximize vertical modeling space*.
 * **Tool Organization**:
   * *Transform*: `Select/Marquee (Q)`, `Move (W)`, `Rotate (E)`, `Scale (R)`
   * *Topology*: `Extrude (Ctrl+E)`, `Bevel (Ctrl+B)`, `Bridge`, `Insert Edge Loop (Ctrl+R)`, `Multi-Cut (K)`, `Target Weld`, `Fill Hole`, `Slide Edge`.
@@ -127,7 +127,7 @@ Every editor in Final Effect 3D implements a common architectural interface (`IE
 * **Menus**: `Playback` (`Play/Stop`, `Audio Scrub`, `Frame Dropping`, `Loop / Once / Ping-Pong`), `Key` (`Insert Keyframe`, `Delete Keyframes`, `Interpolation Mode ▸ Constant / Linear / Bezier`, `Handle Type ▸ Auto Clamped / Vector / Free`), `Channel` (`Extrapolation ▸ Constant / Linear / Cyclic`).
 * **Tool Settings**: `Auto Key` toggle, Keying Set filter (`Location`, `Rotation`, `Scale`, `Available`, `Custom Attrs`), Snap Keys (`Nearest Frame`, `Second`), Normalize Curves toggle (in Graph Editor).
 * **Properties**: Selected keyframe exact `(Frame, Value)` numeric fields, Left/Right Bezier handle coordinates, FPS (`24`, `25`, `30`, `60`), Scene Start/End & Playback Sub-Range.
-* **Keyboard Shortcuts**: `Space` (or `Alt+V` per user keymap) Play/Pause; `S` (or `I`) Insert Keyframe; `,` / `.` Previous/Next Keyframe; `Left` / `Right` Step 1 frame; `Shift+Left` / `Shift+Right` Jump to Start/End.
+* **Keyboard Shortcuts**: `Shift+Space` Play/Pause active timeline; `Space` Open Animation Context Action Menu; `S` (or `I`) Insert Keyframe; `,` / `.` Previous/Next Keyframe; `Left` / `Right` Step 1 frame; `Shift+Left` / `Shift+Right` Jump to Start/End.
 * **Mouse Interactions**: Drag playhead to scrub C++ scene at `60 Hz`; box-select & drag keyframe diamonds in Dope Sheet; drag Bezier tangent handles in F-Curve Graph Editor with axis-colored curves (`X`: `#EF5350`, `Y`: `#66BB6A`, `Z`: `#42A5F5`).
 * **Context Menus**: `Insert Key`, `Duplicate Keys`, `Delete Keys`, `Tangent -> Auto Clamped / Linear / Stepped`.
 * **Engine Integration**: `scene::TimelineSettings`, `ObjectAnimationTrack` *(linear TRS operational today; upgraded to per-channel Bezier `AnimationCurve` + Dope Sheet + Graph Editor in **Stage 7**)*.
@@ -191,7 +191,7 @@ Every editor in Final Effect 3D implements a common architectural interface (`IE
 * **Menus**: `Physics` (`Add Active Rigid Body`, `Add Passive Collider`, `Add Particle Emitter`, `Bake All Dynamics`, `Free All Bakes`, `Apply Visual Transform to Scene`).
 * **Tool Settings**: Simulation Substeps per Frame (`1..16`), Solver Iterations, Scene Gravity `(0, -9.81, 0)`, Collision Margin visualization toggle.
 * **Properties**: Rigid Body (`Active`/`Passive`, `Mass`, `Friction`, `Restitution/Bounciness`, `Collision Shape: Box / Sphere / Capsule / Convex Hull / Triangle Mesh`), Particle System (`Emission Rate`, `Lifetime`, `Initial Velocity`, `Instance Mesh`), Frame Cache (`Start`, `End`, `Memory Footprint`).
-* **Keyboard Shortcuts**: `Space` Run/Step live simulation on timeline; `Ctrl+Alt+B` Bake simulation cache.
+* **Keyboard Shortcuts**: `Shift+Space` Play/Pause live simulation on timeline; `Space` Open Physics Context Action Menu; `Ctrl+Alt+B` Bake simulation cache.
 * **Mouse Interactions**: Standard 3D viewport selection + interactive force-field radius/direction handles.
 * **Context Menus**: `Set Active Rigid Body`, `Set Passive Ground Collider`, `Bake to Keyframes`, `Clear Cache`.
 * **Engine Integration**: Deterministic C++20 `physics::PhysicsWorld` + `SimulationCache` integrated into `StudioSession::onUpdate` (**Stage 9**).
@@ -207,7 +207,7 @@ Every editor in Final Effect 3D implements a common architectural interface (`IE
 * **Menus**: `Add Strip` (`3D Scene Camera Strip`, `Image / Sequence`, `Color Solid`, `Crossfade`), `Strip` (`Split [K]`, `Trim Start/End`, `Mute [H]`, `Snap to Playhead`), `Sequence Render`.
 * **Tool Settings**: Ripple Edit toggle, Snap to Strip Edges / Markers, Proxy resolution, Waveform display.
 * **Properties**: Strip `Start Frame`, `Duration`, `Channel`, `Blend Mode` (`Alpha Over`, `Cross`, `Add`, `Multiply`), `Opacity`, `Transform (Pos/Scale/Crop)`, `Fade In/Out`.
-* **Keyboard Shortcuts**: `Space` Play/Pause, `J / K / L` Shuttle Reverse / Pause / Forward, `C` or `K` Razor Split at Playhead, `[` / `]` Trim In/Out.
+* **Keyboard Shortcuts**: `Shift+Space` Play/Pause sequence, `Space` Open Sequencer Context Action Menu, `J / K / L` Shuttle Reverse / Pause / Forward, `C` or `K` Razor Split at Playhead, `[` / `]` Trim In/Out.
 * **Mouse Interactions**: Drag strips across tracks, drag strip left/right trim handles, scrub playhead, zoom timeline horizontally with `Ctrl+Wheel`.
 * **Context Menus**: `Split at Playhead`, `Add Crossfade`, `Link/Unlink Strips`, `Delete (Ripple)`.
 * **Engine Integration**: C++ `sequencer::SequenceTimeline` capable of referencing live `Scene` cameras as **Scene Strips** plus rendered image frames (**Stage 10**).

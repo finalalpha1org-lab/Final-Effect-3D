@@ -29,8 +29,8 @@ Final Effect 3D replaces the fragmented "6 separate Creative Studios" concept (`
 │                                      │    └─ Console & FE3D Command Bar      │
 ├──────────────────────────────────────┴───────────────────────────────────────┤
 │                       GLOBAL APPLICATION OVERLAY SERVICES                    │
-│  [1] Command Palette (Ctrl+K)   [2] Preferences Modal (Ctrl+,)   [3] Dialogs │
-│      Search all tools/menus         Input, UI Scale, GPU, Paths      Save/Rec│
+│  [1] Command Palette (Ctrl+K/F3) [2] Context Menu (Space)  [3] Prefs & Modals│
+│      Search all registered cmds      Focused editor actions    Ctrl+, / Save │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -66,21 +66,26 @@ Level 4: INTERACTION CONTEXT & ACTIVE TOOL (Inside the Focused Editor)
        └── Active Tool (Select, Move, Rotate, Scale, Universal, Extrude, Bevel, Loop Cut, Brush…)
 ```
 
-### 2.1 Critical Architectural Rule: Workspaces vs. Editors
-* **An Editor** is a self-contained functional view over C++ engine state (e.g., `3D Viewport`, `UV Editor`, `Shader Node Graph`, `Inspector`, `Scene Outliner`).
+### 2.1 Critical Architectural Rule: Workspaces vs. Editors & Distinct Outliner / Inspector Ownership
+* **An Editor** is a self-contained functional view over C++ engine state (e.g., `3D Viewport`, `Scene Outliner`, `Inspector`, `UV Editor`, `Shader Node Graph`).
+* **Strict Conceptual Separation (`A2 — Binding`)**:
+  * **`Scene Outliner`** is a dedicated **Scene Hierarchy & Display Layer Editor** responsible for scene tree structure, parenting, grouping, visibility/selectability flags, and layer membership.
+  * **`Inspector`** is a separate **Property-Editing Editor** responsible for Quick Channels (`tx/ty/tz`, `rx/ry/rz`, `sx/sy/sz`, `vis`) and deep object/component/material/light/camera attributes.
+  * **Never merge Outliner and Inspector into one conceptual editor.**
+* **Factory-Default Left Outliner Dock (`A2 — Binding`)**: In the redesigned Main Studio, the **Scene Outliner resides in the LEFT dock by default** (independently resizable, collapsible, rearrangeable, and redockable), while the **Inspector resides in the RIGHT dock**. Alternative right-side Outliner arrangements may be chosen or saved by users as custom workspace layouts, but **LEFT is the binding factory default** *(superseding earlier draft proposals that stacked Outliner at top-right above Inspector)*.
 * **A Workspace** is a **named, serializable arrangement of Studio Areas** (split tree + ratios + active editor per area + optional interaction mode hint).
-* Users are **never trapped**: while in the `Modeling` workspace, a user can split the bottom area and switch it to `UV Editor` or `Shader Node Graph` at any time, save that layout as a custom workspace tab (`+`), or reset the workspace to factory defaults (`Workspace -> Reset Current Workspace`).
+* Users are **never trapped**: while in the `Modeling` workspace, a user can split any area, rearrange docks, or switch an area to `UV Editor` or `Shader Node Graph` at any time, save that layout as a custom workspace tab (`+`), or reset the workspace to factory defaults (`Workspace -> Reset Current Workspace`).
 
 ---
 
 ## 3. Global Navigation & Menu Taxonomy
 
-Unlike Maya's shifting Menu Sets (where top-level menus disappear depending on a dropdown), Final Effect 3D keeps a **stable, predictable 8-menu top Application Menu Bar** at all times, while placing mode-specific operations in the **Context Action Strip**, **Left Tool Rail**, **Radial Compass**, and **`Ctrl+K` Command Palette**:
+Unlike Maya's shifting Menu Sets (where top-level menus disappear depending on a dropdown), Final Effect 3D keeps a **stable, predictable 8-menu top Application Menu Bar** at all times, while placing mode-specific operations in the **Context Action Strip**, **Left Tool Rail**, **Context Action Menu (`Space`)**, **8-Direction Radial Action Compass (`RMB` in viewport)**, and **Global Command Palette (`Ctrl+K` / `F3`)**:
 
 | Top-Level Menu | Scope & Responsibilities |
 | :--- | :--- |
 | **1. File** | `New Project…`, `Open Project…`, `Open Recent ▸`, `Save`, `Save As…`, `Save Binary Bundle (.fe3d + .fe3dbin)…`, `Revert`, `Recover Autosave…`, `Import ▸` (`.fe3d`, `.obj`/`.gltf` in planned stages, `.hdr`/`.pfm` HDRI), `Export ▸`, `Project Metadata…`, `Return to Project Hub`. |
-| **2. Edit** | `Undo (Ctrl+Z)`, `Redo (Ctrl+Y / Ctrl+Shift+Z)`, `Repeat Last Action (Shift+R / G)`, `Adjust Last Action…`, `Command Palette… (Ctrl+K)`, `Duplicate (Ctrl+D)`, `Duplicate Linked (Alt+D)`, `Delete (Del)`, `Rename Active (F2)`, `Batch Rename…`, `Preferences… (Ctrl+,)`. |
+| **2. Edit** | `Undo (Ctrl+Z)`, `Redo (Ctrl+Y / Ctrl+Shift+Z)`, `Repeat Last Action (Shift+R / G)`, `Adjust Last Action…`, `Context Action Menu (Space)`, `Command Palette… (Ctrl+K / F3)`, `Duplicate (Ctrl+D)`, `Duplicate Linked (Alt+D)`, `Delete (Del)`, `Rename Active (F2)`, `Batch Rename…`, `Preferences… (Ctrl+,)`. |
 | **3. Create** | Categorized scene object creation: `Mesh ▸` (`Cube`, `Sphere`, `Cylinder`, `Cone`, `Torus`, `Grid Plane`, `Pyramid`), `Light ▸` (`Directional / Sun`, `Point`, `Spot`, `Area`), `Camera`, `Empty / Locator`, `Group Selected (Ctrl+G)`, `Collection / Display Layer`. |
 | **4. Select** | `Select All (Ctrl+A)`, `Deselect All (Alt+A)`, `Invert Selection (Ctrl+I)`, `Box Select (B)`, `Select Hierarchy`, `Select Similar`, `Select Grouped / By Layer`, `Select Boundary Loop` (in Mesh Edit), `Selection Masks ▸` (`Meshes`, `Lights`, `Cameras`, `Empties`). |
 | **5. Object** *(dynamically titled **Mesh** / **Sculpt** / **Armature** when in those modes)* | In `Object` mode: `Transform ▸` (`Move`, `Rotate`, `Scale`, `Reset Transforms`, `Freeze / Apply Transforms`), `Origin / Pivot ▸` (`Center Pivot`, `Pivot to World Origin`, `Edit Pivot`), `Parent (Ctrl+P)`, `Clear Parent (Alt+P)`, `Shade Smooth / Shade Flat`, `Display Layer ▸`, `Lock / Visibility ▸`. In `Mesh Edit` mode: `Extrude`, `Bevel`, `Bridge`, `Insert Edge Loop`, `Multi-Cut`, `Merge / Weld`, `Fill Hole`, `Combine`, `Separate`, `Normals ▸`. |
@@ -94,15 +99,29 @@ Unlike Maya's shifting Menu Sets (where top-level menus disappear depending on a
 
 Final Effect 3D adopts an explicit, unambiguous **Lead Active + Multi-Selection** model in C++ (`StudioSession` / `SelectionSystem`) that powers both Maya-style parenting/boolean ordering and Blender-style active inspection:
 
-1. **Selected Set (`selected_objects: vector<ObjectId>`)**: Zero, one, or many objects currently in the selection set. Rendered with **Prism Cyan (`#27B6D9`)** wireframe/outline accents.
-2. **Active / Lead Object (`active_object: ObjectId`)**: The **most recently clicked** object in `selected_objects`. Rendered with **Solar Amber (`#F29D38`)** highlight.
+1. **Selected Set (`selected_objects: vector<ObjectId>`)**: Zero, one, or many objects currently in the selection set. Non-lead multi-selected objects render with **Coral Emerald (`#38C695`)** secondary selection accents (while **Prism Cyan `#27B6D9`** is reserved strictly for active tools, UI focus, and workspace indicators per Decision `A1`).
+2. **Active / Lead Object (`active_object: ObjectId`)**: The **most recently clicked** object in `selected_objects`. Rendered with **Solar Amber (`#F29D38`)** highlight in both the 3D Viewport and the Outliner lead-selection indicator.
    * **Inspector & Quick Channels** display the `active_object` (with a badge `HeroCube (+3 selected)` and optional `Alt+Enter` / batch-apply toggle to push a channel edit to all selected objects).
    * **Order-Dependent Operations** (`Parent`, `Bridge`, `Light Link`, `Copy Material to Selected`) treat secondary selected objects as **sources/children** and the **Active/Lead Object** as the **target/parent**—consistent across both Outliner `Ctrl+Click` and 3D Viewport `Shift+Click`.
 3. **Component Selection (`MeshElementSelection`)**: When `EditMode` is `Vertex`, `Edge`, or `Face` (or Multi-Component `Shift`-combined mask), selection operates on topology indices of the active mesh object(s), preserving cached selection sets per sub-mode during a modeling session so toggling `Vertex` ↔ `Face` does not unnecessarily destroy selection context.
 
 ---
 
-## 5. Progressive Disclosure of Future Workspaces
+## 5. Binding Keyboard & Menu Disambiguation Architecture (`A3 — Binding`)
+
+Final Effect 3D maintains **three strictly separate fast-access menu systems** plus conflict-free playback and area-maximization bindings:
+
+| Input Trigger | System / Action | Scope & Non-Interference Guarantee |
+| :--- | :--- | :--- |
+| **`Space`** | **Context Action Menu** | Opens a keyboard-navigable menu tailored to the **focused editor & current interaction mode**. Never executes an action merely on `Space` press; closes with `Escape`; suppressed when any text/numeric/command input owns focus (`Space` inserts `' '`). |
+| **`Shift + Space`** | **Play / Pause** | Toggles active animation timeline or simulation playback globally across Studio editors, except when a text/numeric/command input owns focus. |
+| **`Ctrl + Space`** | **Maximize / Restore Area** | Expands or restores the Studio Area (or Quad Viewport sub-panel) currently under the mouse pointer. |
+| **`Ctrl + K` / `F3`** | **Global Command Palette** | Searches all registered application commands, tools, menus, and workspaces across the entire suite. |
+| **`RMB` (Viewport)** | **8-Direction Radial Action Compass** | Directional viewport compass for rapid mode/context switching (`< 4px` stationary right-click). Distinct from both `Space` and `Ctrl+K`. |
+
+---
+
+## 6. Progressive Disclosure of Future Workspaces
 
 Because Stage 0 forbids fake controls while requiring an architecture ready for 13 editors:
 

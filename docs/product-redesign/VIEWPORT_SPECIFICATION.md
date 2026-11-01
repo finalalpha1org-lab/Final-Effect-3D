@@ -42,7 +42,7 @@ Each sub-panel (`0..3`) owns its own:
   2. Iterates visible `ViewportSubPanel` rectangles (`1` in Single, `2` in Two-Up, `4` in Quad):
      * Calls `IRenderDevice::setViewportAndScissor(rect.x, rect.y, rect.w, rect.h)` (converting top-left UI coordinates to bottom-left OpenGL framebuffer coordinates `fb_h - (y + h)` multiplied by `devicePixelRatio`).
      * Clears color + depth inside the scissor rect and calls `Renderer::renderScene(...)` with that sub-panel's `ViewportCameraOverride` and `ViewportDisplayOptions`.
-* **Quick Maximize Sub-Panel (`Space` tap or `Ctrl+Space`)**: Hovering the mouse over any of the 4 quad sub-panels and tapping the maximize shortcut toggles between that single sub-panel at `100%` of the Viewport Area and the 4-panel split instantly.
+* **Quick Maximize Sub-Panel (`Ctrl+Space`)**: Hovering the mouse over any of the 4 quad sub-panels and pressing `Ctrl+Space` toggles between that single sub-panel at `100%` of the Viewport Area and the 4-panel split instantly. *(Pressing `Space` without `Ctrl` opens the Context Action Menu per Decision `A3`, never maximizing a panel.)*
 
 ---
 

@@ -26,8 +26,8 @@ Final Effect 3D operates strictly as a **Desktop Workstation Window** (resizable
 
 | Tier | Resolution | UI Density & Layout Behavior |
 | :--- | :---: | :--- |
-| **Compact Laptop Minimum** | `1366 × 768` (`1.0x` DPI) | Default Left Tool Rail `40px`, Right Inspector `296px`, Outliner `220px` (or stacked), Workspace tabs show scroll chevrons `[‹][›]` only if `> 8` tabs open, 3D Viewport retains `>= 62%` width (`>= 848px`). Zero horizontal scrollbar. |
-| **Primary Full HD Reference** | `1920 × 1080` (`1.0x–1.25x` DPI) | Default comfortable workstation proportions (`44px` Tool Rail, `320px` Inspector, `>= 68%` 3D Viewport pixel share). |
+| **Compact Laptop Minimum** | `1366 × 768` (`1.0x` DPI) | Default Left Tool Rail `40px`, **Default Left Outliner Dock** `196px` (independently collapsible), Right Inspector `288px`, Workspace tabs show scroll chevrons `[‹][›]` only if `> 8` tabs open, 3D Viewport retains `>= 61%` width (`>= 842px`). Zero horizontal scrollbar. |
+| **Primary Full HD Reference** | `1920 × 1080` (`1.0x–1.25x` DPI) | Default workstation proportions (`44px` Left Tool Rail, `220px` **Default Left Outliner Dock**, `300px` separate Right Inspector, `>= 58%` 3D Viewport pixel share with Timeline open and `>= 65%` with Timeline collapsed). |
 | **QHD / 4K HiDPI Workstation** | `2560 × 1440` & `3840 × 2160` (`1.5x–2.0x` DPI) | Vector SVG iconography and CSS/UI layout scale crisply via `devicePixelRatio` + user `--fe-ui-scale` (`85%–150%`); WebGL 2.0 / OpenGL 3.3 renderbuffer allocates exact physical backing pixels (`cssWidth * dpr`, `cssHeight * dpr`) so wireframes, gizmos, and procedural grid lines remain razor-sharp at `200%` scaling. |
 
 ### 2.2 Desktop Input Hardware Requirements

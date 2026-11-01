@@ -33,8 +33,11 @@
 ### 2.3 Save, Save As & Portable Binary Bundles
 * **Inline `.fe3d` Save**: Single self-contained human-readable JSON file—ideal for small/medium scenes and Git version control diffs.
 * **Binary Bundle Save (`.fe3d` + `.fe3dbin`)**: Stores lightweight JSON hierarchy/materials in `<name>.fe3d` and deduplicated binary vertex/polygon/UV/HDRI buffers in `<name>.fe3dbin`—mandatory for high-poly Sculpting (`Stage 5`) and large scenes (`10x–25x` smaller and faster to parse than ASCII float arrays).
-* **Atomic Write Safety (Native Desktop)**: `saveToFile` writes to `<name>.fe3d.tmp`, flushes stream, and performs an atomic filesystem rename over `<name>.fe3d` so a power loss mid-save never truncates the existing file.
-* **Direct Disk Handle Save (Desktop Web)**: Uses the Chromium **File System Access API** (`window.showOpenFilePicker` / `showSaveFilePicker`) when available so **`Ctrl+S` saves directly back to the user's real disk `.fe3d` file** without spawning repetitive `project (1).fe3d` downloads, falling back cleanly to `<a download>` + `IndexedDB` mirror on Firefox/Safari!
+* **Native Desktop vs. Desktop Web Save/Open Parity & Honest Fallback**:
+  * **Native Desktop (`finaleffect_desktop`)**: Reads and writes directly to OS disk paths via `LocalFileSystem`. `saveToFile` writes to `<name>.fe3d.tmp`, flushes stream, and performs an atomic filesystem rename over `<name>.fe3d` so power loss mid-save never truncates an existing file. Recent-project entries store real filesystem paths and verify existence (`exists()`) before opening.
+  * **Desktop Web (`finaleffect_web`)**: Performs runtime **feature detection** for the browser **File System Access API** (`window.showOpenFilePicker` / `window.showSaveFilePicker`):
+    1. **Supported Browsers (Chromium / Edge)**: Retains the user-granted `FileSystemFileHandle` for the session (and optional `IndexedDB` handle store) so `Ctrl+S` writes directly back to the real disk `.fe3d` file after user permission.
+    2. **Fallback Browsers (Firefox / Safari / Restricted Contexts)**: Falls back cleanly to `<input type="file" accept=".fe3d,.fe3dbin">` + drag-and-drop for Open, and deterministic `<a download="<name>.fe3d">` browser export + `IndexedDB` recent-snapshot cache for Save/Save As—displaying honest status copy (`"Exported <name>.fe3d"` rather than falsely claiming silent disk overwrite).
 
 ---
 

@@ -12,9 +12,11 @@
 The **Main 3D Studio** unifies the best ergonomics of modern 3D software into an original, high-density desktop layout:
 
 * **Two-Tier Top Chrome (`56px` total, down from Stage 1's `~118px`)** maximizing vertical 3D Viewport space.
-* **Recursive Studio Area Split Tree (`#studio-area-root`)** allowing any workspace region to split, resize, tab, float, or switch Editor Type.
-* **Unified Dual-Tier Inspector** combining Maya-grade **Quick Channels** (compact numeric matrix + MMB scrub + locks + keys) directly above categorized **Deep Attribute Cards** + **Display Layers**.
-* **Fast Spatial Workflows**: Left **Tool Rail**, **Customizable Quick Shelf**, **8-Direction Radial Compass (`RMB` / `Tab`)**, **In-Viewport Operator HUD**, **`Ctrl+K` Command Palette**, and **Bottom Status + Safe `FE3D` Command Bar**.
+* **Recursive Studio Area Split Tree (`#studio-area-root`)** allowing any workspace region to split, resize, collapse, rearrange, tab, float, or switch Editor Type.
+* **Factory-Default Left Outliner Dock + Separate Right Dual-Tier Inspector (`A2 — Binding`)**:
+  * **Left Dock (`Scene Outliner`)**: Dedicated scene hierarchy and display-layer editor docked on the **LEFT** by default (`220px` initial width, independently resizable, collapsible, rearrangeable, and redockable).
+  * **Right Dock (`Inspector`)**: Separate property-editing editor combining Maya-grade **Quick Channels** (compact numeric matrix + MMB scrub + locks + keys) directly above categorized **Deep Attribute Cards**. Outliner and Inspector are strictly separate conceptual editors and are never merged.
+* **Fast Spatial Workflows & Three Distinct Menus (`A3 — Binding`)**: Left **Tool Rail (`44px`)**, **Customizable Quick Shelf**, **Context Action Menu (`Space`)**, **Global Command Palette (`Ctrl+K` / `F3`)**, **8-Direction Radial Action Compass (`RMB` in viewport)**, **Play / Pause (`Shift+Space`)**, **Area Maximize (`Ctrl+Space`)**, **In-Viewport Operator HUD**, and **Bottom Status + Safe `FE3D` Command Bar**.
 
 ---
 
@@ -26,31 +28,32 @@ The **Main 3D Studio** unifies the best ergonomics of modern 3D software into an
 │                                                              │              Robot_Arm.fe3d*  [🔍 Ctrl+K][⚙]│
 ├──────────────────────────────────────────────────────────────┴─────────────────────────────────────────────┤
 │ [Mode: Object ▾] │ [Space: World ▾] [Pivot: Median ▾] │ [🧲 Grid][Curve][Vert] [Step:0.5] │ [Shelf: ▣ ○ △ +]│ 28px Row 2
-├────┬───────────────────────────────────────────────────────────────┬──────────────────┬────────────────────┤
-│    │ [▣ 3D Viewport ▾]  Persp · Lit PBR · 1x │ [1-View][2-View][4] │ [☷ Outliner ▾]   │ [≡ Inspector ▾]    │ 26px Area
-│[↖] │ ┌───────────────────────────────────────────────────────────┐ │ [🔍 Filter…][+Lyr]│ HeroCube  [Mesh]  │ Headers
-│Sel │ │ FPS: 60 ·Objs: 5 ·Tris: 1.4k                  [  +Y   ]  │ │ ▾ ◈ Scene        │ ────────────────── │
-│[✥] │ │ Selected: HeroCube                            [-X  +X ]  │ │   ▣ HeroCube  👁🔒│ QUICK CHANNELS     │
-│Move│ │                                               [ +Z Persp]│ │   ▣ Pyramid   👁· │ Pos X [  0.000] ·◇ │
-│[↻] │ │                                                           │ │   🎥 MainCam  👁· │ Pos Y [  1.250] L◆ │
-│Rot │ │                    [ 3D SCENE STAGE ]                     │ │   ☀ SunLight  👁· │ Pos Z [  0.000] ·◇ │
-│[⤢] │ │                  (Right-Handed +Y Up)                     │ │ ──────────────── │ Rot X [  0.000] ·◇ │
-│Scl │ │                                                           │ │ DISPLAY LAYERS   │ Rot Y [ 35.000] ·◆ │
-│[⊕] │ │                                                           │ │ [V][P][N] Default│ Rot Z [  0.000] ·◇ │
-│Univ│ │ ┌──────────────────────────┐                              │ │ [V][P][R] RefGeo │ Scl X [  1.000] ·◇ │
-│────│ │ │ ▾ Bevel Edges (Last Op)  │                              │ └──────────────────┤ Scl Y [  1.000] ·◇ │
-│[⌖] │ │ │ Fraction  [====|==] 0.18 │                              │                    │ Scl Z [  1.000] ·◇ │
-│Pvt │ │ │ Segments  [===|===] 3    │                              │ (Note: Outliner &  │ Vis   [✓]       ·◇ │
-│────│ │ └──────────────────────────┘                              │  Inspector can sit │ ────────────────── │
-│[▣] │ └───────────────────────────────────────────────────────────┘ │  stacked in Right │ [Obj][Geo][Mat][Lt]│
-│Box │═══════════════════════════════════════════════════════════════│  Dock OR split    │ ▾ Transform & Pivot│
-│    │ [⏱ Timeline ▾]  [⏮][◀][▶ Play][⏭]  Frame:[ 24 ]  1..120 (24f)│  Left / Right)    │   [Freeze] [Reset] │
-│    │ 1    10    20   [24]   30    40    50    60    80   100   120 │                  │ ▾ PBR Material     │
-│    │ ──◆──────────────┃──────────────────────◆──────────────────── │                  │   [● Preview]      │
-├────┴──────────────────┴────────────────────────────────────────────┴──────────────────┴────────────────────┤
-│ [FE3D ▸] [Enter command (e.g. bevel 0.2 2, select HeroCube)… ] │ LMB: Select · MMB: Orbit · RMB: Compass   │ 24px Footer
+├────┬──────────────────┬───────────────────────────────────────────────────────────────┬────────────────────┤
+│    │ [☷ Outliner ▾][⋮]│ [▣ 3D Viewport ▾]  Persp · Lit PBR · 1x │ [1-View][2-View][4] │ [≡ Inspector ▾] [⋮]│ 26px Area
+│[↖] │ [🔍 Filter…][+Lyr]│ ┌───────────────────────────────────────────────────────────┐ │ HeroCube  [Mesh]   │ Headers
+│Sel │ ▾ ◈ Scene        │ │ FPS: 60 ·Objs: 5 ·Tris: 1.4k                  [  +Y   ]  │ │ ────────────────── │
+│[✥] │ ● ▣ HeroCube 👁🔒│ │ Selected: HeroCube (Solar Amber)              [-X  +X ]  │ │ QUICK CHANNELS     │
+│Move│   ▣ Pyramid  👁· │ │                                               [ +Z Persp]│ │ Pos X [  0.000] ·◇ │
+│[↻] │   🎥 MainCam 👁· │ │                                                           │ │ Pos Y [  1.250] L◆ │
+│Rot │   ☀ SunLight 👁· │ │                    [ 3D SCENE STAGE ]                     │ │ Pos Z [  0.000] ·◇ │
+│[⤢] │ ──────────────── │ │                  (Right-Handed +Y Up)                     │ │ Rot X [  0.000] ·◇ │
+│Scl │ DISPLAY LAYERS   │ │                                                           │ │ Rot Y [ 35.000] ·◆ │
+│[⊕] │ [V][P][N] Default│ │                                                           │ │ Rot Z [  0.000] ·◇ │
+│Univ│ [V][P][R] RefGeo │ │ ┌──────────────────────────┐                              │ │ Scl X [  1.000] ·◇ │
+│────│                  │ │ │ ▾ Bevel Edges (Last Op)  │                              │ │ Scl Y [  1.000] ·◇ │
+│[⌖] │ Default Left Dock│ │ │ Fraction  [====|==] 0.18 │                              │ │ Scl Z [  1.000] ·◇ │
+│Pvt │ 220px (Resizable,│ │ │ Segments  [===|===] 3    │                              │ │ Vis   [✓]       ·◇ │
+│────│ Collapsible,     │ │ └──────────────────────────┘                              │ │ ────────────────── │
+│[▣] │ Redockable)      │ └───────────────────────────────────────────────────────────┘ │ [Obj][Geo][Mat][Lt]│
+│Box │                  │═══════════════════════════════════════════════════════════════│ ▾ Transform & Pivot│
+│    │ (Separate Editor │ [⏱ Timeline ▾]  [⏮][◀][▶ Shift+Space][⏭] Frame:[ 24 ] 1..120 │   [Freeze] [Reset] │
+│    │  from Inspector) │ 1    10    20   [24]   30    40    50    60    80   100   120 │ ▾ PBR Material     │
+│    │                  │ ──◆──────────────┃──────────────────────◆──────────────────── │   [● Preview]      │
+├────┴──────────────────┴───────────────────────────────────────────────────────────────┴────────────────────┤
+│ [FE3D ▸] [Enter command (e.g. bevel 0.2 2, select HeroCube)… ] │ Space: Actions · Shift+Space: Play · RMB  │ 24px Footer
 └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
+*At `1920 × 1080` with `Left Tool Rail (44px)`, `Default Left Outliner Dock (220px)`, `Right Inspector Dock (300px)`, `Top Chrome (56px)`, `Timeline (88px)`, and `Footer (24px)` simultaneously expanded, the Center 3D Viewport occupies `1356 × 912 px` (`59.6%` of total screen pixels; `65.4%` when Timeline is collapsed in `Modeling`/`Shading`, and `>= 70%` when either side dock is collapsed).*
 
 ---
 
@@ -98,12 +101,15 @@ Every interior workspace panel is a **Studio Area** managed by a binary/n-ary sp
   * Dragging any vertical or horizontal splitter updates proportional area ratios in real time (`ResizeObserver` resizes WebGL2/OpenGL viewports without stretching or aspect distortion) and clamps each area to a sensible minimum (`min-width: 200px`, `min-height: 96px`).
 * **Tabbed Area Stacks**: Multiple editors can share one docked Area as tabs (e.g., `Inspector` | `Scene & Environment` in the right dock, or `Timeline` | `Console` | `Asset Browser` in the bottom dock).
 * **Floating Windows**: Tearing off a tab or selecting `Pop Out as Floating Window` mounts that Area inside an elevated, resizable, draggable floating container clamped within the desktop window, with a 1-click `[Dock Back]` button.
-* **Maximize Focused Area (`Ctrl+Space` or `` ` ``)**: Temporarily expands whichever Studio Area is under the mouse cursor to `100%` of the workspace area; pressing `Ctrl+Space` again restores the exact split tree.
+* **Maximize Focused Area (`Ctrl+Space`)**: Temporarily expands whichever Studio Area is under the mouse cursor to `100%` of the workspace area; pressing `Ctrl+Space` again restores the exact split tree. *(Note: `Space` without `Ctrl` opens the Context Action Menu—never maximizes an area.)*
 
-### 3.5 Scene Outliner & Display Layer Panel
-Can be docked at top-right (above Inspector, Blender-style) or full-left (Maya-style—one click via preset or Area move):
+### 3.5 Scene Outliner & Display Layer Panel (Default Left Dock — `A2 Binding`)
+* **Factory-Default Left Position & Layout Mutability**:
+  * Docked on the **LEFT** side of the Main Studio workspace by default (`220px` initial width at `1920 × 1080`, `196px` at `1366 × 768`; resize range `180px–420px`)—superseding earlier draft proposals that placed Outliner at top-right.
+  * Independently **resizable** via its vertical splitter, **collapsible** to zero width via header toggle (`Workspace -> Toggle Outliner`), **rearrangeable**, and **redockable** (including popping out as a floating window or moving to an optional right-side custom user preset).
+  * **Strict Conceptual Separation**: `Scene Outliner` (scene hierarchy & display-layer editor) and `Inspector` (property-editing editor) remain two distinct conceptual editors and are never merged.
 * **Search & Filter Bar**: Instant substring search + type filter (`All`, `Meshes`, `Lights`, `Cameras`, `Groups`).
-* **Hierarchical Tree**: Expand/collapse carets, drag-and-drop reparenting onto target nodes (or between siblings to reorder), `Shift+Click` range select, `Ctrl+Click` toggle select, double-click `F2` inline rename.
+* **Hierarchical Tree**: Virtualized (`O(visible_rows)` for `10,000+` scene nodes), expand/collapse carets, drag-and-drop reparenting onto target nodes (or between siblings to reorder), `Shift+Click` range select, `Ctrl+Click` toggle select, double-click `F2` inline rename. Lead/active selected object displays a **Solar Amber (`#F29D38`)** indicator; secondary selected objects display **Coral Emerald (`#38C695`)**.
 * **Right-Aligned Restriction Toggles per Row**:
   * `👁` Visibility (`visible`)
   * `🔒` Selectability / Lock (`locked`)
@@ -137,14 +143,22 @@ Solves the Maya Channel Box vs. Attribute Editor split cleanly inside one `320px
 
 ---
 
-## 4. Fast Contextual Overlay Controls
+## 4. Fast Contextual & Command Overlay Controls (`A3 — Binding Separation`)
 
-1. **8-Direction Radial Action Compass (`Stationary RMB` or `Tab`)**:
-   * Opens centered at cursor in `< 16 ms`:
+Final Effect 3D keeps its **three fast-access menu systems strictly separate** so each has an unambiguous purpose and muscle-memory trigger:
+
+1. **Context Action Menu (`Space`)**:
+   * Pressing **`Space`** (when no text, numeric, or command-entry input owns focus) opens a compact, keyboard-navigable **Context Action Menu** tailored to the currently focused editor and active interaction mode (`Object`, `Vertex/Edge/Face`, `Outliner`, `Timeline`, etc.).
+   * **Non-Destructive Trigger Rule**: Pressing `Space` **never executes** an action immediately; it strictly opens the menu. Users navigate with `Up/Down` arrows (or filter keys), invoke with `Enter` or `LMB`, and dismiss cleanly with `Escape` or clicking outside.
+2. **Global Command Palette (`Ctrl+K` or `F3`)**:
+   * Centered `520px` modal search input listing **every** registered application command, menu item, tool, workspace, and shortcut with fuzzy matching and recent-command boost.
+3. **8-Direction Radial Action Compass (`Stationary RMB` in 3D Viewport)**:
+   * Opens centered at cursor in `< 16 ms` on stationary right-click (`< 4px` drag) inside the 3D Viewport *(never bound to `Tab` or `Space`)*:
      * **N**: `Vertex Mode` · **E**: `Face Mode` · **S**: `Edge Mode` · **W**: `Object Mode`
      * **NW**: `Frame Selection (F)` · **NE**: `Extrude / Context Op 1` · **SE**: `Bevel / Context Op 2` · **SW**: `Isolate Select`
-   * Supports both click-release on wedge **and** flick-gesture (`RMB press -> drag > 28px toward wedge -> release`).
-2. **In-Viewport Operator Adjust HUD (Bottom-Left of Active Viewport)**:
+   * Supports both click-release on wedge **and** flick-gesture (`RMB press -> drag > 28px toward wedge -> release`), with `Escape` cancel.
+4. **In-Viewport Operator Adjust HUD (Bottom-Left of Active Viewport)**:
    * Appears non-blockingly after running a parametric command (`Create Torus`, `Extrude`, `Bevel`, `Bridge`, `Subdivide`). Modifying any parameter amends the top `CommandStack` entry in-place (`undo` + re-execute with updated parameter) until the user starts the next selection or tool action.
-3. **Global Command Palette (`Ctrl+K` or `F3`)**:
-   * Centered `520px` modal search input listing every registered action, menu item, workspace, and shortcut with fuzzy matching and recent-command boost.
+5. **Transport & Area Maximization Bindings**:
+   * **`Shift + Space`**: Play / Pause active animation timeline or active simulation (suppressed when text/numeric/command inputs own focus).
+   * **`Ctrl + Space`**: Maximize / restore the Studio Area under the pointer.

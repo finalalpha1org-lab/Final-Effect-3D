@@ -114,6 +114,27 @@ enum DirtyDomain : std::uint32_t {
 
 * During a `60 Hz` Gizmo drag or Timeline scrub, **only** `kInspector | kViewport | kTimeline` are serialized (`< 1.5 KB` JSON instead of `250 KB`!), keeping Outliner, Asset Browser, and Material Catalog completely untouched at zero CPU/GC cost.
 * Large pixel buffers (Material Preview `96×96` RGBA, Render View output, UV Checker) continue to transfer via **zero-copy WebAssembly `HEAPU8` pointer views** (`_fe3d_material_preview_ptr`, `_fe3d_render_buffer_ptr`).
+* **Stage 1 → Stage 2 Transition Rule (Zero Polling Loops)**: In Stage 1 (Home / Project Hub + App Shell), UI views update strictly on explicit user actions, file-load callbacks, and C++ `stateRevision()` change notifications—never via `setInterval` full-document JSON polling loops. Stage 2 completes the C++ `DirtyDomainMask` split for all 13 Studio editors.
+
+### 3.3 UI Editor & Panel Lifecycle / Ownership Contract
+
+Every top-level environment (`HomeHubEnvironment`, `MainStudioEnvironment`) and every docked/floating Studio Editor (`IEditorView`: `OutlinerEditor`, `InspectorEditor`, `ViewportEditor`, `TimelineEditor`, etc.) obeys a deterministic 6-method lifecycle managed by `ApplicationShell` and `AreaTreeController`:
+
+```text
+create(descriptor) ──► mount(hostElement, areaId) ──► onDomainUpdate(dirtyMask, slice)
+                                │                                │
+                                ├─► onResize(width, height, dpr) ◄┘
+                                ├─► onFocusChange(isFocused) ──► getContextActions() [for Space menu]
+                                ▼
+                            dispose()  (unsubscribes all listeners & ResizeObservers cleanly; zero leaks)
+```
+
+1. **Strict Ownership Separation**:
+   * **C++ Engine Owns**: Scene graph, `EditableMesh` geometry, materials, lights, cameras, selection sets (`active_object` + `selected_objects`), `CommandStack` undo/redo, and `.fe3d` serialization.
+   * **App Shell Services Own**: `AppPreferences` (`localStorage` / user config dir, strictly separate from scene `.fe3d` files), `RecentProjectsService`, and active environment routing (`Home` ↔ `Studio`).
+   * **UI Editor Instances Own Only Ephemeral View State**: Scroll position, filter input text, collapsed inspector card toggles, and hover highlights. Destroying and remounting any editor panel (`Outliner` in the **Default Left Dock**, `Inspector` in the **Right Dock**, or any split area) loses zero scene or selection data.
+2. **Conceptual Editor Independence (`A2 — Binding`)**: `OutlinerEditor` (`finaleffect.editor.outliner`, factory-default **LEFT dock**) and `InspectorEditor` (`finaleffect.editor.inspector`, **RIGHT dock**) are registered as separate `EditorId` descriptors with independent `DirtyDomain` subscriptions (`kOutliner` vs. `kInspector`) and must never be coupled into one component.
+3. **Centralized Shortcut & Three-Menu Routing (`A3 — Binding`)**: `ShortcutRegistry` sits above individual editors, enforcing the text-input focus guard first, then routing `Space` to the focused editor's `getContextActions()` (**Context Action Menu**), `Shift+Space` to `TransportController::togglePlayPause()`, `Ctrl+Space` to `AreaTreeController::toggleMaximizeHoveredArea()`, `Ctrl+K` / `F3` to `CommandPalette`, and stationary viewport `RMB` to `RadialActionCompass`.
 
 ---
 
