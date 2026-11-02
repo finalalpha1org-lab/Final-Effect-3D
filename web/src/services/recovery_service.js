@@ -8,20 +8,28 @@ const HUB_DB_NAME = "fe3d_stage1_hub_db_v1";
 const RECOVERY_STORE = "recovery_snapshots";
 export const MAX_RECOVERY_RING_SLOTS = 3;
 
+function safeWindowLocalStorage() {
+  try {
+    return typeof window !== "undefined" ? window.localStorage : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function safeWindowIndexedDb() {
+  try {
+    return typeof indexedDB !== "undefined" ? indexedDB : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 export class RecoveryService {
   constructor(options = {}) {
     this.storage =
-      options.storage !== undefined
-        ? options.storage
-        : typeof window !== "undefined"
-        ? window.localStorage
-        : null;
+      options.storage !== undefined ? options.storage : safeWindowLocalStorage();
     this.idbFactory =
-      options.idbFactory !== undefined
-        ? options.idbFactory
-        : typeof indexedDB !== "undefined"
-        ? indexedDB
-        : null;
+      options.idbFactory !== undefined ? options.idbFactory : safeWindowIndexedDb();
     this.forceUnavailable = Boolean(
       options.forceUnavailable ||
         (typeof window !== "undefined" && window.__FE3D_FORCE_RECOVERY_UNAVAILABLE__)

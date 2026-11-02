@@ -329,3 +329,47 @@ test("ShortcutRegistry guards Space, Shift+Space, F3, and Alt shortcuts when tex
   assert.equal(paletteCount, 1);
   assert.equal(navTemplatesCount, 1);
 });
+
+test("Stage 1 services degrade cleanly when browser storage getters throw SecurityError", async () => {
+  const prevWin = globalThis.window;
+  const prevIdb = globalThis.indexedDB;
+  try {
+    const lockedWindow = {};
+    Object.defineProperty(lockedWindow, "localStorage", {
+      configurable: true,
+      get() {
+        throw new Error("SecurityError: localStorage blocked");
+      },
+    });
+    globalThis.window = lockedWindow;
+    Object.defineProperty(globalThis, "indexedDB", {
+      configurable: true,
+      get() {
+        throw new Error("SecurityError: indexedDB blocked");
+      },
+    });
+
+    const prefs = new PreferencesService();
+    prefs.update({ uiScalePercent: 115, defaultAuthor: "LockedSessionArtist" });
+    assert.equal(prefs.get().uiScalePercent, 115);
+
+    const recents = new RecentProjectsService();
+    await recents.recordProject({
+      name: "InMemoryProject",
+      filePath: "/workspace/projects/InMemoryProject.fe3d",
+      jsonText: '{"format":"finaleffect.fe3d","version":"1.3"}',
+    });
+    assert.equal(recents.query().length, 1);
+
+    const recovery = new RecoveryService();
+    const st = await recovery.initialize();
+    assert.equal(st.storageState, "unavailable");
+    assert.equal(st.snapshots.length, 0);
+  } finally {
+    if (prevWin === undefined) delete globalThis.window;
+    else globalThis.window = prevWin;
+    if (prevIdb === undefined) delete globalThis.indexedDB;
+    else Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: prevIdb });
+  }
+});
+

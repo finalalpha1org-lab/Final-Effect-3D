@@ -417,6 +417,52 @@ FE_TEST(Stage1Hub, ExactDirtyStateAcrossEditsUndoRedoBranchAndJsonBridge) {
     FE_EXPECT_FALSE(sys_info.graphics_backend.empty());
 }
 
+FE_TEST(Stage1Hub, DesktopNativeSaveReopenAndInvalidProjectFileHandling) {
+    HeadlessHubRig rig;
+    FE_REQUIRE_TRUE(rig.init());
+
+    // 1. Create ShaderBall project, add a Sphere (3 -> 4 objects), and save to disk
+    FE_REQUIRE_TRUE(static_cast<bool>(app::createNewProjectAtPath(
+        *rig.editor,
+        app::ProjectTemplate::ShaderBall,
+        "ShaderStudioProd",
+        "NativeTD",
+        "/virtual/projects/shader_prod.fe3d",
+        false,
+        rig.mem_fs)));
+    FE_EXPECT_EQ(rig.session->document().scene.objectCount(), static_cast<std::size_t>(3u));
+    FE_REQUIRE_TRUE(static_cast<bool>(rig.editor->executeActionJson(
+        R"({"action":"add_preset","preset":"sphere"})")));
+    FE_EXPECT_EQ(rig.session->document().scene.objectCount(), static_cast<std::size_t>(4u));
+    FE_EXPECT_TRUE(rig.editor->isDocumentDirty());
+
+    rig.session->syncDocumentState(rig.editor->selectedMaterial());
+    FE_REQUIRE_TRUE(static_cast<bool>(
+        rig.session->saveProjectToFile("/virtual/projects/shader_prod.fe3d", rig.mem_fs)));
+    rig.editor->markDocumentSaved();
+    FE_EXPECT_FALSE(rig.editor->isDocumentDirty());
+
+    // 2. Restart a clean Desktop Native session & reopen saved .fe3d
+    HeadlessHubRig reopened_rig;
+    FE_REQUIRE_TRUE(reopened_rig.init());
+    FE_REQUIRE_TRUE(static_cast<bool>(
+        reopened_rig.editor->loadProjectFile("/virtual/projects/shader_prod.fe3d", rig.mem_fs)));
+    FE_EXPECT_EQ(reopened_rig.session->document().metadata.project_name, std::string("ShaderStudioProd"));
+    FE_EXPECT_EQ(reopened_rig.session->document().scene.objectCount(), static_cast<std::size_t>(4u));
+    FE_EXPECT_FALSE(reopened_rig.editor->isDocumentDirty());
+
+    // 3. Invalid/corrupted .fe3d & missing file fail cleanly WITHOUT destroying the active 4-object session!
+    FE_REQUIRE_TRUE(static_cast<bool>(
+        rig.mem_fs.writeTextFile("/virtual/projects/corrupt.fe3d", "{not-valid-json")));
+    const auto corrupt_st = reopened_rig.editor->loadProjectFile("/virtual/projects/corrupt.fe3d", rig.mem_fs);
+    FE_EXPECT_FALSE(static_cast<bool>(corrupt_st));
+    const auto missing_st = reopened_rig.editor->loadProjectFile("/virtual/projects/does_not_exist.fe3d", rig.mem_fs);
+    FE_EXPECT_FALSE(static_cast<bool>(missing_st));
+
+    FE_EXPECT_EQ(reopened_rig.session->document().metadata.project_name, std::string("ShaderStudioProd"));
+    FE_EXPECT_EQ(reopened_rig.session->document().scene.objectCount(), static_cast<std::size_t>(4u));
+}
+
 int main(int argc, char** argv) {
     return finaleffect::testing::runAllTests(argc, argv);
 }

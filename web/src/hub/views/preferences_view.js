@@ -88,7 +88,7 @@ export function createPreferencesView(ctx) {
           <div class="fe-pref-row">
             <div>
               <div style="font-weight: 580;">Viewport Navigation Profile</div>
-              <div class="fe-field-hint">Selects preferred desktop mouse orbit/pan/dolly conventions for Studio sessions.</div>
+              <div class="fe-field-hint">Persists preferred desktop mouse orbit/pan/dolly profile (Studio viewport binding remapping lands in Stage 2).</div>
             </div>
             <select class="fe-select" data-testid="pref-nav-profile-select">
               <option value="fe3d_hybrid" ${prefs.navigationProfile === "fe3d_hybrid" ? "selected" : ""}>Final Effect Hybrid (MMB + Alt-Mouse)</option>

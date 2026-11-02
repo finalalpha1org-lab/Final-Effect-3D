@@ -234,4 +234,233 @@ test.describe("Final Effect 3D Stage 1 — Desktop Home, Project Hub & Preferenc
     await expect(page.getByTestId("pref-nav-profile-select")).toHaveValue("blender");
     await expect(page.getByTestId("pref-author-input")).toHaveValue("Lead LookDev TD");
   });
+
+  test("5. Multi-resolution (1920x1080, 2560x1440, 1366x768) layout, clipping, overflow, WCAG readability, navigation & UI scaling audit", async ({
+    page,
+  }) => {
+    await bootStage1Home(page);
+
+    const viewPairs = [
+      ["projects", "hub-view-projects"],
+      ["templates", "hub-view-templates"],
+      ["new_project", "hub-view-new-project"],
+      ["open_project", "hub-view-open-project"],
+      ["recovery", "hub-view-recovery"],
+      ["preferences", "hub-view-preferences"],
+      ["about", "hub-view-about"],
+    ];
+
+    const resolutions = [
+      { width: 1920, height: 1080, label: "1920x1080" },
+      { width: 2560, height: 1440, label: "2560x1440" },
+      { width: 1366, height: 768, label: "1366x768" },
+    ];
+
+    // Verify WCAG AA contrast ratios (>= 4.5:1) of theme text tokens against dark slate surfaces
+    const contrastAudit = await page.evaluate(() => {
+      function parseHexOrRgb(str) {
+        const s = str.trim();
+        if (s.startsWith("#")) {
+          const hex = s.slice(1);
+          return [
+            parseInt(hex.slice(0, 2), 16),
+            parseInt(hex.slice(2, 4), 16),
+            parseInt(hex.slice(4, 6), 16),
+          ];
+        }
+        const m = s.match(/(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+        return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : [0, 0, 0];
+      }
+      function relLum([r, g, b]) {
+        const lin = [r, g, b].map((v) => {
+          const c = v / 255;
+          return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+        });
+        return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+      }
+      function ratio(fg, bg) {
+        const l1 = relLum(parseHexOrRgb(fg));
+        const l2 = relLum(parseHexOrRgb(bg));
+        return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+      }
+      const cs = getComputedStyle(document.documentElement);
+      const bgElevated = cs.getPropertyValue("--fe-bg-elevated");
+      const bgPanel = cs.getPropertyValue("--fe-bg-panel");
+      return {
+        primaryOnPanel: ratio(cs.getPropertyValue("--fe-text-primary"), bgPanel),
+        secondaryOnElevated: ratio(cs.getPropertyValue("--fe-text-secondary"), bgElevated),
+        mutedOnElevated: ratio(cs.getPropertyValue("--fe-text-muted"), bgElevated),
+      };
+    });
+    expect(contrastAudit.primaryOnPanel).toBeGreaterThanOrEqual(12.0);
+    expect(contrastAudit.secondaryOnElevated).toBeGreaterThanOrEqual(7.0);
+    expect(contrastAudit.mutedOnElevated).toBeGreaterThanOrEqual(4.5);
+
+    for (const res of resolutions) {
+      await page.setViewportSize({ width: res.width, height: res.height });
+      for (const [navId, viewTestId] of viewPairs) {
+        await page.getByTestId(`hub-nav-${navId}`).click();
+        await expect(page.getByTestId(viewTestId)).toBeVisible();
+
+        const audit = await page.evaluate((vpW) => {
+          const issues = [];
+          const docOverflow = document.documentElement.scrollWidth - window.innerWidth;
+          if (docOverflow > 1) issues.push(`docOverflow=${docOverflow}`);
+
+          const checkEls = document.querySelectorAll(
+            ".fe-hub-shell, .fe-hub-topbar, .fe-hub-stage, .fe-panel, .fe-kv-row, .fe-pref-row"
+          );
+          for (const el of checkEls) {
+            if (el.offsetParent === null && !el.classList.contains("fe-hub-shell")) continue;
+            if (el.scrollWidth > el.clientWidth + 2) {
+              issues.push(`horizOverflow:${el.className}:${el.scrollWidth}>${el.clientWidth}`);
+            }
+          }
+
+          const controls = document.querySelectorAll(
+            ".fe-hub-shell .fe-btn, .fe-hub-shell .fe-input, .fe-hub-shell .fe-select, .fe-hub-shell .fe-hub-nav-btn"
+          );
+          for (const ctrl of controls) {
+            if (ctrl.hidden || ctrl.offsetParent === null) continue;
+            const r = ctrl.getBoundingClientRect();
+            const fsPx = parseFloat(getComputedStyle(ctrl).fontSize || "12");
+            if (r.width < 20 || r.height < 20) {
+              issues.push(`tinyControl:${ctrl.dataset.testid || ctrl.className}:${r.width}x${r.height}`);
+            }
+            if (r.left < -1 || r.right > vpW + 1) {
+              issues.push(`clippedHoriz:${ctrl.dataset.testid || ctrl.className}:${r.left}..${r.right}`);
+            }
+            if (fsPx < 9.5) {
+              issues.push(`unreadableFont:${ctrl.dataset.testid || ctrl.className}:${fsPx}px`);
+            }
+          }
+          return issues;
+        }, res.width);
+
+        expect(audit, `Layout audit at ${res.label} on view ${navId}`).toEqual([]);
+      }
+    }
+
+    // Verify proportional UI scaling (85%, 100%, 115%, 125%) at 1366x768 (tightest desktop resolution)
+    await page.setViewportSize({ width: 1366, height: 768 });
+    const measuredTopbarHeights = [];
+    const measuredShellFonts = [];
+    for (const scale of ["85", "100", "115", "125"]) {
+      await page.getByTestId("hub-nav-preferences").click();
+      await page.getByTestId("pref-ui-scale-select").selectOption(scale);
+      const metrics = await page.evaluate(() => {
+        const shell = document.querySelector(".fe-hub-shell");
+        const topbar = document.querySelector(".fe-hub-topbar");
+        return {
+          fontPx: parseFloat(getComputedStyle(shell).fontSize),
+          topbarH: topbar.getBoundingClientRect().height,
+          docOverflow: document.documentElement.scrollWidth - window.innerWidth,
+        };
+      });
+      expect(metrics.docOverflow).toBeLessThanOrEqual(1);
+      measuredShellFonts.push(metrics.fontPx);
+      measuredTopbarHeights.push(metrics.topbarH);
+
+      // Also check About view (long GPU/WebGL strings) at 1366x768 under this scale
+      await page.getByTestId("hub-nav-about").click();
+      const aboutOverflow = await page.evaluate(() => {
+        let maxDiff = 0;
+        for (const row of document.querySelectorAll(".fe-kv-row")) {
+          maxDiff = Math.max(maxDiff, row.scrollWidth - row.clientWidth);
+        }
+        return maxDiff;
+      });
+      expect(aboutOverflow, `About kv-row overflow at scale ${scale}% on 1366x768`).toBeLessThanOrEqual(2);
+    }
+
+    expect(measuredShellFonts[0]).toBeLessThan(measuredShellFonts[1]);
+    expect(measuredShellFonts[1]).toBeLessThan(measuredShellFonts[2]);
+    expect(measuredShellFonts[2]).toBeLessThan(measuredShellFonts[3]);
+    expect(measuredTopbarHeights[1]).toBeLessThan(measuredTopbarHeights[2]);
+    expect(measuredTopbarHeights[2]).toBeLessThan(measuredTopbarHeights[3]);
+  });
+
+  test("6. Desktop Web file picker fallbacks (non-FSA browser + AbortError) and total browser storage lock resilience", async ({
+    browser,
+  }) => {
+    // Part A: Simulate Firefox/Safari Desktop (no showOpenFilePicker / showSaveFilePicker / showDirectoryPicker)
+    const ctxFallback = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    await ctxFallback.addInitScript(() => {
+      delete window.showOpenFilePicker;
+      delete window.showSaveFilePicker;
+      delete window.showDirectoryPicker;
+    });
+    const pageFallback = await ctxFallback.newPage();
+    await bootStage1Home(pageFallback);
+
+    await pageFallback.getByTestId("hub-nav-open_project").click();
+    await expect(pageFallback.getByTestId("hub-view-open-project")).toContainText(
+      "Standard Browser File Input Fallback Active"
+    );
+
+    await pageFallback.getByTestId("hub-nav-new_project").click();
+    await expect(pageFallback.getByTestId("hub-view-new-project")).toContainText(
+      "Workspace Path + Download Portable .fe3d"
+    );
+
+    // Export a valid .fe3d from Starter Showcase, then open it via #file-open-input fallback!
+    await pageFallback.getByTestId("hub-nav-projects").click();
+    await pageFallback.getByTestId("btn-launcher-create").click();
+    await expect(pageFallback.getByTestId("studio-shell")).toBeVisible();
+    const exportedFe3d = await pageFallback.evaluate(() =>
+      window.__FE3D_STUDIO__.exportInlineProject()
+    );
+    expect(exportedFe3d).toContain('"format"');
+
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "fe3d-fallback-open-"));
+    const savedFe3dPath = path.join(tmpDir, "FallbackRoundtrip.fe3d");
+    await fs.writeFile(savedFe3dPath, exportedFe3d, "utf-8");
+
+    await pageFallback.getByTestId("btn-go-home").click();
+    await pageFallback.getByTestId("hub-nav-open_project").click();
+    await pageFallback.locator("#file-open-input").setInputFiles([savedFe3dPath]);
+    await expect(pageFallback.getByTestId("studio-shell")).toBeVisible();
+    await expect(pageFallback.getByTestId("stat-objects-meshes")).toHaveText("5 / 2");
+    await fs.rm(tmpDir, { recursive: true, force: true });
+    await ctxFallback.close();
+
+    // Part B: Simulate native showOpenFilePicker throwing AbortError (user cancelled dialog) -> zero error banner
+    const ctxAbort = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    await ctxAbort.addInitScript(() => {
+      window.showOpenFilePicker = async () => {
+        throw new DOMException("The user aborted a request.", "AbortError");
+      };
+    });
+    const pageAbort = await ctxAbort.newPage();
+    await bootStage1Home(pageAbort);
+    await pageAbort.getByTestId("hub-nav-open_project").click();
+    await pageAbort.getByTestId("btn-open-view-browse").click();
+    await expect(pageAbort.getByTestId("open-project-error")).toBeHidden();
+    await ctxAbort.close();
+
+    // Part C: Simulate locked browser where both localStorage & indexedDB getters throw SecurityError
+    const ctxLocked = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    await ctxLocked.addInitScript(() => {
+      Object.defineProperty(window, "localStorage", {
+        configurable: true,
+        get() {
+          throw new DOMException("Storage disabled by policy", "SecurityError");
+        },
+      });
+      Object.defineProperty(window, "indexedDB", {
+        configurable: true,
+        get() {
+          throw new DOMException("IndexedDB disabled by policy", "SecurityError");
+        },
+      });
+    });
+    const pageLocked = await ctxLocked.newPage();
+    await bootStage1Home(pageLocked);
+    await pageLocked.getByTestId("hub-nav-recovery").click();
+    await expect(pageLocked.getByTestId("recovery-unavailable-state")).toBeVisible();
+    await pageLocked.getByTestId("hub-nav-preferences").click();
+    await pageLocked.getByTestId("pref-ui-scale-select").selectOption("115");
+    await expect(pageLocked.locator("body")).toHaveAttribute("data-fe-ui-scale", "115");
+    await ctxLocked.close();
+  });
 });

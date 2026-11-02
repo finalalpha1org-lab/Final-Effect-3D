@@ -32,6 +32,9 @@ struct CliOptions {
     bool show_help{false};
     bool headless{false};
     bool list_templates{false};
+    bool list_recent{false};
+    bool list_recovery{false};
+    bool capture_recovery{false};
     bool show_system_info{false};
     bool print_preferences{false};
     bool recover_latest{false};
@@ -85,11 +88,14 @@ void printUsage() {
         << "  --height <px>               Initial framebuffer height (default: 720)\n"
         << "  --config-dir <dir>          Override application preferences/hub directory\n"
         << "  --list-templates            List real C++ ProjectTemplate presets and exit\n"
+        << "  --list-recent               Print indexed recent projects JSON and exit\n"
+        << "  --list-recovery             Print recovery storage state and snapshots JSON and exit\n"
         << "  --new-project <file.fe3d>   Initialize and save a new project from --template\n"
         << "  --template <slug>           Template slug: starter | minimal_cube | empty_stage | shader_ball\n"
         << "  --project-name <title>      Title for --new-project\n"
         << "  --overwrite                 Confirm overwriting an existing --new-project path\n"
         << "  --project <file.fe3d>       Load an existing Final Effect 3D project file\n"
+        << "  --capture-recovery          Save a recovery checkpoint for the loaded/active project\n"
         << "  --recover-latest            Recover the most recent autosave snapshot into the session\n"
         << "  --print-preferences         Print persisted application preferences JSON and exit\n"
         << "  --set-pref-scale <pct>      Persist UI scale preference (85 | 100 | 115 | 125)\n"
@@ -117,6 +123,12 @@ bool parseCli(int argc, char** argv, CliOptions& opts) {
             opts.headless = true;
         } else if (arg == "--list-templates") {
             opts.list_templates = true;
+        } else if (arg == "--list-recent") {
+            opts.list_recent = true;
+        } else if (arg == "--list-recovery") {
+            opts.list_recovery = true;
+        } else if (arg == "--capture-recovery") {
+            opts.capture_recovery = true;
         } else if (arg == "--system-info") {
             opts.show_system_info = true;
         } else if (arg == "--print-preferences") {
@@ -270,9 +282,46 @@ int main(int argc, char** argv) {
 
     finaleffect::app::RecentProjectsIndex recent_index{};
     (void)recent_index.loadFromFile(recents_path, engine.fileSystem());
+    if (opts.list_recent) {
+        const auto rows = recent_index.query();
+        std::cout << "{\n  \"count\": " << rows.size() << ",\n  \"entries\": [\n";
+        for (std::size_t i = 0; i < rows.size(); ++i) {
+            const auto& r = rows[i];
+            std::cout << "    {\"id\": \"" << r.id
+                      << "\", \"project_name\": \"" << r.project_name
+                      << "\", \"file_path\": \"" << r.file_path
+                      << "\", \"object_count\": " << r.object_count
+                      << ", \"mesh_count\": " << r.mesh_count
+                      << ", \"exists_on_disk\": " << (r.exists_on_disk ? "true" : "false")
+                      << ", \"pinned\": " << (r.pinned ? "true" : "false") << "}"
+                      << (i + 1 < rows.size() ? "," : "") << '\n';
+        }
+        std::cout << "  ]\n}\n";
+        return EXIT_SUCCESS;
+    }
 
     finaleffect::app::RecoveryService recovery_service{};
     (void)recovery_service.initialize(hub_recovery_dir, engine.fileSystem());
+    if (opts.list_recovery) {
+        const bool avail = recovery_service.storageState() == finaleffect::app::RecoveryStorageState::Available;
+        const auto& snaps = recovery_service.snapshots();
+        std::cout << "{\n  \"storage_state\": \"" << (avail ? "available" : "unavailable")
+                  << "\",\n  \"had_unclean_session\": "
+                  << (recovery_service.hadUncleanPreviousSession() ? "true" : "false")
+                  << ",\n  \"snapshot_count\": " << snaps.size() << ",\n  \"snapshots\": [\n";
+        for (std::size_t i = 0; i < snaps.size(); ++i) {
+            const auto& s = snaps[i];
+            std::cout << "    {\"id\": \"" << s.id
+                      << "\", \"project_name\": \"" << s.project_name
+                      << "\", \"slot_index\": " << s.slot_index
+                      << ", \"object_count\": " << s.object_count
+                      << ", \"byte_size\": " << s.byte_size << "}"
+                      << (i + 1 < snaps.size() ? "," : "") << '\n';
+        }
+        std::cout << "  ]\n}\n";
+        (void)recovery_service.markCleanShutdown(engine.fileSystem());
+        return EXIT_SUCCESS;
+    }
 
     finaleffect::platform::WindowDesc win_desc{
         .title = "Final Effect 3D — Desktop Studio",
@@ -418,6 +467,22 @@ int main(int argc, char** argv) {
         auto imp_st = editor.importInlineProjectJson(serialized.value());
         if (!imp_st) {
             std::cerr << "Failed to activate recovered snapshot: " << imp_st.error().format() << '\n';
+            engine.shutdown();
+            window->shutdown();
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (opts.capture_recovery) {
+        session.syncDocumentState(editor.selectedMaterial());
+        auto snap_res = recovery_service.captureSnapshot(
+            session.document(),
+            editor.activeProjectPath(),
+            "Manual Desktop Checkpoint",
+            nowEpochMillis(),
+            engine.fileSystem());
+        if (!snap_res) {
+            std::cerr << "Failed to capture recovery snapshot: " << snap_res.error().format() << '\n';
             engine.shutdown();
             window->shutdown();
             return EXIT_FAILURE;

@@ -104,15 +104,19 @@ export function sanitizePreferences(input = {}) {
   };
 }
 
+function safeWindowLocalStorage() {
+  try {
+    return typeof window !== "undefined" ? window.localStorage : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 export class PreferencesService {
   constructor(options = {}) {
     this.storageKey = options.storageKey || PREFERENCES_STORAGE_KEY;
     this.storage =
-      options.storage !== undefined
-        ? options.storage
-        : typeof window !== "undefined"
-        ? window.localStorage
-        : null;
+      options.storage !== undefined ? options.storage : safeWindowLocalStorage();
     this.legacyRegistry =
       options.legacyRegistry !== undefined
         ? options.legacyRegistry
@@ -218,7 +222,7 @@ export class PreferencesService {
             : {};
         this.legacyRegistry.savePreferences({
           ...prev,
-          layoutMode: "desktop",
+          layoutMode: prev.layoutMode || "auto",
           defaultAuthor: this.state.defaultAuthor,
           showViewportHud: this.state.showViewportHud,
         });

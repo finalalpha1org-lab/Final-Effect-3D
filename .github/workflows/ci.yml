@@ -183,3 +183,59 @@ jobs:
           name: final-effect-3d-ui-screenshots
           path: build/ci-screenshots/
           if-no-files-found: ignore
+
+      - name: Upload Screenshot 1 - Projects & Start (1920x1080)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-01-projects-start.png
+          path: build/ci-screenshots/stage1-01-projects-start.png
+          if-no-files-found: ignore
+
+      - name: Upload Screenshot 2 - Templates (1920x1080)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-02-templates.png
+          path: build/ci-screenshots/stage1-02-templates.png
+          if-no-files-found: ignore
+
+      - name: Upload Screenshot 3 - New Project (1920x1080)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-03-new-project.png
+          path: build/ci-screenshots/stage1-03-new-project.png
+          if-no-files-found: ignore
+
+      - name: Upload Screenshot 4 - Open Project (1920x1080)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-04-open-project.png
+          path: build/ci-screenshots/stage1-04-open-project.png
+          if-no-files-found: ignore
+
+      - name: Upload Screenshot 5 - Recovery & Autosave (1920x1080)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-05-recovery-autosave.png
+          path: build/ci-screenshots/stage1-05-recovery-autosave.png
+          if-no-files-found: ignore
+
+      - name: Upload Screenshot 6 - Preferences (1920x1080)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-06-preferences.png
+          path: build/ci-screenshots/stage1-06-preferences.png
+          if-no-files-found: ignore
+
+      - name: Upload Screenshot 7 - About & System Information (1920x1080)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-07-about-system-info.png
+          path: build/ci-screenshots/stage1-07-about-system-info.png
+          if-no-files-found: ignore

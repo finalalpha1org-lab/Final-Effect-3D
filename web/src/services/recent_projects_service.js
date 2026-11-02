@@ -39,21 +39,29 @@ function isGenuineDataThumbnail(dataUrl) {
   );
 }
 
+function safeWindowLocalStorage() {
+  try {
+    return typeof window !== "undefined" ? window.localStorage : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function safeWindowIndexedDb() {
+  try {
+    return typeof indexedDB !== "undefined" ? indexedDB : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 export class RecentProjectsService {
   constructor(options = {}) {
     this.storageKey = options.storageKey || RECENT_INDEX_STORAGE_KEY;
     this.storage =
-      options.storage !== undefined
-        ? options.storage
-        : typeof window !== "undefined"
-        ? window.localStorage
-        : null;
+      options.storage !== undefined ? options.storage : safeWindowLocalStorage();
     this.idbFactory =
-      options.idbFactory !== undefined
-        ? options.idbFactory
-        : typeof indexedDB !== "undefined"
-        ? indexedDB
-        : null;
+      options.idbFactory !== undefined ? options.idbFactory : safeWindowIndexedDb();
     this.nowFn = options.nowFn || (() => Date.now());
     this.memoryPayloads = new Map();
     this.fileHandles = new Map();

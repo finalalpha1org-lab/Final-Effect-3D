@@ -41,8 +41,8 @@
 }
 
 .fe-hub-logo {
-  width: 28px;
-  height: 28px;
+  width: calc(28px * var(--fe-ui-scale));
+  height: calc(28px * var(--fe-ui-scale));
   border-radius: var(--fe-radius-sm);
   background: linear-gradient(145deg, rgba(39, 182, 217, 0.22), rgba(25, 29, 36, 0.95));
   border: 1px solid rgba(39, 182, 217, 0.45);
@@ -54,8 +54,8 @@
 }
 
 .fe-hub-logo svg {
-  width: 17px;
-  height: 17px;
+  width: calc(17px * var(--fe-ui-scale));
+  height: calc(17px * var(--fe-ui-scale));
 }
 
 .fe-hub-brand-copy {
@@ -79,13 +79,15 @@
 
 .fe-hub-topbar-center {
   flex: 1;
-  max-width: 440px;
+  min-width: 0;
+  max-width: 460px;
   display: flex;
   justify-content: center;
 }
 
 .fe-hub-cmd-trigger {
   width: 100%;
+  min-width: 0;
   height: calc(32px * var(--fe-ui-scale));
   padding: 0 12px;
   display: flex;
@@ -99,6 +101,13 @@
   font-size: calc(12px * var(--fe-ui-scale));
   cursor: pointer;
   transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+}
+
+.fe-hub-cmd-trigger > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .fe-hub-cmd-trigger:hover {
@@ -116,12 +125,14 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .fe-session-pill {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  max-width: min(280px, 24vw);
   padding: 4px 10px;
   border-radius: 999px;
   background: var(--fe-bg-elevated);
@@ -130,11 +141,19 @@
   color: var(--fe-text-secondary);
 }
 
+.fe-session-pill > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .fe-session-pill-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: var(--fe-semantic-success);
+  flex-shrink: 0;
 }
 
 .fe-session-pill.is-dirty {
@@ -223,8 +242,8 @@
 }
 
 .fe-hub-nav-ic {
-  width: 16px;
-  height: 16px;
+  width: calc(16px * var(--fe-ui-scale));
+  height: calc(16px * var(--fe-ui-scale));
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -237,8 +256,8 @@
 }
 
 .fe-hub-nav-ic svg {
-  width: 15px;
-  height: 15px;
+  width: calc(15px * var(--fe-ui-scale));
+  height: calc(15px * var(--fe-ui-scale));
 }
 
 .fe-hub-nav-badge {
@@ -291,7 +310,7 @@
 }
 
 .fe-hub-container {
-  max-width: 1220px;
+  max-width: min(1560px, 100%);
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -425,8 +444,9 @@
 }
 
 .fe-btn svg {
-  width: 14px;
-  height: 14px;
+  width: calc(14px * var(--fe-ui-scale));
+  height: calc(14px * var(--fe-ui-scale));
+  flex-shrink: 0;
 }
 
 /* Notices & Error Banners */
@@ -855,6 +875,7 @@
 }
 
 .fe-kv-row {
+  min-width: 0;
   padding: 9px 12px;
   border-radius: var(--fe-radius-sm);
   background: var(--fe-bg-elevated);
@@ -866,15 +887,19 @@
 }
 
 .fe-kv-key {
+  flex-shrink: 0;
   font-size: calc(12px * var(--fe-ui-scale));
   color: var(--fe-text-secondary);
 }
 
 .fe-kv-val {
+  min-width: 0;
   font-family: var(--fe-font-mono);
   font-size: calc(11.5px * var(--fe-ui-scale));
   color: var(--fe-text-primary);
   text-align: right;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   user-select: text;
 }
 
@@ -885,6 +910,16 @@
   align-items: center;
   justify-content: space-between;
   gap: 20px;
+}
+
+.fe-pref-row > div:first-child {
+  min-width: 0;
+}
+
+.fe-pref-row .fe-select,
+.fe-pref-row .fe-input {
+  flex-shrink: 0;
+  max-width: 48%;
 }
 
 .fe-pref-row:last-child {
@@ -953,13 +988,13 @@
 
 .fe-dialog-title {
   margin: 0;
-  font-size: 14.5px;
+  font-size: calc(14.5px * var(--fe-ui-scale));
   font-weight: 640;
 }
 
 .fe-dialog-body {
   padding: 16px 18px;
-  font-size: 13px;
+  font-size: calc(13px * var(--fe-ui-scale));
   color: var(--fe-text-secondary);
   display: flex;
   flex-direction: column;
@@ -997,7 +1032,7 @@
   justify-content: space-between;
   gap: 10px;
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--fe-ui-scale));
   text-align: left;
   cursor: pointer;
 }
@@ -1014,6 +1049,7 @@
   background: var(--fe-bg-elevated);
   border: 1px solid var(--fe-border-default);
   font-family: var(--fe-font-mono);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--fe-ui-scale));
   color: var(--fe-text-secondary);
+  flex-shrink: 0;
 }

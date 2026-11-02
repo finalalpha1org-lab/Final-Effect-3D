@@ -31,10 +31,10 @@
   --fe-semantic-danger: #e55353;
   --fe-semantic-danger-muted: rgba(229, 83, 83, 0.15);
 
-  /* Typography */
+  /* Typography (WCAG AA/AAA verified on Obsidian Slate surfaces) */
   --fe-text-primary: #eef2f7;
-  --fe-text-secondary: #9aa4b5;
-  --fe-text-muted: #697386;
+  --fe-text-secondary: #a8b2c3;
+  --fe-text-muted: #8893a7;
   --fe-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --fe-font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 
