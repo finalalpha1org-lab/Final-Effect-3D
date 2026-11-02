@@ -1044,7 +1044,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await assertZeroOverlayCollisions("Android Portrait 360x800");
 
     await page.setViewportSize({ width: 1024, height: 768 });
-    await expect(page.locator("body")).toHaveAttribute("data-layout-mode", "landscape");
+    await expect(page.locator("body")).toHaveAttribute("data-layout-mode", "desktop");
     await assertNoHorizontalOverflow(page);
     await assertZeroOverlayCollisions("Tablet 1024x768");
 
