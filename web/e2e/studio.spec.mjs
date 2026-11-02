@@ -2603,6 +2603,9 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
       mimeType: "application/octet-stream",
       buffer: Buffer.from("CORRUPT_HDR_NOT_RADIANCE_DATA", "utf8"),
     });
+    await expect
+      .poll(async () => (await page.evaluate(() => window.__FE3D_STUDIO__.getState())).status.level)
+      .toBe("error");
     const afterBadHdri = await page.evaluate(() => window.__FE3D_STUDIO__.getState());
     expect(afterBadHdri.status.level).toBe("error");
     expect(afterBadHdri.environment.has_hdri).toBe(true);
