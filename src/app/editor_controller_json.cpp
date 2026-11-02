@@ -151,6 +151,18 @@ std::string EditorController::serializeStateJson() const {
     proj.setKey("description", doc.metadata.description);
     proj.setKey("engine_version", doc.metadata.engine_version);
     proj.setKey("scene_name", scene.name());
+    proj.setKey("is_dirty", isDocumentDirty());
+    proj.setKey("file_path", active_project_path_);
+    {
+        std::string units_label = "meters";
+        for (const auto& [k, v] : doc.preserved_fields.metadata_extra) {
+            if (k == "units" && v.isString() && !v.asString().empty()) {
+                units_label = v.asString();
+                break;
+            }
+        }
+        proj.setKey("units", std::move(units_label));
+    }
     {
         JsonArray warn_arr;
         for (const auto& w : doc.load_warnings) {
@@ -1841,7 +1853,33 @@ core::Status EditorController::executeActionJson(std::string_view action_json) {
         if (const auto* av = cmd.findKey("author"); av != nullptr && av->isString()) {
             pauthor = av->asString();
         }
-        return createNewProject(tmpl, std::move(pname), std::move(pauthor));
+        auto st = createNewProject(tmpl, std::move(pname), std::move(pauthor));
+        if (!st) {
+            return st;
+        }
+        if (const auto* dv = cmd.findKey("description"); dv != nullptr && dv->isString()) {
+            session_.document().metadata.description = dv->asString();
+        }
+        if (const auto* fv = cmd.findKey("fps"); fv != nullptr && fv->isNumber() && std::isfinite(fv->asNumber())) {
+            const float clamped_fps = static_cast<float>(std::clamp(fv->asNumber(), 1.0, 240.0));
+            scene::TimelineSettings tl = session_.document().scene.timeline();
+            tl.fps = clamped_fps;
+            session_.document().scene.setTimeline(tl);
+        }
+        if (const auto* uv = cmd.findKey("units"); uv != nullptr && uv->isString() && !uv->asString().empty()) {
+            auto& extra = session_.document().preserved_fields.metadata_extra;
+            auto it = std::find_if(extra.begin(), extra.end(), [](const auto& kv) { return kv.first == "units"; });
+            if (it != extra.end()) {
+                it->second = project::JsonValue{uv->asString()};
+            } else {
+                extra.emplace_back("units", project::JsonValue{uv->asString()});
+            }
+        }
+        if (const auto* pv = cmd.findKey("file_path"); pv != nullptr && pv->isString()) {
+            active_project_path_ = pv->asString();
+        }
+        markDocumentSaved();
+        return core::Status::ok();
     }
 
     if (action == "load_inline_json") {
@@ -1851,7 +1889,36 @@ core::Status EditorController::executeActionJson(std::string_view action_json) {
             recordStatus(st, {});
             return st;
         }
-        return importInlineProjectJson(jv->asString());
+        auto st = importInlineProjectJson(jv->asString());
+        if (st) {
+            if (const auto* pv = cmd.findKey("file_path"); pv != nullptr && pv->isString()) {
+                active_project_path_ = pv->asString();
+            } else {
+                active_project_path_.clear();
+            }
+            markDocumentSaved();
+        }
+        return st;
+    }
+
+    if (action == "mark_document_saved") {
+        if (const auto* pv = cmd.findKey("file_path"); pv != nullptr && pv->isString()) {
+            active_project_path_ = pv->asString();
+        }
+        markDocumentSaved();
+        recordStatus(core::Status::ok(), "Saved project '" + session_.document().metadata.project_name + "'");
+        return core::Status::ok();
+    }
+
+    if (action == "set_active_project_path") {
+        const auto* pv = cmd.findKey("file_path");
+        if (pv == nullptr || !pv->isString()) {
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing string 'file_path'");
+            recordStatus(st, {});
+            return st;
+        }
+        setActiveProjectPath(pv->asString());
+        return core::Status::ok();
     }
 
     // =========================================================================

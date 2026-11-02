@@ -505,6 +505,9 @@ public:
     [[nodiscard]] std::size_t undoCount() const noexcept { return undo_stack_.size(); }
     [[nodiscard]] std::size_t redoCount() const noexcept { return redo_stack_.size(); }
     [[nodiscard]] std::size_t totalMemoryBytes() const noexcept { return undo_bytes_ + redo_bytes_; }
+    [[nodiscard]] std::uint64_t currentStateToken() const noexcept {
+        return undo_tokens_.empty() ? 0u : undo_tokens_.back();
+    }
 
     [[nodiscard]] std::string_view nextUndoDescription() const noexcept;
     [[nodiscard]] std::string_view nextRedoDescription() const noexcept;
@@ -514,7 +517,10 @@ private:
 
     CommandStackLimits limits_;
     std::deque<std::unique_ptr<ISceneCommand>> undo_stack_;
+    std::deque<std::uint64_t> undo_tokens_;
     std::vector<std::unique_ptr<ISceneCommand>> redo_stack_;
+    std::vector<std::uint64_t> redo_tokens_;
+    std::uint64_t next_token_{1};
     std::size_t undo_bytes_{0};
     std::size_t redo_bytes_{0};
 };

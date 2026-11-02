@@ -7,6 +7,7 @@
 // with the desktop host.
 
 #include "finaleffect/app/editor_controller.hpp"
+#include "finaleffect/app/project_hub_service.hpp"
 #include "finaleffect/app/studio_session.hpp"
 #include "finaleffect/core/engine.hpp"
 #include "finaleffect/core/version.hpp"
@@ -415,6 +416,7 @@ struct WebHostContext {
     std::string state_json_buffer{"{}"};
     std::string export_json_buffer;
     std::string workspace_json_buffer;
+    std::string system_info_json_buffer;
 
     explicit WebHostContext(const finaleffect::core::EngineConfig& cfg) : engine(cfg) {}
 };
@@ -696,6 +698,19 @@ EMSCRIPTEN_KEEPALIVE int fe3d_load_hdri_bytes(
         std::span<const std::uint8_t>(bytes_ptr, byte_len),
         name);
     return st ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE const char* fe3d_get_system_info_json() {
+    if (g_web_ctx == nullptr || g_web_ctx->session == nullptr) {
+        return "{}";
+    }
+    const auto info = finaleffect::app::querySystemInfo(*g_web_ctx->session);
+    auto serialized = finaleffect::app::serializeSystemInfoJson(info, false);
+    if (!serialized) {
+        return "{}";
+    }
+    g_web_ctx->system_info_json_buffer = std::move(serialized).value();
+    return g_web_ctx->system_info_json_buffer.c_str();
 }
 
 } // extern "C"
