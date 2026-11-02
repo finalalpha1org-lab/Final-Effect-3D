@@ -82,6 +82,7 @@ async function bootstrapStage1Hub() {
     async onLeaveStudioForHome() {
       projectOperationsService.hasEnteredStudioSession = true;
       await projectOperationsService.snapshotActiveSessionToRecent();
+      controller.activeViewId = "projects";
     },
     async onStudioSaved(filePath = "") {
       const studio = getStudioBridge();
