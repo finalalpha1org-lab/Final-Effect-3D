@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 #include <deque>
 #include <filesystem>
 #include <optional>
@@ -199,8 +200,8 @@ public:
     void applyWorkspacePreset(WorkspacePreset preset) noexcept;
     [[nodiscard]] core::Status applyWorkspacePresetByName(std::string_view preset_name);
     void setTextInputFocused(bool focused) noexcept;
-    [[nodiscard]] core::Result<std::string> exportWorkspaceLayoutJson() const;
-    [[nodiscard]] core::Status importWorkspaceLayoutJson(std::string_view json_text);
+    [[nodiscard]] core::Result<std::vector<std::uint8_t>> exportWorkspaceLayoutBinary() const;
+    [[nodiscard]] core::Status importWorkspaceLayoutBinary(std::span<const std::uint8_t> bytes);
 
     // Scene authoring operations (all backed by undoable CommandStack transactions).
     [[nodiscard]] core::Result<scene::ObjectId> addPresetObject(
@@ -289,10 +290,10 @@ public:
         std::string project_name = {},
         std::string author = {});
 
-    [[nodiscard]] core::Result<std::string> exportInlineProjectJson() const;
-    [[nodiscard]] core::Status importInlineProjectJson(std::string_view json_text);
+    [[nodiscard]] core::Result<std::vector<std::uint8_t>> exportInlineProjectBinary() const;
+    [[nodiscard]] core::Status importInlineProjectBinary(std::span<const std::uint8_t> bytes);
 
-    [[nodiscard]] core::Status saveBundleProject(
+    [[nodiscard]] core::Status saveProjectFile(
         const std::filesystem::path& fe3d_path,
         platform::IFileSystem& file_system);
     [[nodiscard]] core::Status loadProjectFile(

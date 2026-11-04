@@ -104,10 +104,6 @@ public:
         const std::filesystem::path& path,
         platform::IFileSystem& file_system) const;
 
-    [[nodiscard]] core::Status saveProjectBundleToFile(
-        const std::filesystem::path& fe3d_path,
-        platform::IFileSystem& file_system) const;
-
     // Resets document to the starter 3D showcase project and clears command history.
     [[nodiscard]] core::Status resetStarterProject();
 

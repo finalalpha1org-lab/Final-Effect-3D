@@ -134,6 +134,8 @@ finaleffect_apply_compiler_settings(finaleffect_scene)
 add_library(finaleffect_project STATIC
     src/project/json.cpp
     src/project/binary_asset.cpp
+    src/project/binary_checksum.cpp
+    src/project/binary_project.cpp
     src/project/project_serializer.cpp
 )
 add_library(finaleffect::project ALIAS finaleffect_project)
@@ -298,7 +300,7 @@ if(FINALEFFECT_PLATFORM_IS_WEB)
             "-sINITIAL_MEMORY=33554432"
             "-sSTACK_SIZE=1048576"
             "-sFILESYSTEM=1"
-            "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_fe3d_is_ready','_fe3d_get_boot_stage','_fe3d_get_boot_message','_fe3d_get_init_error','_fe3d_get_state_json','_fe3d_dispatch_action','_fe3d_export_inline_project','_fe3d_save_bundle_to_vfs','_fe3d_load_file_from_vfs','_fe3d_state_revision','_fe3d_material_preview_ptr','_fe3d_material_preview_width','_fe3d_material_preview_height','_fe3d_material_preview_generation','_fe3d_export_workspace_json','_fe3d_hit_test_gizmo','_fe3d_touch_tap','_fe3d_pointer_event','_fe3d_camera_orbit','_fe3d_editor_camera_orbit','_fe3d_camera_pan','_fe3d_camera_zoom','_fe3d_render_final_frame','_fe3d_load_hdri_bytes']"
+            "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_fe3d_is_ready','_fe3d_get_boot_stage','_fe3d_get_boot_message','_fe3d_get_init_error','_fe3d_get_state_json','_fe3d_dispatch_action','_fe3d_export_inline_project_ptr','_fe3d_export_inline_project_size','_fe3d_save_bundle_to_vfs','_fe3d_load_file_from_vfs','_fe3d_state_revision','_fe3d_material_preview_ptr','_fe3d_material_preview_width','_fe3d_material_preview_height','_fe3d_material_preview_generation','_fe3d_export_workspace_ptr','_fe3d_export_workspace_size','_fe3d_import_workspace_from_vfs','_fe3d_hit_test_gizmo','_fe3d_touch_tap','_fe3d_pointer_event','_fe3d_camera_orbit','_fe3d_editor_camera_orbit','_fe3d_camera_pan','_fe3d_camera_zoom','_fe3d_render_final_frame','_fe3d_load_hdri_bytes']"
             "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','stringToNewUTF8','FS','HEAPU8']"
     )
     configure_file(

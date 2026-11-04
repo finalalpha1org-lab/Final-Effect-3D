@@ -10,6 +10,7 @@
 #include "finaleffect/project/workspace_state.hpp"
 
 #include <cstdint>
+#include <span>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -115,9 +116,9 @@ public:
         const platform::KeyEvent& event,
         bool text_input_focused) const noexcept;
 
-    // Standalone JSON layout persistence (preserves unknown extension fields).
-    [[nodiscard]] core::Result<std::string> serializeLayoutToJson(bool pretty = true) const;
-    [[nodiscard]] core::Status deserializeLayoutFromJson(std::string_view json_text);
+    // Standalone binary layout persistence (preserves unknown extension fields).
+    [[nodiscard]] core::Result<std::vector<std::uint8_t>> serializeLayoutToBytes() const;
+    [[nodiscard]] core::Status deserializeLayoutFromBytes(std::span<const std::uint8_t> bytes);
 
     [[nodiscard]] core::Status saveLayoutToFile(
         const std::filesystem::path& path,
