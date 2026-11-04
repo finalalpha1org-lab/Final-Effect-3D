@@ -428,19 +428,19 @@ FE_TEST(CameraLightViewport, MultipleCamerasAndLightsUndoRedoAndPersistenceWitho
     FE_REQUIRE_TRUE(rig.editor->undo().hasValue());
     FE_REQUIRE_TRUE(scene.findObject(cam3) != nullptr);
 
-    // Switch active camera to cam2, export .fe3d inline JSON AND .fe3d/.fe3dbin bundle, reload multiple times ->
-    // exact object count (10) preserved with ZERO silent duplicates!
+    // Switch active camera to cam2, export the binary .fe3d container, save it to disk and reload
+    // multiple times -> exact object count (10) preserved with ZERO silent duplicates!
     FE_REQUIRE_TRUE(rig.editor->setActiveCamera(cam2).hasValue());
-    const auto saved_json = rig.editor->exportInlineProjectJson().value();
+    const auto saved_bytes = rig.editor->exportInlineProjectBinary().value();
 
     const auto tmp_dir = std::filesystem::temp_directory_path() / "fe3d_stage52_persist_test";
     std::error_code ec;
     std::filesystem::remove_all(tmp_dir, ec);
     const auto bundle_fe3d = tmp_dir / "stage52_scene.fe3d";
-    FE_REQUIRE_TRUE(rig.editor->saveBundleProject(bundle_fe3d, rig.fs).hasValue());
+    FE_REQUIRE_TRUE(rig.editor->saveProjectFile(bundle_fe3d, rig.fs).hasValue());
 
-    FE_REQUIRE_TRUE(rig.editor->importInlineProjectJson(saved_json).hasValue());
-    FE_REQUIRE_TRUE(rig.editor->importInlineProjectJson(saved_json).hasValue());
+    FE_REQUIRE_TRUE(rig.editor->importInlineProjectBinary(saved_bytes).hasValue());
+    FE_REQUIRE_TRUE(rig.editor->importInlineProjectBinary(saved_bytes).hasValue());
     FE_EXPECT_EQ(scene.objectCount(), initial_count + 4);
     FE_EXPECT_EQ(scene.activeCamera(), cam2);
     FE_EXPECT_EQ(scene.findObject(cam2)->camera->projection, scene::ProjectionType::Orthographic);

@@ -9,6 +9,7 @@
 #include "finaleffect/math/constants.hpp"
 #include "finaleffect/platform/file_system.hpp"
 #include "finaleffect/platform/window.hpp"
+#include "finaleffect/project/binary_project.hpp"
 #include "finaleffect/project/json.hpp"
 #include "finaleffect/rendering/editor_grid.hpp"
 #include "finaleffect/rendering/null_render_device.hpp"
@@ -170,10 +171,11 @@ FE_TEST(EditorGrid, DefaultGridVisibleExcludedFromOutlinerUnselectableAndOmitted
     FE_EXPECT_EQ(countNonBackgroundPixels(*rig.raw_device), std::size_t{0});
 
     // Project serialization MUST NOT serialize any grid geometry or grid object.
-    const auto exported_json = rig.editor->exportInlineProjectJson().value();
-    const auto parsed_doc = project::parseJson(exported_json).value();
-    FE_EXPECT_EQ(parsed_doc.findKey("scene")->findKey("meshes")->asArray().size(), std::size_t{0});
-    FE_EXPECT_EQ(parsed_doc.findKey("scene")->findKey("objects")->asArray().size(), std::size_t{2});
+    const auto exported_image =
+        project::BinaryProjectCodec::decode(rig.editor->exportInlineProjectBinary().value()).value();
+    const auto& exported_doc = exported_image.document;
+    FE_EXPECT_EQ(exported_doc.findKey("scene")->findKey("meshes")->asArray().size(), std::size_t{0});
+    FE_EXPECT_EQ(exported_doc.findKey("scene")->findKey("objects")->asArray().size(), std::size_t{2});
 }
 
 // Covers Scenarios 4 & 5 + Depth Occlusion:
@@ -206,10 +208,10 @@ FE_TEST(EditorGrid, UserPlaneMeshPreservationToggleSafetyAndForegroundDepthOcclu
         rig.session->document().scene.findMesh(plane_obj->mesh_id.value())->editable_mesh->faceCount() > 16);
     FE_REQUIRE_TRUE(rig.editor->setEditorMode(scene::EditMode::Object).hasValue());
 
-    // Save & reload inline .fe3d and verify the user Plane object and its edited topology persist intact!
-    const auto saved_with_plane = rig.editor->exportInlineProjectJson().value();
+    // Save & reload the binary .fe3d container and verify the Plane object + edited topology persist!
+    const auto saved_with_plane = rig.editor->exportInlineProjectBinary().value();
     FE_REQUIRE_TRUE(rig.editor->createNewProject(app::ProjectTemplate::EmptyStage).hasValue());
-    FE_REQUIRE_TRUE(rig.editor->importInlineProjectJson(saved_with_plane).hasValue());
+    FE_REQUIRE_TRUE(rig.editor->importInlineProjectBinary(saved_with_plane).hasValue());
     const auto* reloaded_plane = rig.session->document().scene.findObjectByName("Plane");
     FE_REQUIRE_TRUE(reloaded_plane != nullptr && reloaded_plane->mesh_id.has_value());
     FE_EXPECT_TRUE(
