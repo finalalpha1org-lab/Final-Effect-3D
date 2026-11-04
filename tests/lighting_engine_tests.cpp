@@ -9,6 +9,7 @@
 #include "finaleffect/math/constants.hpp"
 #include "finaleffect/platform/file_system.hpp"
 #include "finaleffect/platform/window.hpp"
+#include "finaleffect/project/binary_project.hpp"
 #include "finaleffect/project/project.hpp"
 #include "finaleffect/rendering/lighting_system.hpp"
 #include "finaleffect/rendering/renderer.hpp"
@@ -615,13 +616,12 @@ FE_TEST(LightingEngine, SerializationV13RoundTripAndHelpersExclusion) {
     }
     FE_EXPECT_TRUE(differs_from_editor);
 
-    const auto inline_json_res = rig.editor->exportInlineProjectJson();
-    FE_REQUIRE_TRUE(inline_json_res.hasValue());
-    const std::string& inline_json = inline_json_res.value();
-    FE_EXPECT_TRUE(inline_json.find("\"minor\": 3") != std::string::npos);
+    const auto container_res = rig.editor->exportInlineProjectBinary();
+    FE_REQUIRE_TRUE(container_res.hasValue());
+    FE_REQUIRE_TRUE(project::BinaryProjectCodec::isBinaryProjectImage(container_res.value()));
 
     FE_REQUIRE_TRUE(rig.editor->createNewProject(app::ProjectTemplate::MinimalCube).hasValue());
-    FE_REQUIRE_TRUE(rig.editor->importInlineProjectJson(inline_json).hasValue());
+    FE_REQUIRE_TRUE(rig.editor->importInlineProjectBinary(container_res.value()).hasValue());
     FE_EXPECT_TRUE(rig.session->document().scene.environment().hasHdri());
     FE_EXPECT_EQ(rig.session->document().scene.objectCount(), std::size_t{8});
 
