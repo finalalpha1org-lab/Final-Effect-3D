@@ -1030,9 +1030,13 @@ core::Status CommandStack::execute(Scene& scene, std::unique_ptr<ISceneCommand> 
 
     // Any new committed edit invalidates the redo branch.
     redo_stack_.clear();
+    redo_tokens_.clear();
     redo_bytes_ = 0;
 
     if (!undo_stack_.empty() && undo_stack_.back()->tryCoalesceWith(*command)) {
+        if (!undo_tokens_.empty()) {
+            undo_tokens_.back() = next_token_++;
+        }
         enforceLimits();
         return core::Status::ok();
     }
@@ -1040,6 +1044,7 @@ core::Status CommandStack::execute(Scene& scene, std::unique_ptr<ISceneCommand> 
     const std::size_t cmd_bytes = command->estimatedBytes();
     undo_bytes_ += cmd_bytes;
     undo_stack_.push_back(std::move(command));
+    undo_tokens_.push_back(next_token_++);
     enforceLimits();
     return core::Status::ok();
 }
@@ -1051,6 +1056,10 @@ core::Status CommandStack::undo(Scene& scene) {
 
     auto cmd = std::move(undo_stack_.back());
     undo_stack_.pop_back();
+    const std::uint64_t tok = undo_tokens_.empty() ? 0u : undo_tokens_.back();
+    if (!undo_tokens_.empty()) {
+        undo_tokens_.pop_back();
+    }
     const std::size_t cmd_bytes = cmd->estimatedBytes();
     undo_bytes_ = (undo_bytes_ >= cmd_bytes) ? (undo_bytes_ - cmd_bytes) : 0u;
 
@@ -1061,6 +1070,7 @@ core::Status CommandStack::undo(Scene& scene) {
 
     redo_bytes_ += cmd_bytes;
     redo_stack_.push_back(std::move(cmd));
+    redo_tokens_.push_back(tok);
     return core::Status::ok();
 }
 
@@ -1071,6 +1081,10 @@ core::Status CommandStack::redo(Scene& scene) {
 
     auto cmd = std::move(redo_stack_.back());
     redo_stack_.pop_back();
+    const std::uint64_t tok = redo_tokens_.empty() ? next_token_++ : redo_tokens_.back();
+    if (!redo_tokens_.empty()) {
+        redo_tokens_.pop_back();
+    }
     const std::size_t cmd_bytes = cmd->estimatedBytes();
     redo_bytes_ = (redo_bytes_ >= cmd_bytes) ? (redo_bytes_ - cmd_bytes) : 0u;
 
@@ -1081,13 +1095,16 @@ core::Status CommandStack::redo(Scene& scene) {
 
     undo_bytes_ += cmd_bytes;
     undo_stack_.push_back(std::move(cmd));
+    undo_tokens_.push_back(tok);
     enforceLimits();
     return core::Status::ok();
 }
 
 void CommandStack::clear() noexcept {
     undo_stack_.clear();
+    undo_tokens_.clear();
     redo_stack_.clear();
+    redo_tokens_.clear();
     undo_bytes_ = 0;
     redo_bytes_ = 0;
 }
@@ -1106,6 +1123,9 @@ void CommandStack::enforceLimits() noexcept {
         const std::size_t front_bytes = undo_stack_.front()->estimatedBytes();
         undo_bytes_ = (undo_bytes_ >= front_bytes) ? (undo_bytes_ - front_bytes) : 0u;
         undo_stack_.pop_front();
+        if (!undo_tokens_.empty()) {
+            undo_tokens_.pop_front();
+        }
     }
 }
 

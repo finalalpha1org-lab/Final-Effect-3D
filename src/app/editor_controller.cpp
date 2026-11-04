@@ -2676,6 +2676,7 @@ core::Status EditorController::updateProjectMetadata(
     session_.document().metadata.project_name = std::move(project_name);
     session_.document().metadata.author = std::move(author);
     session_.document().scene.setName(std::move(scene_name));
+    metadata_dirty_ = true;
     recordStatus(core::Status::ok(), "Updated project metadata");
     return core::Status::ok();
 }
@@ -2747,8 +2748,9 @@ core::Status EditorController::createNewProject(
         (void)session_.cancelActiveGizmoDrag();
     }
 
+    const bool had_explicit_name = !project_name.empty();
     const std::string resolved_name =
-        project_name.empty() ? "Untitled 3D Project" : std::move(project_name);
+        had_explicit_name ? std::move(project_name) : std::string("Untitled 3D Project");
     const std::string resolved_author =
         author.empty() ? "Final Effect 3D" : std::move(author);
 
@@ -2758,12 +2760,15 @@ core::Status EditorController::createNewProject(
             recordStatus(st, {});
             return st;
         }
-        if (!project_name.empty() || resolved_name != "Untitled 3D Project") {
+        if (had_explicit_name) {
             session_.document().metadata.project_name = resolved_name;
         }
         session_.document().metadata.author = resolved_author;
         spawn_counter_ = 0;
         selected_material_id_ = scene::MaterialId::invalid();
+        active_project_path_.clear();
+        saved_command_token_ = session_.commandStack().currentStateToken();
+        metadata_dirty_ = false;
         refreshMaterialPreview();
         recordStatus(core::Status::ok(), "Created project '" + session_.document().metadata.project_name + "'");
         return core::Status::ok();
@@ -2890,6 +2895,9 @@ core::Status EditorController::createNewProject(
     session_.cameraController().syncFromCameraTransform(editor_eye, {0.0f, 0.80f, 0.0f});
     spawn_counter_ = 0;
     selected_material_id_ = default_mat;
+    active_project_path_.clear();
+    saved_command_token_ = session_.commandStack().currentStateToken();
+    metadata_dirty_ = false;
     refreshMaterialPreview();
     recordStatus(core::Status::ok(), "Created project '" + session_.document().metadata.project_name + "'");
     return core::Status::ok();
@@ -2922,6 +2930,8 @@ core::Status EditorController::importInlineProjectJson(std::string_view json_tex
     editor_eye.position = {0.0f, 2.95f, 6.10f};
     session_.cameraController().syncFromCameraTransform(editor_eye, {0.0f, 0.80f, 0.0f});
     selected_material_id_ = session_.document().editor_state.active_material_id;
+    saved_command_token_ = session_.commandStack().currentStateToken();
+    metadata_dirty_ = false;
     refreshMaterialPreview();
     for (const auto& warn : session_.document().load_warnings) {
         console_entries_.push_back(EditorConsoleEntry{
@@ -2939,6 +2949,11 @@ core::Status EditorController::saveBundleProject(
     platform::IFileSystem& file_system) {
     session_.syncDocumentState(selectedMaterial());
     auto st = session_.saveProjectBundleToFile(fe3d_path, file_system);
+    if (st) {
+        active_project_path_ = fe3d_path.lexically_normal().generic_string();
+        saved_command_token_ = session_.commandStack().currentStateToken();
+        metadata_dirty_ = false;
+    }
     recordStatus(st, "Exported .fe3d + .fe3dbin binary bundle");
     return st;
 }
@@ -2950,6 +2965,9 @@ core::Status EditorController::loadProjectFile(
     if (st) {
         session_.setRigAnimationEnabled(false);
         selected_material_id_ = session_.document().editor_state.active_material_id;
+        active_project_path_ = fe3d_path.lexically_normal().generic_string();
+        saved_command_token_ = session_.commandStack().currentStateToken();
+        metadata_dirty_ = false;
         refreshMaterialPreview();
         for (const auto& warn : session_.document().load_warnings) {
             console_entries_.push_back(EditorConsoleEntry{

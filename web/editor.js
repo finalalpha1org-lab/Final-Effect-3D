@@ -542,12 +542,19 @@
     if (view === "studio") {
       hasEnteredStudioOnce = true;
       if (els.btnHomeResumeStudio) els.btnHomeResumeStudio.hidden = false;
+      if (window.__FE3D_STAGE1_HUB__ && window.__FE3D_STAGE1_HUB__.projectOps) {
+        window.__FE3D_STAGE1_HUB__.projectOps.hasEnteredStudioSession = true;
+      }
       syncFromEngine(true);
       requestAnimationFrame(updateWorkspaceTabsOverflowUi);
     } else if (view === "home") {
-      renderRecentProjectsList();
-      if (els.btnHomeResumeStudio) {
-        els.btnHomeResumeStudio.hidden = !hasEnteredStudioOnce;
+      if (window.__FE3D_STAGE1_HUB__) {
+        window.__FE3D_STAGE1_HUB__.onShowHome();
+      } else {
+        renderRecentProjectsList();
+        if (els.btnHomeResumeStudio) {
+          els.btnHomeResumeStudio.hidden = !hasEnteredStudioOnce;
+        }
       }
     }
   }
@@ -626,6 +633,7 @@
   }
 
   function renderSelectedStudioHomePanel() {
+    if (!els.studioLauncherPanel || !els.studioFuturePanel) return;
     const st = REG.STUDIOS.find((item) => item.id === selectedStudioId) || REG.STUDIOS[0];
     if (els.launcherErrorBanner) els.launcherErrorBanner.hidden = true;
 
@@ -1119,6 +1127,9 @@
       setAppView("studio");
     } else {
       setAppView("home");
+    }
+    if (window.__FE3D_STAGE1_HUB__) {
+      window.__FE3D_STAGE1_HUB__.onStudioBootReady();
     }
     return true;
   }
@@ -2484,6 +2495,10 @@
 
   async function importSelectedFiles(fileList) {
     if (!wasmApi || !fileList || fileList.length === 0) return;
+    if (document.body.dataset.appView === "home" && window.__FE3D_STAGE1_HUB__) {
+      await window.__FE3D_STAGE1_HUB__.handleFileInputFiles(fileList);
+      return;
+    }
     if (els.launcherErrorBanner) els.launcherErrorBanner.hidden = true;
 
     const files = Array.from(fileList);
@@ -2537,7 +2552,12 @@
 
     activeProjectRecordId = null;
     setAppView("studio");
-    setTimeout(() => snapshotActiveProjectToRecent("Opened .fe3d File"), 80);
+    if (window.__FE3D_STAGE1_HUB__) {
+      const leaf = fe3dTargetPath.replace("/fe3d_import/", "");
+      setTimeout(() => window.__FE3D_STAGE1_HUB__.onStudioSaved("/local/" + leaf), 80);
+    } else {
+      setTimeout(() => snapshotActiveProjectToRecent("Opened .fe3d File"), 80);
+    }
   }
 
   function exportPortableFe3d() {
@@ -2546,7 +2566,12 @@
     if (!jsonText) return;
     const stem = sanitizeFilenameStem(currentState.project.project_name);
     triggerDownload(stem + ".fe3d", jsonText, "application/json");
-    snapshotActiveProjectToRecent("Saved .fe3d");
+    if (window.__FE3D_STAGE1_HUB__) {
+      const savedPath = currentState.project.file_path || ("/workspace/projects/" + stem + ".fe3d");
+      void window.__FE3D_STAGE1_HUB__.onStudioSaved(savedPath);
+    } else {
+      snapshotActiveProjectToRecent("Saved .fe3d");
+    }
     els.statusDot.classList.remove("is-error");
     els.statusMessage.textContent = "Saved " + stem + ".fe3d (inline schema 1.3)";
   }
@@ -2567,7 +2592,12 @@
     const binBytes = wasmApi.fs.readFile(binPath);
     triggerDownload(stem + ".fe3d", fe3dBytes, "application/json");
     triggerDownload(stem + ".fe3dbin", binBytes, "application/octet-stream");
-    snapshotActiveProjectToRecent("Exported Bundle");
+    if (window.__FE3D_STAGE1_HUB__) {
+      const savedPath = currentState.project.file_path || ("/workspace/projects/" + stem + ".fe3d");
+      void window.__FE3D_STAGE1_HUB__.onStudioSaved(savedPath);
+    } else {
+      snapshotActiveProjectToRecent("Exported Bundle");
+    }
   }
 
   // =========================================================================
@@ -3458,43 +3488,51 @@
       els.launcherProjectAuthor.value = appPrefs.defaultAuthor || "Final Effect 3D";
     }
 
-    els.btnLauncherCreate.addEventListener("click", () => {
-      if (!wasmApi) return;
-      const projName = (els.launcherProjectName.value || "").trim() || "Untitled Studio Project";
-      const projAuthor =
-        (els.launcherProjectAuthor.value || "").trim() ||
-        appPrefs.defaultAuthor ||
-        "Final Effect 3D";
-      activeProjectRecordId = null;
-      wasmApi.dispatchAction({
-        action: "create_new_project",
-        template: selectedTemplateId,
-        project_name: projName,
-        author: projAuthor,
-      });
-      activateWorkspaceById("layout", false);
-      setAppView("studio");
-      requestAnimationFrame(() => {
+    if (els.btnLauncherCreate) {
+      els.btnLauncherCreate.addEventListener("click", () => {
+        if (!wasmApi) return;
+        const projName = (els.launcherProjectName.value || "").trim() || "Untitled Studio Project";
+        const projAuthor =
+          (els.launcherProjectAuthor.value || "").trim() ||
+          appPrefs.defaultAuthor ||
+          "Final Effect 3D";
+        activeProjectRecordId = null;
+        wasmApi.dispatchAction({
+          action: "create_new_project",
+          template: selectedTemplateId,
+          project_name: projName,
+          author: projAuthor,
+        });
+        activateWorkspaceById("layout", false);
+        setAppView("studio");
         requestAnimationFrame(() => {
-          snapshotActiveProjectToRecent("Created New Project");
+          requestAnimationFrame(() => {
+            snapshotActiveProjectToRecent("Created New Project");
+          });
         });
       });
-    });
+    }
 
-    els.btnLauncherOpen.addEventListener("click", () => {
-      els.fileOpenInput.value = "";
-      els.fileOpenInput.click();
-    });
+    if (els.btnLauncherOpen) {
+      els.btnLauncherOpen.addEventListener("click", () => {
+        els.fileOpenInput.value = "";
+        els.fileOpenInput.click();
+      });
+    }
 
-    els.btnHomeResumeStudio.addEventListener("click", () => {
-      setAppView("studio");
-    });
+    if (els.btnHomeResumeStudio) {
+      els.btnHomeResumeStudio.addEventListener("click", () => {
+        setAppView("studio");
+      });
+    }
 
-    els.btnFutureBack3d.addEventListener("click", () => {
-      selectedStudioId = "3d_studio";
-      renderStudioSelector();
-      renderSelectedStudioHomePanel();
-    });
+    if (els.btnFutureBack3d) {
+      els.btnFutureBack3d.addEventListener("click", () => {
+        selectedStudioId = "3d_studio";
+        renderStudioSelector();
+        renderSelectedStudioHomePanel();
+      });
+    }
 
     if (els.btnFutureJumpShading) {
       els.btnFutureJumpShading.addEventListener("click", () => {
@@ -3506,11 +3544,17 @@
       });
     }
 
-    els.btnGoHome.addEventListener("click", async () => {
-      closeAllDropdownMenus();
-      await snapshotActiveProjectToRecent("Active Session");
-      setAppView("home");
-    });
+    if (els.btnGoHome) {
+      els.btnGoHome.addEventListener("click", async () => {
+        closeAllDropdownMenus();
+        if (window.__FE3D_STAGE1_HUB__) {
+          await window.__FE3D_STAGE1_HUB__.onLeaveStudioForHome();
+        } else {
+          await snapshotActiveProjectToRecent("Active Session");
+        }
+        setAppView("home");
+      });
+    }
 
     document.querySelectorAll("[data-menu-trigger]").forEach((trigger) => {
       trigger.addEventListener("click", (ev) => {
@@ -3658,7 +3702,11 @@
             els.fileOpenHdri.click();
           }
         } else if (cmd === "go_home") {
-          await snapshotActiveProjectToRecent("Active Session");
+          if (window.__FE3D_STAGE1_HUB__) {
+            await window.__FE3D_STAGE1_HUB__.onLeaveStudioForHome();
+          } else {
+            await snapshotActiveProjectToRecent("Active Session");
+          }
           setAppView("home");
         } else if (cmd === "undo") {
           wasmApi.dispatchAction({ action: "undo" });

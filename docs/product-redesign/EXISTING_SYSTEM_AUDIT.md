@@ -1,0 +1,119 @@
+# Final Effect 3D — Complete Existing System Audit
+
+**Document ID:** `FE3D-SPEC-02`  
+**Audited Commit:** `36aec73c539595997f4ab4aa8ae48ca2c80fd551` (`main`, PR #6 merge commit)  
+**Codebase Footprint:** `58,165` lines across `104` source, header, web, and test files  
+**Verified Baseline Health:** `19/19` C++20 CTest suites passing (`100%`), `8/8` GitHub Actions CI jobs green, `15/15` Chromium WebGL 2.0 E2E suites passing
+
+---
+
+## 1. Repository Baseline & Ancestry Verification
+
+| Verification Check | Verified Fact |
+| :--- | :--- |
+| **Repository** | `finalalpha1org-lab/Final-Effect-3D` |
+| **Verified `main` HEAD** | `36aec73c539595997f4ab4aa8ae48ca2c80fd551` |
+| **PR #6 Merge Ancestry** | Merge of `b03e2da24ff66eafaa8cf85e77cedfc767ab7ee2` (`Stage 1: Autodesk Maya Classic Studio UI Redesign`) onto `2841ab14dfe67baa4e01e526ff1c518e817b6c80` (`Stage 5.4 Lighting Engine`). |
+| **Protected Files Integrity** | `LICENSE` (GNU GPL v3.0), `NOTICE`, and `.gitignore` intact byte-for-byte. |
+| **Build Foundation** | CMake (`>= 3.22`) + C++20 (`-Wall -Wextra -Wpedantic -Werror` on GCC/Clang/AppleClang, `/W4 /WX` on MSVC), zero external third-party runtime dependencies required for core/headless builds. |
+
+### 1.1 Quantitative Codebase Breakdown
+
+| Layer / Directory | Files | Lines of Code | Role |
+| :--- | :---: | :---: | :--- |
+| `include/finaleffect/core` + `src/core` | 10 | 733 | Version, `Result<T>`/`Status`, `Logger`, `ResourceStats`, `Engine` lifecycle |
+| `include/finaleffect/platform` + `src/platform` + `platform/*` | 14 | 1,132 | `IWindow`, `GlfwWindow`, `HeadlessWindow`, `IFileSystem`, `IClock`, OS `AppPaths` |
+| `include/finaleffect/math` + `src/math` | 13 | 1,230 | `Vec2/3/4`, `Quat`, `Mat4`, `Transform`, `Ray`, `AABB`, ray-segment/triangle math |
+| `include/finaleffect/scene` + `src/scene` | 18 | 7,323 | `Scene`, `SceneObject`, `EditableMesh`, `PbrMaterial`, `Light`, `Environment`, `CommandStack`, `picking` |
+| `include/finaleffect/project` + `src/project` | 7 | 3,670 | Custom lossless JSON DOM/parser, `.fe3d` v1.0–v1.3 serializer, `.fe3dbin` v1.0 binary mesh archive |
+| `include/finaleffect/rendering` + `src/rendering` | 19 | 8,787 | `IRenderDevice`, `Renderer`, `LightingSystem` (PCF Shadow Atlas + IBL), `EditorGrid`, `MaterialPreview`, `OpenGL33RenderDevice`, `WebGL2RenderDevice`, `SoftwareRenderDevice`, `NullRenderDevice` |
+| `include/finaleffect/app` + `src/app` | 15 | 11,208 | `StudioSession`, `EditorController`, `editor_controller_json`, `TransformGizmo`, `OrbitCameraController`, `WorkspaceManager`, `starter_scene` |
+| `apps/desktop` + `apps/web` | 2 | 1,008 | Native Desktop CLI/GLFW host (`248` LOC) & Emscripten WebAssembly/WebGL2 host (`760` LOC) |
+| `web/` (`index.html`, `editor.css`, `editor.js`, `maya_workspace.js`, `studios.js`) | 5 | 13,408 | Current Web UI shell, Home Launcher, and Maya Stage 1 DOM/CSS/JS frontend |
+| `tests/` + `web/e2e/` | 22 | 9,231 | `19` C++20 unit/integration test executables (`5,894` LOC) + `15` Playwright WebGL2 E2E suites (`3,337` LOC) |
+
+---
+
+## 2. Section A — Application Shell Audit
+
+| Subsystem | Existing Implementation | Current Functionality | Dependencies | Reusable? | Missing Functionality & Refactoring Needs | Change Risk |
+| :--- | :--- | :--- | :--- | :---: | :--- | :---: |
+| **Startup & Splash (`#app-splash`)** | `apps/web/main.cpp` (`_fe3d_get_boot_stage`, `_fe3d_is_ready`, `_fe3d_get_init_error`) + `web/index.html:18-63` + `web/editor.js` | Real 4-stage milestone progress driven by WASM runtime + WebGL2 context + shader compile + `StudioSession` init; halts with diagnostic error if WebGL2 fails; pauses WebGL rendering while Splash/Home occludes (`fe3d_is_home_view_occluding`). | `apps/web/main.cpp`, `web/editor.js` | **Yes (High)** | Native Desktop (`apps/desktop/main.cpp`) bypasses Splash/Home entirely and boots straight into a bare 3D viewport window. | **Low** |
+| **Home Screen & Studio Rail (`#app-home`)** | `web/index.html:68-193`, `web/studios.js` (`515` LOC), `web/editor.js` | Displays 6 "Creative Studios" (`3D Studio` operational; `Landscaping`, `Character`, `2D`, `Sculpting`, `Shade` shown as read-only planned cards). | `web/studios.js`, `web/editor.js` | **Partial (Refactor)** | The "6 separate Studios" concept fragments what should be **one unified Final Effect 3D product** with task workspaces and project templates. Lacks Project Search, Autosave/Recovery center, Asset Library hub, and Learning/Docs links. | **Low** |
+| **Project Launcher** | `web/index.html:103-163`, `web/editor.js`, `EditorController::createNewProject` | Creates real C++ projects from 4 templates (`StarterShowcase`, `MinimalCube`, `EmptyStage`, `ShaderBall`), opens `.fe3d`/`.fe3dbin` files into Emscripten `MEMFS`, and stores Recent Projects in `localStorage` + `IndexedDB` with real WebGL2 canvas thumbnails. | `EditorController`, `ProjectSerializer`, browser `IndexedDB` | **Yes (High)** | Needs search/sort/filter on Recent Projects, pinned projects, autosave crash-recovery detection, explicit Save vs. Save As workflow, and missing-asset diagnostics modal. | **Medium** |
+| **Application Preferences** | `#settings-modal` in `web/index.html`, `web/editor.js`, `web/maya_workspace.js` | UI density (`comfortable`/`compact`), hotkey remapping (`fe3d.maya_hotkeys.v1`), shelf reset, turntable toggle. | `localStorage` | **Partial (Refactor)** | Needs structured `AppPreferences` schema covering Input Navigation Profile (`FE3D Hybrid` / `Blender` / `Maya`), DPI/UI scale (`85%–150%`), Viewport AA/Shadow quality, Autosave interval, and Default Units. | **Low** |
+
+---
+
+## 3. Section B — Existing UI Audit (Web Frontend vs. Native Desktop)
+
+| UI Region | Existing Implementation | Current Functionality | Reusable? | Honest Gaps & Technical Debt | Change Risk |
+| :--- | :--- | :--- | :---: | :--- | :---: |
+| **Native Desktop UI (`apps/desktop/main.cpp`)** | `apps/desktop/main.cpp` (`248` LOC) + `GlfwWindow` | Opens an OpenGL 3.3 window and runs `StudioSession` (3D viewport, camera orbit/pan/zoom, raycast picking, 3D gizmos, keyboard shortcuts) + CLI headless `.fe3d`/PPM batch flags. **Has zero GUI panels, menus, outliner, or inspector.** | **Engine Host Reusable; UI Missing** | Native Desktop currently has viewport parity only, not studio UI parity. Stage 0 defines the exact Desktop UI host architecture in `ENGINE_UI_ARCHITECTURE.md` & `DESKTOP_PLATFORM_REQUIREMENTS.md`. | **Medium** |
+| **Main Menu Bar & Menu Sets** | `web/index.html:202-417` + `web/maya_workspace.js:20-203` | Maya-style static menus (`File`, `Edit`, `Create`, `Select`, `Modify`, `Display`, `Windows`) + dynamic Menu Set injection (`Modeling`, `Rigging`, `Animation`, `FX`, `Rendering`). | **Logic Reusable; UX Redesign** | Menu-set dropdown mutates top-level menus (hiding `Mesh` menus when in `Rendering`, confusing discoverability). Hybrid UI replaces hidden menu sets with persistent top-level menus + workspace-contextual secondary toolbars + `Ctrl+K` Command Palette. | **Medium** |
+| **Status Line & Shelf (`#maya-status-line`, `#topbar-subbar`)** | `web/index.html:419-541`, `web/maya_workspace.js:205-360` | 3 stacked top bars (`Main Menu` + `Status Line` + `2-row Shelf Tabs/Icons`) consuming ~`96px` of vertical height before the viewport even begins. | **Shelf Persistence Reusable; Layout Redesign** | Excessive vertical header height (`~96px` + `22px` viewport strip = `118px` of top bars!). Hybrid UI consolidates top chrome into `56px` while preserving customizable quick-tool shelves cleanly. | **Medium** |
+| **Left Tool Box (`#tool-shelf`)** | `web/index.html:546-592` | Vertical tool buttons (`Select Q`, `Move W`, `Rotate E`, `Scale R`, `Manip T`, `Pivot D`, `Last Y`) + layout quick buttons. | **Yes (High)** | Clean foundation; needs extensible registration per active editor (`Modeling` tools, `Sculpt` brushes, `UV` tools) rather than hard-coded HTML buttons. | **Low** |
+| **3D Viewport Panel** | `web/index.html:600-792`, `apps/web/main.cpp` | Single `<canvas id="fe3d-canvas">`, `22px` viewport menu/icon strip, top-left telemetry/selection pill, top-right interactive 3D View Axis Gizmo, RMB radial compass. | **Yes (High)** | Only renders **one** camera view at a time; "Four View" currently swaps camera presets on the single viewport rather than rendering 4 simultaneous `Persp/Top/Front/Right` sub-viewports. No 2D box-marquee selection yet. | **Medium** |
+| **Scene Outliner (`#panel-outliner`)** | `web/index.html:796-845`, `web/editor.js:1695-1865` | Tree hierarchy, expand/collapse, search input, visibility eye toggle, double-click rename, type badges, left/right dock toggle, tear-off float. | **Yes (High)** | Missing pointer drag-and-drop reparenting, collection/layer color tags, and multi-column restriction toggles (`Selectable`, `Visible`, `Renderable`). | **Low** |
+| **Channel Box, Layer Editor & Attribute Editor** | `web/index.html:850-1340`, `web/maya_workspace.js:1074-1440`, `web/editor.js` | Split right dock with Maya Channel Box (MMB drag scrub, per-channel lock `L`, custom attributes), Display Layers (`V/P/T/R`), and Attribute Editor tabs (Transform, Mesh, Material + 3D preview sphere, Camera, Light/Shadows/IBL). | **Yes (High)** | Having **two separate competing transform panels** (Channel Box *and* Attribute Editor Transform tab) stacked in the same right dock creates visual redundancy and scroll pressure on `1080p`. Hybrid UI unifies them into one cohesive **Quick Channels + Deep Inspector** panel. | **Medium** |
+| **Timeline & Range Slider (`#dock-bottom`)** | `web/index.html:1345-1495`, `web/maya_workspace.js:1444-1554` | Time slider canvas with red keyframe ticks, range slider handles, transport buttons, `Auto Key`, FPS, loop mode; multiplexed with Asset Browser, Console, and foundation placeholders (`UV`, `GeoNodes`, `Compositor`). | **Yes (High)** | Linear TRS interpolation only; lacks Dope Sheet summary rows, Bezier F-Curve Graph Editor, and clean Editor-Type switching header. | **Low** |
+| **Workspace Docking & Floating Panels** | `WorkspaceManager` (C++) + `web/editor.js` + `web/maya_workspace.js:1630-1728` | Fixed 4-slot CSS layout (`left`, `center`, `right`, `bottom`) + DOM-placeholder tear-off floating windows for Outliner and Channel Box. | **Partial (Refactor Required)** | Layout is hard-coded around specific DOM IDs (`#dock-left`, `#dock-right`, `#dock-bottom`) rather than a general recursive **Studio Area Split Tree** where any area can host any editor type. | **High** |
+
+---
+
+## 4. Section C — C++20 Engine Architecture Audit
+
+| Engine Module | Key Files | Current Capabilities | Quality & Test Coverage | Refactoring / Extension Needed | Risk |
+| :--- | :--- | :--- | :--- | :--- | :---: |
+| **`core` & `platform`** | `engine.cpp`, `result.hpp`, `glfw_window.cpp`, `local_file_system.cpp` | Zero-global RAII `Engine`, `Result<T>`/`Status` error handling, `LocalFileSystem`, `SteadyClock`, `GlfwWindow`, `HeadlessWindow`, OS `AppPaths`. | **Excellent** (`core_tests`, `platform_tests`) | Add native OS file-dialog hook interface (`INativeDialogs` optional adapter) & directory listing / atomic temp-file swap in `IFileSystem` for crash-safe autosave. | **Low** |
+| **`math`** | `vec2/3/4.hpp`, `quat.hpp`, `mat4.hpp`, `transform.hpp`, `geometry.cpp` | Right-handed `+Y` up column-major `Mat4`, unit `Quat`, `Ray`, `AABB`, analytical ray-triangle / ray-plane / ray-segment intersections, `ClipSpaceDepth` abstraction. | **Excellent** (`math_tests`) | Add `Frustum` / 2D NDC box-projection helpers for marquee selection and `Mat3` normal-matrix utilities. | **Low** |
+| **`scene` & `EditableMesh`** | `scene.cpp`, `scene_object.hpp`, `editable_mesh.cpp` (`1,598` LOC), `picking.cpp` | Stable generational/monotonic IDs (`ObjectId`, `MeshId`, `MaterialId`), parent-child hierarchy, `EditableMesh` n-gon/quad manifold validator, `createCube/Sphere/Cylinder/Cone/Torus/GridPlane/Pyramid`, `extrudeFaces`, `deleteFaces/Edges/Vertices`, `fillBoundaryLoop`, raycast object & component picking, Display Layers, TRS keyframe tracks. | **Very Strong** (`scene_tests`, `mesh_edit_tests`, `maya_stage1_tests`) | `SceneObject` currently uses fixed optional fields (`mesh_id`, `camera`, `directional_light`, etc.); needs extensible `ModifierStack` / `ArmatureComponent` / `PhysicsComponent` slots in later stages, plus Stage 4 `EditableMesh` ops (`bevel`, `bridge`, `insertEdgeLoop`, `multiCut`, `mergeVertices`, `combineMeshes`, `separateFaces`) and BVH spatial acceleration for dense sculpt/high-poly meshes. | **Medium** |
+| **`CommandStack` & Undo/Redo** | `include/finaleffect/scene/commands.hpp` (`522` LOC), `src/scene/commands.cpp` (`1,112` LOC) | Byte-budgeted (`16 MB` default) undo/redo stack with drag coalescing (`tryMergeWith`), covering object add/delete/duplicate, transforms, hierarchy, mesh edits, materials, lights, environment, metadata, channel locks, pivots, custom attributes, display layers, and keyframes. | **Excellent** (`command_tests`, `editor_tests`, `maya_stage1_tests`) | Fully reusable as-is; new subsystems simply implement `scene::ICommand` with `memoryBytes()`. | **Low** |
+| **`EditorController` & JSON Bridge** | `editor_controller.cpp` (`2,966` LOC), `editor_controller_json.cpp` (`2,225` LOC) | High-level façade orchestrating `StudioSession`, `Scene`, `CommandStack`, `MaterialPreviewRenderer`, structured command line, and full JSON state serialization/dispatch. | **Strong** (`editor_tests`, E2E `1–15`) | **Primary C++ Technical Debt:** `editor_controller.cpp` (`2,966` LOC) and `editor_controller_json.cpp` (`2,225` LOC) have grown into 5,191-line monoliths, and `serializeStateJson()` rebuilds the **entire** scene/outliner/materials/timeline JSON string on every state revision. Needs domain sub-controllers (`ModelingController`, `HierarchyController`, `LightingController`, `AnimationController`) and dirty-domain delta flags (`DirtyDomainMask`). | **Medium** |
+| **`StudioSession` & `TransformGizmo`** | `studio_session.cpp` (`2,050` LOC), `transform_gizmo.cpp` (`1,056` LOC) | Owns `ProjectDocument`, `CommandStack`, `OrbitCameraController`, `TransformGizmo` (3D Translate/Rotate/Scale + Pivot Edit), `WorkspaceManager`, component overlay generation, and `Renderer`. | **Very Strong** (`viewport_tests`, `gizmo_tests`) | Currently holds a **single** `OrbitCameraController` and renders a **single** full-window viewport; Stage 3 refactors viewport state into an array of up to 4 independent `ViewportSlot` instances (`Persp`, `Top`, `Front`, `Right`) + adds Component Rotate/Scale gizmo support. | **Medium** |
+| **`Renderer` & Backends** | `renderer.cpp`, `lighting_system.cpp`, `editor_grid.cpp`, `opengl33_render_device.cpp` (`2,230` LOC), `webgl2_render_device.cpp` (`2,274` LOC), `software_render_device.cpp` | Metallic-roughness Cook-Torrance GGX PBR, up to 16 active lights (Directional/Point/Spot/Area), dynamic 2D PCF Shadow Atlas with tile caching, `.hdr`/`.pfm` Equirectangular IBL + SH irradiance, Light Linking, Maya display modes (`4/5/6/7`, Wire-on-Shaded, X-Ray, Isolate), infinite procedural `EditorGrid`, in-place `glBufferSubData` mesh updates. | **Excellent** (`rendering_tests`, `lighting_engine_tests`, `editor_grid_tests`, `opengl33_tests`, `webgl2_tests`) | `OpenGL33RenderDevice` and `WebGL2RenderDevice` share ~85% identical GLSL/GL logic across two 2,250-LOC files; shader source chunks and uniform upload helpers can be unified cleanly, and `IRenderDevice::setViewportRect` + scissor clear is needed for true Quad 4-View rendering. | **Medium** |
+| **`ProjectSerializer`** | `project_serializer.cpp` (`2,357` LOC), `binary_asset.cpp` (`400` LOC), `json.cpp` (`558` LOC) | Lossless `.fe3d` JSON (`v1.0`–`v1.3`) + content-addressed `.fe3dbin` (`v1.0`) binary geometry bundle with CRC32 validation and `ProjectPreservedFields` round-trip preservation of unknown JSON keys. | **Excellent** (`project_tests`) | Keep 100% backward-compatible with `.fe3d` v1.0–v1.3; extend cleanly to v1.4+ only when new area layout / modifier / node schemas are introduced in later stages. | **Low** |
+
+---
+
+## 5. Section D — Existing Interactions Audit
+
+| Interaction Area | Current Implementation | Strengths | Inconsistencies / Weaknesses to Fix |
+| :--- | :--- | :--- | :--- |
+| **Keyboard Shortcuts** | `web/maya_workspace.js` (`window` `keydown` router) + `apps/web/main.cpp` (`onKey` bypassed when `__FE3D_MAYA_SHORTCUT_ROUTER__` active, except `Escape`) + `StudioSession` native key handling. | Input focus guard (`fe3d_is_text_input_focused`) prevents shortcuts while typing in text/number fields; customizable hotkey table in `localStorage`. | Shortcut logic is split between JS (`web/maya_workspace.js`) for Web and C++ (`StudioSession::handleKeyEvent`) for Native Desktop! Moving the canonical `ShortcutRegistry` / action binding table to shared data/C++ ensures Native Desktop and Web never diverge. |
+| **Viewport Navigation** | `Alt+LMB` Orbit, `Alt+MMB` Pan, `Alt+RMB` Zoom (`maya_workspace.js`), plus `MMB` Orbit / `Shift+MMB` Pan / `Wheel` Zoom (`editor.js` / `StudioSession`). | Smooth `OrbitCameraController` damping, Persp/Ortho support, clickable 3D View Axis Gizmo. | Touch gesture handlers (`pinch`, `two-finger pan`, `_fe3d_touch_tap`) are interleaved into the viewport pointer state machine in `web/editor.js`. Removing mobile touch branches in Stage 2 simplifies desktop pointer capture significantly. |
+| **Picking & Selection** | Raycast triangle/polygon picking (`picking.cpp`, `EditableMesh::pickVertex/Edge/Face`), `Shift` toggle/add, selection masks, Display Layer `Template`/`Reference` filtering. | Exact 3D geometric raycasting (no fragile GPU color-ID readback stalls); primary + secondary selection highlights (`lead` vs `selected`). | Lacks **2D Box Marquee / Lasso drag selection** (`LMB` drag in `Select` tool) and edge-loop (`Alt+Click` edge) / face-loop selection. |
+| **3D Transform Gizmos** | `TransformGizmo` (`Translate` shafts+planes, `Rotate` rings, `Scale` shafts+uniform cube, `Pivot` edit mode, `World`/`Local` space, `Escape` cancel). | Constant screen-space sizing, true 3D ray-segment/plane math, coalesced undo, respects per-channel locks. | Component-mode gizmo only translates vertices (`translateMeshSelection`); `Rotate` and `Scale` gizmos do not yet transform component selections around selection centroid/normal. |
+| **Menus & Context Menus** | Top dropdown menus + stationary RMB radial compass + context list (`#viewport-context-menu`) + Shelf RMB menu. | Clamped to viewport bounds, `Escape` closes cleanly, RMB drag threshold prevents false triggers during camera dolly. | No searchable **Command Palette (`Ctrl+K`)** and no **In-Viewport Operator Adjust HUD** after executing modeling operations. |
+
+---
+
+## 6. Section E — Consolidated Technical Debt & Mobile Legacy Inventory
+
+### 6.1 Architectural Technical Debt
+1. **Two Layered Web Frontends (`web/editor.js` + `web/maya_workspace.js`)**:  
+   Stage 1 layered `web/maya_workspace.js` (`2,452` LOC) on top of Stage 5's `web/editor.js` (`4,422` LOC) and `web/editor.css` (`4,365` LOC) to preserve all 153 legacy E2E selectors. While functional and green in CI, this leaves two overlapping UI scripts (`6,874` LOC of JS) mutating the same `1,654`-line `web/index.html`. Stage 1 & Stage 2 of the new roadmap must replace this dual-script DOM with a clean, modular, desktop-only frontend architecture (`web/src/` ES modules) while keeping the battle-tested C++ engine untouched.
+2. **Monolithic JSON State Snapshot (`EditorController::serializeStateJson`)**:  
+   Serializes the entire scene graph, materials, lights, workspace, and console log on every poll revision. Works smoothly for `< 200` objects, but will bottleneck at `2,000+` objects or `60 Hz` timeline scrubbing unless partitioned by dirty domain flags (`scene_tree_rev`, `selection_rev`, `inspector_rev`, `timeline_rev`, `materials_rev`).
+3. **Viewport-Only Native Desktop Executable (`apps/desktop/main.cpp`)**:  
+   `finaleffect_desktop` initializes `StudioSession` + `OpenGL33RenderDevice` without an application UI layer (`Home Hub`, `Outliner`, `Inspector`, `Menus`, `Workspaces`).
+4. **Hard-Coded 7-Enum `WorkspacePanelId`**:  
+   `include/finaleffect/project/workspace_state.hpp` hard-codes 7 panels (`Viewport3D`, `SceneOutliner`, `Properties`, `MaterialEditor`, `AssetBrowser`, `Timeline`, `Console`) in 4 fixed slots (`Left`, `Right`, `Bottom`, `Center`), which cannot express arbitrary split trees, multi-tabbed docks, or all 13 planned editors without upgrading to a recursive `AreaLayout` model.
+
+### 6.2 Mobile-Specific Code Inventory (Scheduled for Audited Removal in Stage 1–2, Untouched in Stage 0)
+* **`web/index.html`**: `<meta viewport ... viewport-fit=cover>`, `#btn-landscape-inspector-toggle`, `.mp-drawer-close-btn` (`4` instances), `<nav id="mobile-portrait-nav">` (`7` drawer tabs).
+* **`web/editor.css`**: Lines `2504–3034` (`~530` lines of `body[data-layout-mode="landscape"]`, `body[data-layout-mode="portrait"]`, `.mobile-portrait-nav`, `.mp-drawer-close-btn`) + lines `4336–4359`.
+* **`web/editor.js`**: `computeResponsiveLayoutMode()` (`portrait` / `landscape` branches `< 960px`), `setMobilePortraitDrawer()`, two-finger touch pinch/pan gesture state machine, `_fe3d_touch_tap` dispatch, and `+Multi` touch selection pill.
+* **`apps/web/main.cpp`**: `fe3d_touch_tap` C export (`1` thin wrapper around `pickAtScreenPosition` / `pickMeshElementAtScreenPosition`).
+* **`docs/ARCHITECTURE.md` & `docs/PLATFORM_ROADMAP.md`**: Legacy references to planned `platform/ios/` and `platform/android/` directories.
+* **`web/e2e/studio.spec.mjs` & `capture-baseline.mjs`**: Mobile portrait (`390×844`) and mobile landscape (`844×390`) test blocks and baseline screenshots (to be replaced with `1366×768`, `1920×1080`, and `2560×1440` desktop multi-DPI suites when mobile code is retired).
+
+---
+
+## 7. Reuse vs. Refactor vs. New Implementation Matrix
+
+| Classification | Subsystems |
+| :--- | :--- |
+| **Keep & Reuse Directly (`~72%` of C++ codebase)** | `finaleffect::core`, `finaleffect::platform`, `finaleffect::math`, `scene::Scene`, `scene::EditableMesh` core representation, `scene::PbrMaterial`, `scene::Light` + `EnvironmentLighting`, `scene::CommandStack`, `scene::picking`, `rendering::LightingSystem` (PCF Shadow Atlas + HDRI IBL), `rendering::EditorGrid`, `rendering::MaterialPreviewRenderer`, `rendering::SoftwareRenderDevice`, `project::ProjectSerializer` (`.fe3d` v1.0–v1.3 & `.fe3dbin` v1.0), `app::TransformGizmo` core math, `app::OrbitCameraController`. |
+| **Refactor & Modularize** | Split `EditorController` (`5,191` LOC) into modular domain controllers + dirty-domain state sync; upgrade `WorkspaceManager` / `WorkspaceState` from 4 fixed slots to a recursive `AreaLayout` tree; extend `StudioSession` from 1 viewport camera to `1..4` multi-view `ViewportSlot` instances; deduplicate shared GL shader logic between `OpenGL33RenderDevice` and `WebGL2RenderDevice`; replace dual `web/editor.js` + `web/maya_workspace.js` with clean modular desktop-only ES modules; retire mobile/touch CSS & DOM. |
+| **Build New (Staged `Stages 1–10`)** | Redesigned Desktop **Home / Project Hub** (`Stage 1`), **Original Hybrid Studio Shell & Area Docking System** + Native Desktop UI Parity Layer (`Stage 2`), **True 4-View Quad Viewport + 2D Marquee Selection + In-Viewport Operator HUD** (`Stage 3`), **Advanced Polygon Modeling (`Bevel`, `Bridge`, `Insert Edge Loop`, `Multi-Cut`, `Merge/Weld`, `Combine/Separate`, `Modifier Stack`)** (`Stage 4`), **Sculpting + BVH + Geometry Nodes** (`Stage 5`), **2D UV Editor + Node Shader Graph** (`Stage 6`), **Graph Editor + Dope Sheet + Armature Rigging/Skinning** (`Stage 7`), **Progressive Render/AOVs** (`Stage 8`), **Rigid/Cloth/Particle Physics** (`Stage 9`), **Node Compositor + Video Sequencer** (`Stage 10`). |

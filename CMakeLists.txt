@@ -180,7 +180,9 @@ finaleffect_apply_compiler_settings(finaleffect_rendering)
 # Portable Application Session Module (finaleffect_app)
 # ------------------------------------------------------------------------------
 add_library(finaleffect_app STATIC
+    src/app/app_preferences.cpp
     src/app/orbit_camera_controller.cpp
+    src/app/project_hub_service.cpp
     src/app/starter_scene.cpp
     src/app/transform_gizmo.cpp
     src/app/viewport_scene_helpers.cpp
@@ -298,7 +300,7 @@ if(FINALEFFECT_PLATFORM_IS_WEB)
             "-sINITIAL_MEMORY=33554432"
             "-sSTACK_SIZE=1048576"
             "-sFILESYSTEM=1"
-            "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_fe3d_is_ready','_fe3d_get_boot_stage','_fe3d_get_boot_message','_fe3d_get_init_error','_fe3d_get_state_json','_fe3d_dispatch_action','_fe3d_export_inline_project','_fe3d_save_bundle_to_vfs','_fe3d_load_file_from_vfs','_fe3d_state_revision','_fe3d_material_preview_ptr','_fe3d_material_preview_width','_fe3d_material_preview_height','_fe3d_material_preview_generation','_fe3d_export_workspace_json','_fe3d_hit_test_gizmo','_fe3d_touch_tap','_fe3d_pointer_event','_fe3d_camera_orbit','_fe3d_editor_camera_orbit','_fe3d_camera_pan','_fe3d_camera_zoom','_fe3d_render_final_frame','_fe3d_load_hdri_bytes']"
+            "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_fe3d_is_ready','_fe3d_get_boot_stage','_fe3d_get_boot_message','_fe3d_get_init_error','_fe3d_get_state_json','_fe3d_dispatch_action','_fe3d_export_inline_project','_fe3d_save_bundle_to_vfs','_fe3d_load_file_from_vfs','_fe3d_state_revision','_fe3d_material_preview_ptr','_fe3d_material_preview_width','_fe3d_material_preview_height','_fe3d_material_preview_generation','_fe3d_export_workspace_json','_fe3d_hit_test_gizmo','_fe3d_touch_tap','_fe3d_pointer_event','_fe3d_camera_orbit','_fe3d_editor_camera_orbit','_fe3d_camera_pan','_fe3d_camera_zoom','_fe3d_render_final_frame','_fe3d_load_hdri_bytes','_fe3d_get_system_info_json']"
             "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','stringToNewUTF8','FS','HEAPU8']"
     )
     configure_file(
@@ -326,6 +328,14 @@ if(FINALEFFECT_PLATFORM_IS_WEB)
         "${CMAKE_CURRENT_BINARY_DIR}/maya_workspace.js"
         COPYONLY
     )
+    file(GLOB_RECURSE FE3D_WEB_STAGE1_MODULES RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/web" "${CMAKE_CURRENT_SOURCE_DIR}/web/src/*")
+    foreach(FE3D_WEB_ASSET IN LISTS FE3D_WEB_STAGE1_MODULES)
+        configure_file(
+            "${CMAKE_CURRENT_SOURCE_DIR}/web/${FE3D_WEB_ASSET}"
+            "${CMAKE_CURRENT_BINARY_DIR}/${FE3D_WEB_ASSET}"
+            COPYONLY
+        )
+    endforeach()
 endif()
 
 # ------------------------------------------------------------------------------
@@ -418,6 +428,11 @@ if(FINALEFFECT_BUILD_TESTS)
     target_link_libraries(finaleffect_maya_stage1_tests PRIVATE finaleffect::app finaleffect::rendering)
     finaleffect_apply_compiler_settings(finaleffect_maya_stage1_tests)
     add_test(NAME finaleffect.maya_stage1 COMMAND finaleffect_maya_stage1_tests)
+
+    add_executable(finaleffect_stage1_hub_tests tests/stage1_hub_foundation_tests.cpp)
+    target_link_libraries(finaleffect_stage1_hub_tests PRIVATE finaleffect::app finaleffect::rendering)
+    finaleffect_apply_compiler_settings(finaleffect_stage1_hub_tests)
+    add_test(NAME finaleffect.stage1_hub_foundation COMMAND finaleffect_stage1_hub_tests)
 
     if(FINALEFFECT_BUILD_RENDERER_DESKTOP AND FINALEFFECT_PLATFORM_IS_DESKTOP)
         add_executable(finaleffect_opengl33_tests tests/opengl33_device_tests.cpp)

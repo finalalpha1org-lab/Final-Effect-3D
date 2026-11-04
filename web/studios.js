@@ -339,11 +339,11 @@
 
   function openPayloadDb() {
     return new Promise((resolve) => {
-      if (!window.indexedDB) {
-        resolve(null);
-        return;
-      }
       try {
+        if (!window.indexedDB) {
+          resolve(null);
+          return;
+        }
         const req = window.indexedDB.open(IDB_NAME, 1);
         req.onupgradeneeded = function () {
           const db = req.result;

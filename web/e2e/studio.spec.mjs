@@ -144,45 +144,43 @@ async function bootDirectStudioReady(page) {
 }
 
 test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
-  test("1. Splash screen gates on real WASM/WebGL2 readiness, opens Main Home, and presents honest 6-Studio architecture", async ({
+  test("1. Splash screen gates on real WASM/WebGL2 readiness, opens Stage 1 Desktop Project Hub, and exposes all 7 functional Hub views", async ({
     page,
   }) => {
     await bootToHomeReady(page);
     await assertNoHorizontalOverflow(page);
 
-    // All 6 Studios are present in the Studio Selector
-    const studioIds = [
-      "3d_studio",
-      "landscaping_studio",
-      "character_studio",
-      "studio_2d",
-      "sculpting_studio",
-      "shade_studio",
+    const viewIds = [
+      "projects",
+      "templates",
+      "new_project",
+      "open_project",
+      "recovery",
+      "preferences",
+      "about",
     ];
-    for (const id of studioIds) {
-      await expect(page.getByTestId(`studio-card-${id}`)).toBeVisible();
+    for (const id of viewIds) {
+      await expect(page.getByTestId(`hub-nav-${id}`)).toBeVisible();
     }
 
-    // 3D Studio shows operational Project Launcher by default
-    await expect(page.getByTestId("studio-launcher-panel")).toBeVisible();
-    await expect(page.getByTestId("studio-future-panel")).toBeHidden();
+    // Default view is Projects & Start
+    await expect(page.getByTestId("hub-view-projects")).toBeVisible();
 
-    // Every planned studio shows honest architectural status with zero fake launch controls
-    for (const plannedId of studioIds.slice(1)) {
-      await page.getByTestId(`studio-card-${plannedId}`).click();
-      await expect(page.getByTestId("studio-launcher-panel")).toBeHidden();
-      await expect(page.getByTestId("studio-future-panel")).toBeVisible();
-      await expect(page.locator("#future-studio-badge")).toContainText("PLANNED");
-    }
+    // Navigate across Templates and About views, then launch Starter Showcase into Studio
+    await page.getByTestId("hub-nav-templates").click();
+    await expect(page.getByTestId("hub-view-templates")).toBeVisible();
 
-    // Shade Studio provides an honest shortcut into operational 3D Studio Shading workspace
-    await page.getByTestId("btn-future-jump-shading").click();
+    await page.getByTestId("hub-nav-about").click();
+    await expect(page.getByTestId("hub-view-about")).toBeVisible();
+    await expect(page.getByTestId("about-app-name")).toHaveText("Final Effect 3D");
+
+    await page.getByTestId("hub-nav-projects").click();
+    await page.getByTestId("btn-launcher-create").click();
     await expect(page.getByTestId("home-screen")).toBeHidden();
     await expect(page.getByTestId("studio-shell")).toBeVisible();
-    await expect(page.getByTestId("ws-tab-shading")).toHaveClass(/is-active/);
   });
 
-  test("2. 3D Studio Project Launcher creates real templates, records & reopens Recent Projects with thumbnails, removes entries cleanly, and rejects corrupted files", async ({
+  test("2. Stage 1 Project Hub creates real templates, records & reopens Recent Projects with thumbnails, guards dirty sessions, removes entries cleanly, and rejects corrupted files", async ({
     page,
   }) => {
     await bootToHomeReady(page);
@@ -190,19 +188,21 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     // Recent projects begins genuinely empty (no fake hardcoded entries)
     await expect(page.getByTestId("recent-empty-state")).toBeVisible();
 
-    // Create a Minimal Cube project via the Launcher
-    await page.getByTestId("template-card-minimal_cube").click();
-    await setControlValueAndCommit(page.getByTestId("launcher-project-name"), "ArchCubeProject");
-    await setControlValueAndCommit(page.getByTestId("launcher-project-author"), "Stage5Artist");
-    await page.getByTestId("btn-launcher-create").click();
+    // Create a Minimal Cube project via the Stage 1 New Project view
+    await page.getByTestId("hub-nav-new_project").click();
+    await expect(page.getByTestId("hub-view-new-project")).toBeVisible();
+    await page.getByTestId("new-project-template").selectOption("minimal_cube");
+    await setControlValueAndCommit(page.getByTestId("new-project-name"), "ArchCubeProject");
+    await setControlValueAndCommit(page.getByTestId("new-project-author"), "Stage1Artist");
+    await page.getByTestId("btn-new-project-submit").click();
 
-    // Verify we entered 3D Studio with real C++ MinimalCube scene (3 objects: Camera, Light, Cube — ground is procedural grid!)
+    // Verify we entered 3D Studio with real C++ MinimalCube scene (3 objects: Camera, Light, Cube)
     await expect(page.getByTestId("studio-shell")).toBeVisible();
     await expect(page.getByTestId("active-project-pill")).toHaveText("ArchCubeProject");
     await expect(page.getByTestId("stat-objects-meshes")).toHaveText("3 / 1");
     await expect(page.getByTestId("outliner-item-Cube")).toBeVisible();
 
-    // Add a Sphere object (3 -> 4 objects) and return to Main Home
+    // Add a Sphere object (3 -> 4 objects, marking scene dirty) and return to Main Home
     await page.getByTestId("btn-add-sphere").click();
     await expect(page.getByTestId("stat-objects-meshes")).toHaveText("4 / 2");
     await page.getByTestId("btn-go-home").click();
@@ -215,21 +215,25 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     const thumbSrc = await recentItems.first().locator("img").getAttribute("src");
     expect(thumbSrc).toMatch(/^data:image\/jpeg;base64,/);
 
-    // Create an Empty Stage project (2 objects: MainCamera + SunLight)
-    await page.getByTestId("template-card-empty_stage").click();
-    await setControlValueAndCommit(page.getByTestId("launcher-project-name"), "CleanStage");
-    await page.getByTestId("btn-launcher-create").click();
+    // Create an Empty Stage project; confirm replacing the dirty active session when prompted
+    await page.getByTestId("hub-nav-new_project").click();
+    await page.getByTestId("new-project-template").selectOption("empty_stage");
+    await setControlValueAndCommit(page.getByTestId("new-project-name"), "CleanStage");
+    await page.getByTestId("btn-new-project-submit").click();
+    await expect(page.getByTestId("dirty-session-dialog")).toBeVisible();
+    await page.getByTestId("dirty-session-dialog-accept").click();
     await expect(page.getByTestId("stat-objects-meshes")).toHaveText("2 / 0");
 
     // Return to Home and reopen "ArchCubeProject" from Recent Projects -> restores 4 objects!
     await page.getByTestId("btn-go-home").click();
+    await page.getByTestId("hub-nav-projects").click();
     await expect(recentItems).toHaveCount(2);
     const archRow = recentItems.filter({ hasText: "ArchCubeProject" });
     await archRow.getByTestId("btn-reopen-recent").click();
     await expect(page.getByTestId("studio-shell")).toBeVisible();
     await expect(page.getByTestId("stat-objects-meshes")).toHaveText("4 / 2");
 
-    // Return to Home, test corrupted .fe3d file handling in Launcher
+    // Return to Home, test corrupted .fe3d file handling in Hub
     await page.getByTestId("btn-go-home").click();
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "fe3d-corrupt-"));
     const badPath = path.join(tmpDir, "broken.fe3d");
@@ -1040,6 +1044,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await assertZeroOverlayCollisions("Android Portrait 360x800");
 
     await page.setViewportSize({ width: 1024, height: 768 });
+    await expect(page.locator("body")).toHaveAttribute("data-layout-mode", "desktop");
     await assertNoHorizontalOverflow(page);
     await assertZeroOverlayCollisions("Tablet 1024x768");
 
@@ -2598,6 +2603,9 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
       mimeType: "application/octet-stream",
       buffer: Buffer.from("CORRUPT_HDR_NOT_RADIANCE_DATA", "utf8"),
     });
+    await expect
+      .poll(async () => (await page.evaluate(() => window.__FE3D_STUDIO__.getState())).status.level)
+      .toBe("error");
     const afterBadHdri = await page.evaluate(() => window.__FE3D_STUDIO__.getState());
     expect(afterBadHdri.status.level).toBe("error");
     expect(afterBadHdri.environment.has_hdri).toBe(true);

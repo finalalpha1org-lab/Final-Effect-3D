@@ -299,6 +299,21 @@ public:
         const std::filesystem::path& fe3d_path,
         const platform::IFileSystem& file_system);
 
+    // Stage 1: Document dirty-state and active project path tracking.
+    [[nodiscard]] bool isDocumentDirty() const noexcept {
+        return metadata_dirty_ || session_.commandStack().currentStateToken() != saved_command_token_;
+    }
+    void markDocumentSaved() noexcept {
+        saved_command_token_ = session_.commandStack().currentStateToken();
+        metadata_dirty_ = false;
+        ++state_revision_;
+    }
+    [[nodiscard]] const std::string& activeProjectPath() const noexcept { return active_project_path_; }
+    void setActiveProjectPath(std::string path) {
+        active_project_path_ = std::move(path);
+        ++state_revision_;
+    }
+
     // Structured JSON UI state & command dispatch for host UIs (WebAssembly DOM, IPC, testing).
     [[nodiscard]] std::string serializeStateJson() const;
     [[nodiscard]] core::Status executeActionJson(std::string_view action_json);
@@ -325,6 +340,9 @@ private:
     mutable bool has_preview_snapshot_{false};
 
     scene::MaterialId selected_material_id_{scene::MaterialId::invalid()};
+    std::uint64_t saved_command_token_{0};
+    bool metadata_dirty_{false};
+    std::string active_project_path_{};
     std::uint64_t state_revision_{1};
     std::uint64_t console_seq_{0};
     std::uint32_t spawn_counter_{0};

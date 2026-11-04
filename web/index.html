@@ -4,8 +4,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Final Effect 3D — Creative Studio Suite (v0.5.0)</title>
+  <title>Final Effect 3D — Desktop Creative Suite (v0.5.0)</title>
+  <link rel="stylesheet" href="src/theme/tokens.css" />
   <link rel="stylesheet" href="editor.css" />
+  <link rel="stylesheet" href="src/theme/home_hub.css" />
 </head>
 <body data-app-view="splash" data-layout-mode="desktop" data-ui-density="comfortable">
 
@@ -66,132 +68,9 @@
   </section>
 
   <!-- ===================================================================== -->
-  <!-- LEVEL 2: MAIN HOME, 6-STUDIO SELECTOR & REUSABLE PROJECT LAUNCHER     -->
+  <!-- LEVEL 2: STAGE 1 DESKTOP HOME & PROJECT HUB (MOUNTED BY main_stage1)  -->
   <!-- ===================================================================== -->
-  <section class="app-home" id="app-home" data-testid="home-screen" aria-label="Final Effect 3D Home and Studio Selector" hidden>
-    <header class="home-topbar">
-      <div class="home-brand">
-        <span class="brand-icon-slot" data-icon="logo" aria-hidden="true"></span>
-        <div class="home-brand-text">
-          <span class="home-brand-name">Final Effect 3D</span>
-          <span class="home-brand-sub" id="home-engine-badge" data-testid="home-engine-badge">v0.5.0 &middot; WebGL 2.0 Ready</span>
-        </div>
-      </div>
-
-      <div class="home-topbar-actions">
-        <button type="button" class="pro-btn pro-btn-accent" id="btn-home-resume-studio" data-testid="btn-home-resume-studio" hidden>
-          Return to Active 3D Studio
-        </button>
-        <button type="button" class="pro-btn" id="btn-open-settings" data-testid="btn-open-settings">
-          <span class="btn-ic" data-icon="settings"></span>
-          <span>Preferences</span>
-        </button>
-      </div>
-    </header>
-
-    <div class="home-body">
-      <!-- Left Rail: 6 Creative Studios Selector -->
-      <aside class="home-studio-rail" aria-label="Creative Studios">
-        <div class="rail-section-label">CREATIVE STUDIOS</div>
-        <div class="studio-selector-list" id="studio-selector-list" data-testid="studio-selector"></div>
-
-        <div class="home-rail-footer">
-          <div class="rail-arch-note">
-            <strong>Unified C++20 Architecture</strong>
-            <span>Studios share <code>finaleffect::scene</code>, PBR renderer &amp; <code>.fe3d</code> v1.3 serializer.</span>
-          </div>
-        </div>
-      </aside>
-
-      <!-- Main Launcher Content -->
-      <main class="home-main" id="home-main">
-        <!-- Operational Studio Project Launcher (Used by 3D Studio & reusable for future operational studios) -->
-        <div class="launcher-view" id="studio-launcher-panel" data-testid="studio-launcher-panel">
-          <div class="launcher-hero">
-            <div>
-              <div class="studio-status-pill is-operational" id="launcher-studio-badge">OPERATIONAL &middot; v0.5.0</div>
-              <h2 class="launcher-title" id="launcher-studio-title">3D Studio</h2>
-              <p class="launcher-desc" id="launcher-studio-desc"></p>
-            </div>
-            <div class="launcher-hero-actions">
-              <button type="button" class="pro-btn" id="btn-launcher-open" data-testid="btn-launcher-open">
-                <span class="btn-ic" data-icon="folder"></span>
-                <span>Open Project (.fe3d / .fe3dbin)…</span>
-              </button>
-            </div>
-          </div>
-
-          <div class="launcher-error-banner" id="launcher-error-banner" data-testid="launcher-error-banner" hidden></div>
-
-          <div class="launcher-grid">
-            <!-- Create New Project Card -->
-            <section class="launcher-section" aria-label="New Project">
-              <div class="launcher-section-head">
-                <h3>New Project</h3>
-                <span class="muted-tag">Real C++20 Scene &amp; .fe3d Document</span>
-              </div>
-
-              <div class="launcher-meta-row">
-                <label class="pro-field">
-                  <span>Project Name</span>
-                  <input type="text" id="launcher-project-name" data-testid="launcher-project-name" value="Untitled Studio Project" autocomplete="off" />
-                </label>
-                <label class="pro-field">
-                  <span>Author</span>
-                  <input type="text" id="launcher-project-author" data-testid="launcher-project-author" value="Final Effect 3D" autocomplete="off" />
-                </label>
-              </div>
-
-              <div class="template-grid" id="launcher-template-grid" data-testid="launcher-template-grid"></div>
-
-              <div class="launcher-create-bar">
-                <button type="button" class="pro-btn pro-btn-primary pro-btn-lg" id="btn-launcher-create" data-testid="btn-launcher-create">
-                  Create &amp; Enter 3D Studio
-                </button>
-              </div>
-            </section>
-
-            <!-- Recent Projects History Card -->
-            <section class="launcher-section" aria-label="Recent Projects">
-              <div class="launcher-section-head">
-                <h3>Recent Projects</h3>
-                <span class="muted-tag" id="recent-count-tag">0 saved</span>
-              </div>
-              <div class="recent-projects-list" id="recent-projects-list" data-testid="recent-projects-list"></div>
-            </section>
-          </div>
-        </div>
-
-        <!-- Future / Planned Studio Architectural View (Honest, Zero Fake Tools) -->
-        <div class="future-studio-view" id="studio-future-panel" data-testid="studio-future-panel" hidden>
-          <div class="future-card">
-            <div class="studio-status-pill is-planned" id="future-studio-badge">PLANNED &middot; FUTURE STAGE</div>
-            <h2 class="launcher-title" id="future-studio-title">Studio</h2>
-            <p class="future-tagline" id="future-studio-tagline"></p>
-            <p class="launcher-desc" id="future-studio-desc"></p>
-
-            <div class="future-roadmap-box">
-              <h3>Planned Engine &amp; Tooling Scope</h3>
-              <ul class="future-cap-list" id="future-studio-caps"></ul>
-            </div>
-
-            <div class="future-honesty-note">
-              This Creative Studio slot is part of the extensible Final Effect 3D multi-studio architecture and is not yet operational in v0.5.0. No placeholder or mock editors are loaded.
-            </div>
-
-            <div class="future-actions">
-              <button type="button" class="pro-btn pro-btn-primary" id="btn-future-back-3d" data-testid="btn-future-back-3d">
-                Switch to Operational 3D Studio
-              </button>
-              <button type="button" class="pro-btn pro-btn-accent" id="btn-future-jump-shading" data-testid="btn-future-jump-shading" hidden>
-                Open Operational PBR Shading in 3D Studio
-              </button>
-            </div>
-          </div>
-        </div>
-      </main>
-    </div>
-  </section>
+  <section class="app-home fe-hub-shell" id="app-home" data-testid="home-screen" aria-label="Final Effect 3D Project Hub" hidden></section>
 
   <!-- ===================================================================== -->
   <!-- LEVEL 3: AUTODESK MAYA CLASSIC-STYLE 3D STUDIO WORKSPACE (STAGE 1)    -->
@@ -1647,6 +1526,7 @@
   </div>
 
   <script src="studios.js"></script>
+  <script type="module" src="src/main_stage1.js"></script>
   <script src="editor.js"></script>
   <script src="maya_workspace.js"></script>
   <script src="finaleffect_web.js"></script>
