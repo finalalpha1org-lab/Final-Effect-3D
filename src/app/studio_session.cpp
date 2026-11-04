@@ -2033,12 +2033,6 @@ core::Status StudioSession::saveProjectToFile(
     return project::ProjectSerializer::saveToFile(document_, path, file_system);
 }
 
-core::Status StudioSession::saveProjectBundleToFile(
-    const std::filesystem::path& fe3d_path,
-    platform::IFileSystem& file_system) const {
-    return project::ProjectSerializer::saveBundleToFile(document_, fe3d_path, file_system);
-}
-
 core::ResourceStats StudioSession::collectResourceStats() const noexcept {
     core::ResourceStats stats = renderer_.collectResourceStats(document_.scene);
     stats.undo_command_count = command_stack_.undoCount();
