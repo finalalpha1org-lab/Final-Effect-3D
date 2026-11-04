@@ -5,6 +5,9 @@
 #include "finaleffect/project/project.hpp"
 
 #include <algorithm>
+#include <vector>
+#include <span>
+#include <cstdint>
 #include <utility>
 
 namespace finaleffect::app {
@@ -413,31 +416,13 @@ RoutedInputDecision WorkspaceManager::routeKeyEvent(
     return RoutedInputDecision{RoutedInputTarget::PanelUI, state_.focused_panel};
 }
 
-core::Result<std::string> WorkspaceManager::serializeLayoutToJson(bool pretty) const {
-    project::JsonValue root{project::JsonObject{}};
-    root.setKey("format", "finaleffect.workspace");
-    root.setKey("version", static_cast<std::uint64_t>(1));
-    root.setKey("workspace", project::ProjectSerializer::encodeWorkspaceJson(state_, preserved_extra_));
-    return project::writeJson(root, pretty);
+core::Result<std::vector<std::uint8_t>> WorkspaceManager::serializeLayoutToBytes() const {
+    return project::ProjectSerializer::serializeWorkspaceToBytes(state_, preserved_extra_);
 }
 
-core::Status WorkspaceManager::deserializeLayoutFromJson(std::string_view json_text) {
-    auto parsed = project::parseJson(json_text);
-    if (!parsed) {
-        return parsed.error();
-    }
-    const auto& root = parsed.value();
-    if (!root.isObject()) {
-        return core::Status::fail(core::ErrorCode::ValidationError, "Workspace layout root must be a JSON object");
-    }
-
-    const project::JsonValue* ws_node = root.findKey("workspace");
-    if (ws_node == nullptr) {
-        ws_node = &root;
-    }
-
+core::Status WorkspaceManager::deserializeLayoutFromBytes(std::span<const std::uint8_t> bytes) {
     project::JsonObject extra;
-    auto decoded = project::ProjectSerializer::decodeWorkspaceJson(*ws_node, &extra, nullptr);
+    auto decoded = project::ProjectSerializer::deserializeWorkspaceFromBytes(bytes, &extra, nullptr);
     if (!decoded) {
         return decoded.error();
     }
@@ -450,21 +435,21 @@ core::Status WorkspaceManager::deserializeLayoutFromJson(std::string_view json_t
 core::Status WorkspaceManager::saveLayoutToFile(
     const std::filesystem::path& path,
     platform::IFileSystem& file_system) const {
-    auto json_res = serializeLayoutToJson(true);
-    if (!json_res) {
-        return json_res.error();
+    auto bytes_res = serializeLayoutToBytes();
+    if (!bytes_res) {
+        return bytes_res.error();
     }
-    return file_system.writeTextFile(path, json_res.value());
+    return file_system.writeBinaryFile(path, bytes_res.value());
 }
 
 core::Status WorkspaceManager::loadLayoutFromFile(
     const std::filesystem::path& path,
     const platform::IFileSystem& file_system) {
-    auto text_res = file_system.readTextFile(path);
-    if (!text_res) {
-        return text_res.error();
+    auto bytes_res = file_system.readBinaryFile(path);
+    if (!bytes_res) {
+        return bytes_res.error();
     }
-    return deserializeLayoutFromJson(text_res.value());
+    return deserializeLayoutFromBytes(bytes_res.value());
 }
 
 void WorkspaceManager::sanitizeFocusAndRatios() noexcept {
