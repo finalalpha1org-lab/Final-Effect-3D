@@ -1,3 +1,0 @@
-syntax check: df16c01f7dd8cd66ace8929b8d0907d4860bda68
-
-checked 55 translation units, 0 failed
