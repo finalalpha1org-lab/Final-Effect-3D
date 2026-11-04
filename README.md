@@ -2,7 +2,7 @@
 
 **Final Effect 3D** is an original, open-source 3D engine and creative studio foundation written in modern **C++20**. Its long-term engineering goal is to unify 3D modelling, animation, procedural generation, visual effects, compositing, non-linear video editing, simulation, and material authoring on a clean, modular, cross-platform architecture.
 
-Final Effect 3D has its own codebase, architecture, coordinate conventions, rendering abstraction, versioned `.fe3d` project format, and content-addressed `.fe3dbin` binary geometry archive. It is **not** a fork or clone of Blender or any other existing creative suite.
+Final Effect 3D has its own codebase, architecture, coordinate conventions, rendering abstraction, versioned binary `.fe3d` / `.fe3a` project container format, and content-addressed `.fe3dbin` geometry chunks geometry archive. It is **not** a fork or clone of Blender or any other existing creative suite.
 
 ---
 
@@ -23,7 +23,7 @@ This repository implements **Stages 1–5**:
 | **Core** | `finaleffect::core` | Implemented & Verified | Deterministic `Engine` lifecycle (`v0.5.0`), `IApplication` separation, `Result<T>`/`Error`, severity-filtered `Logger`, `ResourceStats` telemetry (including `material_count` & `gpu_buffer_update_count`) |
 | **Math** | `finaleffect::math` | Implemented & Verified | Right-handed Y-up `Vec2`/`Vec3`/`Vec4`/`Quat` (XYZ Euler conversion)/`Mat4`/`Transform`, `Ray`, `AABB`, ray-AABB & Möller–Trumbore ray-triangle intersections |
 | **Scene, Editable Mesh & Materials** | `finaleffect::scene` | Implemented & Verified | Single-owner `Scene` graph, polygon-capable `EditableMesh` (`Vertex`/`Edge`/`Face` selection, extrusion, dissolve/delete, boundary-loop fill, per-face materials, topology validation), `PbrMaterial` (`MaterialId`), and bounded Undo/Redo `CommandStack` |
-| **Project & `.fe3dbin`** | `finaleffect::project` | Implemented & Verified | Self-contained RFC 8259 JSON codec, `.fe3d` (`v1.2`, backward-compatible with `v1.0` & `v1.1`, lossless preservation of unknown future fields), `WorkspaceState` persistence, and content-addressed `.fe3dbin` (`v1.0`) binary geometry chunks with FNV-1a-64 & IEEE CRC-32 |
+| **Project & `.fe3d` / `.fe3a`** | `finaleffect::project` | Implemented & Verified | Self-contained `.fe3d` / `.fe3a` binary container codec (no JSON is written or read), `.fe3d` (`v1.2`, backward-compatible with `v1.0` & `v1.1`, lossless preservation of unknown future fields), `WorkspaceState` persistence, and content-addressed `.fe3dbin` (`v1.0`) binary geometry chunks with FNV-1a-64 & IEEE CRC-32 |
 | **Rendering & Material Preview** | `finaleffect::rendering` | Implemented & Verified | API-agnostic `Renderer` + `IRenderDevice` (`updateMesh`, `beginOverlayPass`, multi-material submesh draws, alpha blending), CPU Cook-Torrance `SoftwareRenderDevice`, and live 3D sphere `MaterialPreviewRenderer` |
 | **Desktop GL 3.3** | `finaleffect::rendering_opengl33` | Implemented & Verified | OpenGL 3.3 Core Profile VAO/VBO/EBO (`glBufferSubData` in-place mesh updates) + GLSL 330 Cook-Torrance GGX PBR shader backend (`GlfwWindow` when system GLFW + OpenGL are present) |
 | **WebGL 2.0 / GLES 3.0** | `finaleffect::rendering_webgl2` | Implemented & Verified | WebGL 2.0 / OpenGL ES 3.0 VAO/VBO/EBO (`glBufferSubData` in-place mesh updates) + GLSL ES 3.00 (`#version 300 es`) Cook-Torrance GGX PBR shader backend |
@@ -89,7 +89,7 @@ cmake --build --preset desktop-release --parallel
 ctest --preset desktop-release
 ```
 
-* On headless machines or containers without X11/Wayland/OpenGL, run headless verification with `.fe3d` (`v1.2`) + `.fe3dbin` binary bundle export and Cook-Torrance software-rendered PPM frame output:
+* On headless machines or containers without X11/Wayland/OpenGL, run headless verification with a `.fe3d` / `.fe3a` binary container export and Cook-Torrance software-rendered PPM frame output:
 
 ```bash
 ./build/desktop-release/finaleffect_desktop --headless --frames 5 \
