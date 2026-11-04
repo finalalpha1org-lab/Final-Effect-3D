@@ -34,6 +34,14 @@ bool containsCaseInsensitive(std::string_view haystack, std::string_view needle)
     return false;
 }
 
+bool isKeyJustPressedAnyOwner(ImGuiKey key) noexcept {
+    if (key < ImGuiKey_NamedKey_BEGIN || key >= ImGuiKey_NamedKey_END) {
+        return false;
+    }
+    const ImGuiKeyData& kd = ImGui::GetIO().KeysData[key - ImGuiKey_NamedKey_BEGIN];
+    return kd.Down && kd.DownDuration == 0.0f;
+}
+
 } // namespace
 
 const std::array<HomeHubViewDescriptor, 7>& allHomeHubViews() noexcept {
@@ -528,15 +536,15 @@ void NativeHomeNavigation::drawCommandPalette(
             palette_selected_idx_ = 0;
         }
 
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        if (isKeyJustPressedAnyOwner(ImGuiKey_Escape)) {
             palette_open_ = false;
-        } else if (!filtered.empty() && ImGui::IsKeyPressed(ImGuiKey_DownArrow)) {
+        } else if (!filtered.empty() && isKeyJustPressedAnyOwner(ImGuiKey_DownArrow)) {
             palette_selected_idx_ = (palette_selected_idx_ + 1u) % filtered.size();
-        } else if (!filtered.empty() && ImGui::IsKeyPressed(ImGuiKey_UpArrow)) {
+        } else if (!filtered.empty() && isKeyJustPressedAnyOwner(ImGuiKey_UpArrow)) {
             palette_selected_idx_ = (palette_selected_idx_ == 0u) ? (filtered.size() - 1u) : (palette_selected_idx_ - 1u);
         }
 
-        bool activate_selected = !filtered.empty() && ImGui::IsKeyPressed(ImGuiKey_Enter);
+        bool activate_selected = !filtered.empty() && isKeyJustPressedAnyOwner(ImGuiKey_Enter);
         ImGui::Spacing();
         ImGui::BeginChild("##PaletteResults", ImVec2(0.0f, 0.0f), true);
         for (std::size_t row = 0; row < filtered.size(); ++row) {

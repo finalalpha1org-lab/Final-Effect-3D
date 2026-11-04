@@ -223,21 +223,57 @@ void testLaunchAllSevenViewsAndNavigation() {
     });
     rig.stepUiFrame();
     FE_CHECK(rig.hub->navigation().isCommandPaletteOpen());
+    rig.window.pushInputEvent(finaleffect::platform::KeyEvent{
+        .key = finaleffect::platform::KeyCode::K,
+        .action = finaleffect::platform::KeyAction::Release,
+    });
+    rig.stepUiFrame();
 
-    // Exercise mouse move, left-click, scroll wheel, and Unicode text input events into Command Palette
+    // Exercise mouse move, scroll wheel, and Unicode text input events into Command Palette
     rig.window.pushInputEvent(finaleffect::platform::TextInputEvent{.codepoint = static_cast<std::uint32_t>('A')});
     rig.window.pushInputEvent(finaleffect::platform::TextInputEvent{.codepoint = static_cast<std::uint32_t>('b')});
+    rig.stepUiFrame();
     rig.window.pushInputEvent(finaleffect::platform::CursorMoveEvent{.x = 120.0, .y = 210.0});
     rig.window.pushInputEvent(finaleffect::platform::ScrollEvent{.delta_x = 0.0, .delta_y = -1.0});
     rig.stepUiFrame();
 
-    // Close Command Palette with Escape, then left-click sidebar item #1 (Projects & Start)
+    // Close Command Palette with Escape (and release Escape), then left-click sidebar item #1 (Projects & Start)
     rig.window.pushInputEvent(finaleffect::platform::KeyEvent{
         .key = finaleffect::platform::KeyCode::Escape,
         .action = finaleffect::platform::KeyAction::Press,
     });
     rig.stepUiFrame();
     FE_CHECK(!rig.hub->navigation().isCommandPaletteOpen());
+    rig.window.pushInputEvent(finaleffect::platform::KeyEvent{
+        .key = finaleffect::platform::KeyCode::Escape,
+        .action = finaleffect::platform::KeyAction::Release,
+    });
+    rig.stepUiFrame();
+
+    // Also verify Super+K (macOS Cmd+K) opens Command Palette on all platforms, then close with Escape
+    rig.window.pushInputEvent(finaleffect::platform::KeyEvent{
+        .key = finaleffect::platform::KeyCode::K,
+        .action = finaleffect::platform::KeyAction::Press,
+        .mods = {.super = true},
+    });
+    rig.stepUiFrame();
+    FE_CHECK(rig.hub->navigation().isCommandPaletteOpen());
+    rig.window.pushInputEvent(finaleffect::platform::KeyEvent{
+        .key = finaleffect::platform::KeyCode::K,
+        .action = finaleffect::platform::KeyAction::Release,
+    });
+    rig.stepUiFrame();
+    rig.window.pushInputEvent(finaleffect::platform::KeyEvent{
+        .key = finaleffect::platform::KeyCode::Escape,
+        .action = finaleffect::platform::KeyAction::Press,
+    });
+    rig.stepUiFrame();
+    FE_CHECK(!rig.hub->navigation().isCommandPaletteOpen());
+    rig.window.pushInputEvent(finaleffect::platform::KeyEvent{
+        .key = finaleffect::platform::KeyCode::Escape,
+        .action = finaleffect::platform::KeyAction::Release,
+    });
+    rig.stepUiFrame();
 
     rig.window.pushInputEvent(finaleffect::platform::CursorMoveEvent{.x = 110.0, .y = 118.0});
     rig.window.pushInputEvent(finaleffect::platform::MouseButtonEvent{

@@ -529,8 +529,11 @@ void NativeHomeHub::handleGlobalKeyboardShortcuts() {
         return;
     }
 
+    // Accept both Ctrl and Super (macOS Cmd; ImGui swaps Ctrl/Super when ConfigMacOSXBehaviors is active)
+    const bool primary_mod = io.KeyCtrl || io.KeySuper;
+
     if (mode_ == DesktopMode::HomeHub) {
-        if ((io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_K, false)) ||
+        if ((primary_mod && ImGui::IsKeyPressed(ImGuiKey_K, false)) ||
             ImGui::IsKeyPressed(ImGuiKey_F3, false)) {
             navigation_.openCommandPalette();
             return;
@@ -546,8 +549,8 @@ void NativeHomeHub::handleGlobalKeyboardShortcuts() {
             else if (io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_5, false)) navigateTo(HomeHubViewId::Recovery);
             else if (io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_6, false)) navigateTo(HomeHubViewId::Preferences);
             else if (io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_7, false)) navigateTo(HomeHubViewId::About);
-            else if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_N, false)) navigateTo(HomeHubViewId::NewProject);
-            else if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_O, false)) {
+            else if (primary_mod && ImGui::IsKeyPressed(ImGuiKey_N, false)) navigateTo(HomeHubViewId::NewProject);
+            else if (primary_mod && ImGui::IsKeyPressed(ImGuiKey_O, false)) {
                 ProjectOpenActions open_act{};
                 project_open_.invokeNativeOpenDialog(*file_dialog_, paths_.default_projects_directory, open_act);
                 if (open_act.open_project_path.has_value()) {
@@ -562,11 +565,11 @@ void NativeHomeHub::handleGlobalKeyboardShortcuts() {
             }
         }
     } else {
-        // Studio Mode Shortcuts: F2 or Ctrl+Shift+H returns to Projects & Start; Ctrl+S saves active .fe3d
+        // Studio Mode Shortcuts: F2 or Ctrl/Cmd+Shift+H returns to Projects & Start; Ctrl/Cmd+S saves active .fe3d
         if (ImGui::IsKeyPressed(ImGuiKey_F2, false) ||
-            (io.KeyCtrl && io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_H, false))) {
+            (primary_mod && io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_H, false))) {
             returnToHomeHub();
-        } else if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) {
+        } else if (primary_mod && ImGui::IsKeyPressed(ImGuiKey_S, false)) {
             (void)saveActiveStudioProject();
         }
     }
