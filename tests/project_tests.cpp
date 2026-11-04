@@ -7,6 +7,7 @@
 #include "finaleffect/platform/file_system.hpp"
 #include "finaleffect/platform/paths.hpp"
 #include "finaleffect/project/binary_asset.hpp"
+#include "finaleffect/project/binary_project.hpp"
 #include "finaleffect/project/json.hpp"
 #include "finaleffect/project/project.hpp"
 #include "finaleffect/scene/primitives.hpp"
@@ -17,6 +18,14 @@ namespace {
 
 using namespace finaleffect;
 using namespace finaleffect::project;
+
+// Wraps a document tree given as JSON text into a valid .fe3d / .fe3a binary container so document
+// validation can be exercised independently of the encoder.
+std::vector<std::uint8_t> containerFromJsonText(std::string_view json_text) {
+    BinaryProjectImage image{};
+    image.document = parseJson(json_text).value();
+    return BinaryProjectCodec::encode(image).value();
+}
 
 FE_TEST(Project, JsonParserEscapesAndErrorReporting) {
     const auto parsed = parseJson(R"({"title":"Final \"Effect\" \u0033D","ok":true,"nums":[-1, 2.5, 1e-3]})");
@@ -94,16 +103,18 @@ FE_TEST(Project, FullSceneRoundTripAndDeterministicOutput) {
     const auto load_world = loaded.scene.computeWorldMatrix(cube).value();
     FE_EXPECT_TRUE(orig_world.approxEqual(load_world, 1e-4f));
 
-    // Re-serializing produces identical JSON text.
-    const auto text_a = ProjectSerializer::serializeToString(original).value();
-    const auto text_b = ProjectSerializer::serializeToString(loaded).value();
-    FE_EXPECT_EQ(text_a, text_b);
+    // Re-serializing produces byte-identical container output (deterministic encoding).
+    const auto bytes_a = ProjectSerializer::serializeToBytes(original).value();
+    const auto bytes_b = ProjectSerializer::serializeToBytes(loaded).value();
+    FE_EXPECT_EQ(bytes_a, bytes_b);
+    FE_EXPECT_TRUE(BinaryProjectCodec::isBinaryProjectImage(bytes_a));
+    FE_EXPECT_EQ(fs.readBinaryFile(file_path).value(), bytes_a);
 
     std::filesystem::remove_all(temp_dir, ec);
 }
 
 FE_TEST(Project, RejectsUnsupportedVersionsAndTamperedData) {
-    // 1. Unsupported major schema version.
+    // 1. Unsupported major schema version (document tree inside a valid container).
     const char* future_major = R"({
         "format": "finaleffect.project",
         "schema_version": { "major": 99, "minor": 0 },
@@ -111,7 +122,7 @@ FE_TEST(Project, RejectsUnsupportedVersionsAndTamperedData) {
         "scene": { "name": "Future", "objects": [] }
     })";
     FE_EXPECT_EQ(
-        ProjectSerializer::deserializeFromString(future_major).error().code,
+        ProjectSerializer::deserializeFromBytes(containerFromJsonText(future_major)).error().code,
         core::ErrorCode::UnsupportedVersion);
 
     // 2. Unsupported minor schema version (newer minor than reader supports).
@@ -122,10 +133,10 @@ FE_TEST(Project, RejectsUnsupportedVersionsAndTamperedData) {
         "scene": { "name": "FutureMinor", "objects": [] }
     })";
     FE_EXPECT_EQ(
-        ProjectSerializer::deserializeFromString(future_minor).error().code,
+        ProjectSerializer::deserializeFromBytes(containerFromJsonText(future_minor)).error().code,
         core::ErrorCode::UnsupportedVersion);
 
-    // 3. Wrong format identifier.
+    // 3. Wrong format identifier inside a valid container.
     const char* wrong_magic = R"({
         "format": "other.app.project",
         "schema_version": { "major": 1, "minor": 0 },
@@ -133,7 +144,7 @@ FE_TEST(Project, RejectsUnsupportedVersionsAndTamperedData) {
         "scene": { "name": "Wrong", "objects": [] }
     })";
     FE_EXPECT_EQ(
-        ProjectSerializer::deserializeFromString(wrong_magic).error().code,
+        ProjectSerializer::deserializeFromBytes(containerFromJsonText(wrong_magic)).error().code,
         core::ErrorCode::ValidationError);
 
     // 4. Hierarchy cycle inside serialized objects (1 -> 2 -> 1).
@@ -160,7 +171,7 @@ FE_TEST(Project, RejectsUnsupportedVersionsAndTamperedData) {
         }
     })";
     FE_EXPECT_EQ(
-        ProjectSerializer::deserializeFromString(cycle_project).error().code,
+        ProjectSerializer::deserializeFromBytes(containerFromJsonText(cycle_project)).error().code,
         core::ErrorCode::HierarchyCycle);
 
     // 5. Dangling mesh reference on object.
@@ -182,7 +193,7 @@ FE_TEST(Project, RejectsUnsupportedVersionsAndTamperedData) {
         }
     })";
     FE_EXPECT_EQ(
-        ProjectSerializer::deserializeFromString(dangling_mesh).error().code,
+        ProjectSerializer::deserializeFromBytes(containerFromJsonText(dangling_mesh)).error().code,
         core::ErrorCode::ValidationError);
 }
 
@@ -212,7 +223,7 @@ FE_TEST(Project, BinaryAssetBundleDeduplicationCrcAndPathTraversalProtection) {
     tampered[40] ^= 0x01u;
     FE_EXPECT_EQ(BinaryAssetArchive::decode(tampered).error().code, core::ErrorCode::ValidationError);
 
-    // 2. Full .fe3d + .fe3dbin bundle round-trip + smaller JSON metadata file.
+    // 2. Self-contained .fe3d container round-trip: geometry is embedded, never a sidecar file.
     ProjectDocument doc;
     doc.metadata.project_name = "Binary Bundle Scene";
     doc.scene.setName("Bundled");
@@ -229,26 +240,34 @@ FE_TEST(Project, BinaryAssetBundleDeduplicationCrcAndPathTraversalProtection) {
     std::error_code ec;
     std::filesystem::remove_all(temp_dir, ec);
 
-    const auto inline_path = temp_dir / "inline.fe3d";
-    const auto bundle_path = temp_dir / "bundle.fe3d";
-    const auto bin_path = temp_dir / "bundle.fe3dbin";
+    const auto project_path = temp_dir / "bundle.fe3d";
+    const auto legacy_sidecar_path = temp_dir / "bundle.fe3dbin";
 
-    FE_REQUIRE_TRUE(ProjectSerializer::saveToFile(doc, inline_path, fs).hasValue());
-    FE_REQUIRE_TRUE(ProjectSerializer::saveBundleToFile(doc, bundle_path, fs).hasValue());
-    FE_EXPECT_TRUE(fs.exists(bin_path));
+    FE_REQUIRE_TRUE(ProjectSerializer::saveToFile(doc, project_path, fs).hasValue());
 
-    // Bundle .fe3d JSON text is dramatically smaller than inline JSON vertex arrays.
-    const auto inline_text = fs.readTextFile(inline_path).value();
-    const auto bundle_text = fs.readTextFile(bundle_path).value();
-    FE_EXPECT_TRUE(bundle_text.size() * 3 < inline_text.size());
+    // Saving writes exactly one self-contained container; no .fe3dbin companion is created.
+    FE_EXPECT_TRUE(fs.exists(project_path));
+    FE_EXPECT_TRUE(!fs.exists(legacy_sidecar_path));
 
-    const auto loaded_bundle = ProjectSerializer::loadFromFile(bundle_path, fs);
+    // The container carries the embedded, deduplicated, CRC-checked geometry archive.
+    const auto container_bytes = fs.readBinaryFile(project_path).value();
+    FE_EXPECT_TRUE(BinaryProjectCodec::isBinaryProjectImage(container_bytes));
+    const auto decoded_container = BinaryProjectCodec::decode(container_bytes);
+    FE_REQUIRE_TRUE(decoded_container.hasValue());
+    FE_EXPECT_TRUE(decoded_container.value().hasGeometry());
+    const auto embedded_archive = BinaryAssetArchive::decode(decoded_container.value().geometry_archive);
+    FE_REQUIRE_TRUE(embedded_archive.hasValue());
+    FE_EXPECT_EQ(embedded_archive.value().chunkCount(), std::size_t{2}); // identical cubes deduplicated
+    FE_EXPECT_TRUE(container_bytes.size() < 16u * 1024u); // packed binary geometry, not text
+
+    const auto loaded_bundle = ProjectSerializer::loadFromFile(project_path, fs);
     FE_REQUIRE_TRUE(loaded_bundle.hasValue());
     FE_EXPECT_EQ(loaded_bundle.value().scene.meshCount(), std::size_t{2});
     FE_EXPECT_EQ(loaded_bundle.value().scene.findMesh(m1)->data.indices.size(), cube_a.indices.size());
     FE_EXPECT_EQ(loaded_bundle.value().scene.findMesh(m2)->data.vertices.size(), cube_b.vertices.size());
 
-    // 3. Path-traversal binary_chunk URI must be rejected.
+    // 3. A mesh that references embedded geometry is rejected cleanly when no geometry archive is
+    //    present in the container; companion-file URIs are informational and never opened.
     const auto traversal_path = temp_dir / "traversal.fe3d";
     const char* malicious_json = R"({
         "format": "finaleffect.project",
@@ -269,9 +288,16 @@ FE_TEST(Project, BinaryAssetBundleDeduplicationCrcAndPathTraversalProtection) {
             "objects": []
         }
     })";
-    FE_REQUIRE_TRUE(fs.writeTextFile(traversal_path, malicious_json).hasValue());
+    FE_REQUIRE_TRUE(fs.writeBinaryFile(traversal_path, containerFromJsonText(malicious_json)).hasValue());
     FE_EXPECT_EQ(
         ProjectSerializer::loadFromFile(traversal_path, fs).error().code,
+        core::ErrorCode::ValidationError);
+
+    // 4. Legacy JSON project text is refused outright: the format is binary-only.
+    const auto legacy_path = temp_dir / "legacy.fe3d";
+    FE_REQUIRE_TRUE(fs.writeTextFile(legacy_path, malicious_json).hasValue());
+    FE_EXPECT_EQ(
+        ProjectSerializer::loadFromFile(legacy_path, fs).error().code,
         core::ErrorCode::ValidationError);
 
     std::filesystem::remove_all(temp_dir, ec);
@@ -323,8 +349,8 @@ FE_TEST(Project, Stage4EditableMeshMaterialsEditorStateAndWorkspaceRoundTrip) {
     doc.workspace.left_dock_width_ratio = 0.21f;
     doc.workspace.panels[static_cast<std::size_t>(WorkspacePanelId::Timeline)].visible = true;
 
-    const auto json_a = ProjectSerializer::serializeToString(doc).value();
-    const auto loaded_res = ProjectSerializer::deserializeFromString(json_a);
+    const auto container_a = ProjectSerializer::serializeToBytes(doc).value();
+    const auto loaded_res = ProjectSerializer::deserializeFromBytes(container_a);
     FE_REQUIRE_TRUE(loaded_res.hasValue());
     const auto& loaded = loaded_res.value();
 
@@ -350,8 +376,8 @@ FE_TEST(Project, Stage4EditableMeshMaterialsEditorStateAndWorkspaceRoundTrip) {
     FE_EXPECT_EQ(loaded.workspace.focused_panel, WorkspacePanelId::MaterialEditor);
     FE_EXPECT_TRUE(loaded.workspace.panels[static_cast<std::size_t>(WorkspacePanelId::Timeline)].visible);
 
-    const auto json_b = ProjectSerializer::serializeToString(loaded).value();
-    FE_EXPECT_EQ(json_a, json_b);
+    const auto container_b = ProjectSerializer::serializeToBytes(loaded).value();
+    FE_EXPECT_EQ(container_a, container_b);
 }
 
 FE_TEST(Project, BackwardCompatibilityV10V11AndLosslessUnknownFieldPreservation) {
@@ -379,7 +405,7 @@ FE_TEST(Project, BackwardCompatibilityV10V11AndLosslessUnknownFieldPreservation)
         "custom_plugin_data": { "version": 3, "enabled": true }
     })";
 
-    const auto loaded_res = ProjectSerializer::deserializeFromString(legacy_v10_with_extensions);
+    const auto loaded_res = ProjectSerializer::deserializeFromBytes(containerFromJsonText(legacy_v10_with_extensions));
     FE_REQUIRE_TRUE(loaded_res.hasValue());
     const auto& loaded = loaded_res.value();
 
@@ -388,8 +414,8 @@ FE_TEST(Project, BackwardCompatibilityV10V11AndLosslessUnknownFieldPreservation)
     // Unknown extension fields are explicitly flagged in load_warnings AND preserved on re-save!
     FE_EXPECT_TRUE(loaded.load_warnings.size() >= std::size_t{4});
 
-    const auto saved_text = ProjectSerializer::serializeToString(loaded).value();
-    const auto reparsed = parseJson(saved_text).value();
+    const auto saved_container = ProjectSerializer::serializeToBytes(loaded).value();
+    const auto reparsed = BinaryProjectCodec::decode(saved_container).value().document;
     FE_REQUIRE_TRUE(reparsed.findKey("custom_plugin_data") != nullptr);
     FE_EXPECT_EQ(reparsed.findKey("custom_plugin_data")->findKey("enabled")->asBool(), true);
     FE_EXPECT_EQ(

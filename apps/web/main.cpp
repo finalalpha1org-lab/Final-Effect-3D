@@ -413,8 +413,8 @@ struct WebHostContext {
     std::string boot_message{"Initializing WebAssembly runtime..."};
     std::string init_error;
     std::string state_json_buffer{"{}"};
-    std::string export_json_buffer;
-    std::string workspace_json_buffer;
+    std::vector<std::uint8_t> export_binary_buffer;
+    std::vector<std::uint8_t> workspace_binary_buffer;
 
     explicit WebHostContext(const finaleffect::core::EngineConfig& cfg) : engine(cfg) {}
 };
@@ -484,24 +484,33 @@ EMSCRIPTEN_KEEPALIVE int fe3d_dispatch_action(const char* action_json) {
     return st.hasValue() ? 1 : 0;
 }
 
-EMSCRIPTEN_KEEPALIVE const char* fe3d_export_inline_project() {
+// Exports the active project as .fe3d / .fe3a container bytes. The pointer stays valid until the
+// next export call; read it together with fe3d_export_inline_project_size().
+EMSCRIPTEN_KEEPALIVE const std::uint8_t* fe3d_export_inline_project_ptr() {
     if (g_web_ctx == nullptr || g_web_ctx->editor == nullptr) {
-        return "";
+        return nullptr;
     }
-    auto res = g_web_ctx->editor->exportInlineProjectJson();
+    g_web_ctx->export_binary_buffer.clear();
+    auto res = g_web_ctx->editor->exportInlineProjectBinary();
     if (!res) {
-        g_web_ctx->export_json_buffer.clear();
-        return "";
+        return nullptr;
     }
-    g_web_ctx->export_json_buffer = std::move(res).value();
-    return g_web_ctx->export_json_buffer.c_str();
+    g_web_ctx->export_binary_buffer = std::move(res).value();
+    return g_web_ctx->export_binary_buffer.data();
+}
+
+EMSCRIPTEN_KEEPALIVE int fe3d_export_inline_project_size() {
+    if (g_web_ctx == nullptr) {
+        return 0;
+    }
+    return static_cast<int>(g_web_ctx->export_binary_buffer.size());
 }
 
 EMSCRIPTEN_KEEPALIVE int fe3d_save_bundle_to_vfs(const char* fe3d_vfs_path) {
     if (g_web_ctx == nullptr || g_web_ctx->editor == nullptr || fe3d_vfs_path == nullptr) {
         return 0;
     }
-    const auto st = g_web_ctx->editor->saveBundleProject(fe3d_vfs_path, g_web_ctx->fs);
+    const auto st = g_web_ctx->editor->saveProjectFile(fe3d_vfs_path, g_web_ctx->fs);
     return st.hasValue() ? 1 : 0;
 }
 
@@ -550,17 +559,38 @@ EMSCRIPTEN_KEEPALIVE double fe3d_material_preview_generation() {
     return static_cast<double>(g_web_ctx->editor->materialPreviewGeneration());
 }
 
-EMSCRIPTEN_KEEPALIVE const char* fe3d_export_workspace_json() {
+// Exports the workspace layout as binary container bytes (paired with fe3d_export_workspace_size()).
+EMSCRIPTEN_KEEPALIVE const std::uint8_t* fe3d_export_workspace_ptr() {
     if (g_web_ctx == nullptr || g_web_ctx->editor == nullptr) {
-        return "";
+        return nullptr;
     }
-    auto res = g_web_ctx->editor->exportWorkspaceLayoutJson();
+    g_web_ctx->workspace_binary_buffer.clear();
+    auto res = g_web_ctx->editor->exportWorkspaceLayoutBinary();
     if (!res) {
-        g_web_ctx->workspace_json_buffer.clear();
-        return "";
+        return nullptr;
     }
-    g_web_ctx->workspace_json_buffer = std::move(res).value();
-    return g_web_ctx->workspace_json_buffer.c_str();
+    g_web_ctx->workspace_binary_buffer = std::move(res).value();
+    return g_web_ctx->workspace_binary_buffer.data();
+}
+
+EMSCRIPTEN_KEEPALIVE int fe3d_export_workspace_size() {
+    if (g_web_ctx == nullptr) {
+        return 0;
+    }
+    return static_cast<int>(g_web_ctx->workspace_binary_buffer.size());
+}
+
+// Restores a workspace layout stored as a binary container inside the virtual file system.
+EMSCRIPTEN_KEEPALIVE int fe3d_import_workspace_from_vfs(const char* layout_vfs_path) {
+    if (g_web_ctx == nullptr || g_web_ctx->editor == nullptr || layout_vfs_path == nullptr) {
+        return 0;
+    }
+    auto bytes_res = g_web_ctx->fs.readBinaryFile(layout_vfs_path);
+    if (!bytes_res) {
+        return 0;
+    }
+    const auto st = g_web_ctx->editor->importWorkspaceLayoutBinary(bytes_res.value());
+    return st.hasValue() ? 1 : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE int fe3d_hit_test_gizmo(double css_x, double css_y) {

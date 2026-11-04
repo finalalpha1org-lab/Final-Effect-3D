@@ -569,8 +569,8 @@
 
   async function snapshotActiveProjectToRecent(sourceLabel) {
     if (!wasmApi || !currentState) return;
-    const inlineJson = wasmApi.exportInlineProject();
-    if (!inlineJson) return;
+    const projectBytes = wasmApi.exportProjectBytes();
+    if (!projectBytes || projectBytes.length === 0) return;
     const thumb = captureViewportThumbnail();
     const rec = await REG.recordRecentProject(
       {
@@ -584,7 +584,7 @@
         sourceLabel: sourceLabel || "3D Studio Session",
         thumbnailDataUrl: thumb,
       },
-      inlineJson
+      projectBytes
     );
     activeProjectRecordId = rec.id;
   }
@@ -771,7 +771,9 @@
       wasmApi.fs.mkdir("/fe3d_import");
     } catch (_) {}
     const vfsPath = "/fe3d_import/recent_reopen.fe3d";
-    wasmApi.fs.writeFile(vfsPath, payload);
+    const payloadBytes =
+      typeof payload === "string" ? new TextEncoder().encode(payload) : payload;
+    wasmApi.fs.writeFile(vfsPath, payloadBytes);
     const ok = wasmApi.loadFileFromVfs(vfsPath);
     if (!ok) {
       const errMsg =
@@ -951,14 +953,23 @@
           M._free(ptr);
         }
       },
-      exportInlineProject: function () {
-        return M.ccall("fe3d_export_inline_project", "string", [], []);
+      exportProjectBytes: function () {
+        const ptr = M._fe3d_export_inline_project_ptr();
+        const size = M._fe3d_export_inline_project_size();
+        if (!ptr || size <= 0) return null;
+        return new Uint8Array(M.HEAPU8.buffer, ptr, size).slice();
       },
-      exportWorkspaceJson: function () {
-        return M.ccall("fe3d_export_workspace_json", "string", [], []);
+      exportWorkspaceBytes: function () {
+        const ptr = M._fe3d_export_workspace_ptr();
+        const size = M._fe3d_export_workspace_size();
+        if (!ptr || size <= 0) return null;
+        return new Uint8Array(M.HEAPU8.buffer, ptr, size).slice();
       },
-      saveBundleToVfs: function (vfsPath) {
+      saveProjectToVfs: function (vfsPath) {
         return M.ccall("fe3d_save_bundle_to_vfs", "number", ["string"], [vfsPath]) === 1;
+      },
+      importWorkspaceFromVfs: function (vfsPath) {
+        return M.ccall("fe3d_import_workspace_from_vfs", "number", ["string"], [vfsPath]) === 1;
       },
       loadFileFromVfs: function (vfsPath) {
         const ok = M.ccall("fe3d_load_file_from_vfs", "number", ["string"], [vfsPath]) === 1;
@@ -1081,9 +1092,44 @@
       getNavGizmoLayout: getNavGizmoLayout,
       renderFinalFrame: wasmApi.renderFinalFrame,
       loadHdriBytes: wasmApi.loadHdriBytes,
-      exportInlineProject: wasmApi.exportInlineProject,
-      importInlineProject: function (jsonText) {
-        return wasmApi.dispatchAction({ action: "load_inline_json", json_text: jsonText });
+      exportProjectBytes: wasmApi.exportProjectBytes,
+      exportWorkspaceBytes: wasmApi.exportWorkspaceBytes,
+      importProjectBytes: function (bytesInput) {
+        const bytes =
+          bytesInput instanceof Uint8Array ? bytesInput : new Uint8Array(bytesInput || []);
+        if (bytes.length === 0) return false;
+        try {
+          wasmApi.fs.mkdir("/fe3d_import");
+        } catch (_) {}
+        const vfsPath = "/fe3d_import/imported_project.fe3d";
+        wasmApi.fs.writeFile(vfsPath, bytes);
+        return wasmApi.loadFileFromVfs(vfsPath);
+      },
+      // Base64 bridges so automation (Playwright) can move whole project containers as strings.
+      exportProjectBase64: function () {
+        const bytes = wasmApi.exportProjectBytes();
+        return bytes && bytes.length > 0 ? bytesToBase64(bytes) : null;
+      },
+      importProjectBase64: function (base64Text) {
+        const bytes = base64ToBytes(base64Text);
+        if (!bytes || bytes.length === 0) return false;
+        try {
+          wasmApi.fs.mkdir("/fe3d_import");
+        } catch (_) {}
+        const vfsPath = "/fe3d_import/base64_project.fe3d";
+        wasmApi.fs.writeFile(vfsPath, bytes);
+        return wasmApi.loadFileFromVfs(vfsPath);
+      },
+      // Reads the container header so tests can assert the binary format directly.
+      projectContainerInfo: function () {
+        const bytes = wasmApi.exportProjectBytes();
+        if (!bytes || bytes.length < 32) return null;
+        return {
+          magic_ok: hasFe3dContainerMagic(bytes),
+          major: bytes[8] | (bytes[9] << 8),
+          minor: bytes[10] | (bytes[11] << 8),
+          size: bytes.length,
+        };
       },
       onSync: function (fn) {
         if (typeof fn === "function") mayaSyncListeners.push(fn);
@@ -1126,9 +1172,9 @@
   function persistWorkspaceToStorage() {
     if (!wasmApi) return;
     try {
-      const wsJson = wasmApi.exportWorkspaceJson();
-      if (wsJson) {
-        window.localStorage.setItem(WORKSPACE_STORAGE_KEY, wsJson);
+      const wsBytes = wasmApi.exportWorkspaceBytes();
+      if (wsBytes && wsBytes.length > 0) {
+        window.localStorage.setItem(WORKSPACE_STORAGE_KEY, bytesToBase64(wsBytes));
       }
     } catch (_) {}
   }
@@ -1153,15 +1199,14 @@
     if (!wasmApi) return;
     try {
       const saved = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
-      if (saved && saved.trim().startsWith("{")) {
-        const parsed = JSON.parse(saved);
-        const wsObj = parsed.workspace || parsed;
-        syncWorkspaceTabFromLayoutName(wsObj.layout_name);
-        wasmApi.dispatchAction({
-          action: "import_workspace_json",
-          json_text: saved,
-        });
-        applyDockRatiosCss(wsObj);
+      if (!saved) return;
+      const layoutBytes = base64ToBytes(saved);
+      if (!layoutBytes || layoutBytes.length === 0) return;
+      if (!restoreWorkspaceBytes(layoutBytes)) return;
+      const wsState = currentState && currentState.workspace ? currentState.workspace : null;
+      if (wsState) {
+        syncWorkspaceTabFromLayoutName(wsState.layout_name);
+        applyDockRatiosCss(wsState);
       }
     } catch (_) {}
   }
@@ -1235,6 +1280,40 @@
       .replace(/[^a-zA-Z0-9._-]+/g, "_")
       .replace(/^_+|_+$/g, "");
     return cleaned || "project";
+  }
+
+  function bytesToBase64(bytes) {
+    let binary = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    }
+    return window.btoa(binary);
+  }
+
+  function base64ToBytes(text) {
+    try {
+      const binary = window.atob(String(text || ""));
+      const out = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+      return out;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Restores a workspace layout container through the virtual file system so the C++ workspace
+  // manager validates and applies it exactly like a saved layout file.
+  function restoreWorkspaceBytes(bytes, vfsPath) {
+    if (!wasmApi || !bytes || bytes.length === 0) return false;
+    try {
+      wasmApi.fs.mkdir("/fe3d_state");
+    } catch (_) {}
+    const path = vfsPath || "/fe3d_state/workspace_layout.fe3d";
+    wasmApi.fs.writeFile(path, bytes);
+    const ok = wasmApi.importWorkspaceFromVfs(path);
+    if (ok) syncFromEngine(true);
+    return ok;
   }
 
   function triggerDownload(filename, content, mimeType) {
@@ -2501,7 +2580,7 @@
       const buf = new Uint8Array(await file.arrayBuffer());
       const vfsPath = "/fe3d_import/" + file.name;
       wasmApi.fs.writeFile(vfsPath, buf);
-      if (lower.endsWith(".fe3d") || lower.endsWith(".json")) {
+      if (lower.endsWith(".fe3d") || lower.endsWith(".fe3a")) {
         fe3dTargetPath = vfsPath;
       }
     }
@@ -2512,7 +2591,7 @@
     }
 
     if (!fe3dTargetPath) {
-      const msg = "Please include a .fe3d project file when opening a project.";
+      const msg = "Please include a .fe3d / .fe3a project file when opening a project.";
       els.statusDot.classList.add("is-error");
       els.statusMessage.textContent = msg;
       if (document.body.dataset.appView === "home" && els.launcherErrorBanner) {
@@ -2527,7 +2606,7 @@
       const errText =
         currentState && currentState.status
           ? currentState.status.message
-          : "Invalid or corrupted .fe3d project file.";
+          : "Invalid or corrupted .fe3d / .fe3a binary project container.";
       if (document.body.dataset.appView === "home" && els.launcherErrorBanner) {
         els.launcherErrorBanner.hidden = false;
         els.launcherErrorBanner.textContent = "Failed to open project: " + errText;
@@ -2540,17 +2619,48 @@
     setTimeout(() => snapshotActiveProjectToRecent("Opened .fe3d File"), 80);
   }
 
-  function exportPortableFe3d() {
-    if (!wasmApi || !currentState) return;
-    const jsonText = wasmApi.exportInlineProject();
-    if (!jsonText) return;
-    const stem = sanitizeFilenameStem(currentState.project.project_name);
-    triggerDownload(stem + ".fe3d", jsonText, "application/json");
-    snapshotActiveProjectToRecent("Saved .fe3d");
-    els.statusDot.classList.remove("is-error");
-    els.statusMessage.textContent = "Saved " + stem + ".fe3d (inline schema 1.3)";
+  // Final Effect 3D project files are the app's own binary container: the same bytes are used for
+  // both extensions, so ".fe3d" (scene save) and ".fe3a" (portable export) are interchangeable.
+  const FE3D_CONTAINER_MIME = "application/x-finaleffect-project";
+
+  function hasFe3dContainerMagic(bytes) {
+    return (
+      !!bytes &&
+      bytes.length >= 32 &&
+      bytes[0] === 0x46 &&
+      bytes[1] === 0x45 &&
+      bytes[2] === 0x33 &&
+      bytes[3] === 0x44 &&
+      bytes[4] === 0x50 &&
+      bytes[5] === 0x52 &&
+      bytes[6] === 0x4a &&
+      bytes[7] === 0x1a
+    );
   }
 
+  // Portable export: identical container bytes, saved with the .fe3a extension.
+  function exportPortableFe3d() {
+    if (!wasmApi || !currentState) return;
+    const bytes = wasmApi.exportProjectBytes();
+    if (!bytes || bytes.length === 0) {
+      syncFromEngine(true);
+      return;
+    }
+    if (!hasFe3dContainerMagic(bytes)) {
+      els.statusDot.classList.add("is-error");
+      els.statusMessage.textContent = "Export aborted: encoder did not produce a valid .fe3a container.";
+      return;
+    }
+    const stem = sanitizeFilenameStem(currentState.project.project_name);
+    triggerDownload(stem + ".fe3a", bytes, FE3D_CONTAINER_MIME);
+    snapshotActiveProjectToRecent("Exported .fe3a");
+    els.statusDot.classList.remove("is-error");
+    els.statusMessage.textContent =
+      "Exported " + stem + ".fe3a (binary container, " + bytes.length + " bytes)";
+  }
+
+  // Scene save: writes the container through the virtual file system and verifies the bytes on
+  // disk before offering the .fe3d download.
   function exportBinaryBundle() {
     if (!wasmApi || !currentState) return;
     try {
@@ -2558,16 +2668,23 @@
     } catch (_) {}
     const stem = sanitizeFilenameStem(currentState.project.project_name);
     const fe3dPath = "/fe3d_export/" + stem + ".fe3d";
-    const binPath = "/fe3d_export/" + stem + ".fe3dbin";
-    if (!wasmApi.saveBundleToVfs(fe3dPath)) {
+    if (!wasmApi.saveProjectToVfs(fe3dPath)) {
       syncFromEngine(true);
+      els.statusDot.classList.add("is-error");
+      els.statusMessage.textContent = "Save failed: the project container could not be written.";
       return;
     }
     const fe3dBytes = wasmApi.fs.readFile(fe3dPath);
-    const binBytes = wasmApi.fs.readFile(binPath);
-    triggerDownload(stem + ".fe3d", fe3dBytes, "application/json");
-    triggerDownload(stem + ".fe3dbin", binBytes, "application/octet-stream");
-    snapshotActiveProjectToRecent("Exported Bundle");
+    if (!hasFe3dContainerMagic(fe3dBytes)) {
+      els.statusDot.classList.add("is-error");
+      els.statusMessage.textContent = "Save aborted: on-disk project bytes are not a valid container.";
+      return;
+    }
+    triggerDownload(stem + ".fe3d", fe3dBytes, FE3D_CONTAINER_MIME);
+    snapshotActiveProjectToRecent("Saved .fe3d");
+    els.statusDot.classList.remove("is-error");
+    els.statusMessage.textContent =
+      "Saved " + stem + ".fe3d (binary container, " + fe3dBytes.length + " bytes)";
   }
 
   // =========================================================================
@@ -3594,8 +3711,8 @@
 
     function saveNamedCustomWorkspace() {
       if (!wasmApi) return;
-      const wsJson = wasmApi.exportWorkspaceJson();
-      if (wsJson && REG.saveCustomWorkspaceLayout(wsJson)) {
+      const wsBytes = wasmApi.exportWorkspaceBytes();
+      if (wsBytes && wsBytes.length > 0 && REG.saveCustomWorkspaceLayout(bytesToBase64(wsBytes))) {
         persistWorkspaceToStorage();
         els.statusDot.classList.remove("is-error");
         els.statusMessage.textContent = "Saved custom workspace layout (scene data untouched)";
@@ -3610,12 +3727,18 @@
         return;
       }
       try {
-        const parsed = JSON.parse(saved);
-        const wsObj = parsed.workspace || parsed;
+        const layoutBytes = base64ToBytes(saved);
+        if (!restoreWorkspaceBytes(layoutBytes, "/fe3d_state/custom_workspace_layout.fe3d")) {
+          els.statusDot.classList.add("is-error");
+          els.statusMessage.textContent = "Saved custom workspace layout could not be restored.";
+          return;
+        }
+        const wsObj = currentState && currentState.workspace ? currentState.workspace : null;
         isRightDockCollapsed = false;
-        syncWorkspaceTabFromLayoutName(wsObj.layout_name);
-        wasmApi.dispatchAction({ action: "import_workspace_json", json_text: saved });
-        applyDockRatiosCss(wsObj);
+        if (wsObj) {
+          syncWorkspaceTabFromLayoutName(wsObj.layout_name);
+          applyDockRatiosCss(wsObj);
+        }
         persistWorkspaceToStorage();
         els.statusDot.classList.remove("is-error");
         els.statusMessage.textContent = "Restored saved custom workspace layout";

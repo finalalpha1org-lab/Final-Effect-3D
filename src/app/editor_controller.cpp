@@ -7,6 +7,8 @@
 #include "finaleffect/scene/editable_mesh.hpp"
 
 #include <algorithm>
+#include <span>
+#include <cstdint>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -984,12 +986,12 @@ void EditorController::setTextInputFocused(bool focused) noexcept {
     session_.setTextInputFocused(focused);
 }
 
-core::Result<std::string> EditorController::exportWorkspaceLayoutJson() const {
-    return session_.workspace().serializeLayoutToJson(true);
+core::Result<std::vector<std::uint8_t>> EditorController::exportWorkspaceLayoutBinary() const {
+    return session_.workspace().serializeLayoutToBytes();
 }
 
-core::Status EditorController::importWorkspaceLayoutJson(std::string_view json_text) {
-    auto st = session_.workspace().deserializeLayoutFromJson(json_text);
+core::Status EditorController::importWorkspaceLayoutBinary(std::span<const std::uint8_t> bytes) {
+    auto st = session_.workspace().deserializeLayoutFromBytes(bytes);
     if (st) {
         session_.syncDocumentState();
     }
@@ -2895,16 +2897,16 @@ core::Status EditorController::createNewProject(
     return core::Status::ok();
 }
 
-core::Result<std::string> EditorController::exportInlineProjectJson() const {
+core::Result<std::vector<std::uint8_t>> EditorController::exportInlineProjectBinary() const {
     const_cast<StudioSession&>(session_).syncDocumentState(selectedMaterial());
-    return project::ProjectSerializer::serializeToString(session_.document(), true);
+    return project::ProjectSerializer::serializeToBytes(session_.document());
 }
 
-core::Status EditorController::importInlineProjectJson(std::string_view json_text) {
+core::Status EditorController::importInlineProjectBinary(std::span<const std::uint8_t> bytes) {
     if (session_.isGizmoDragging()) {
         (void)session_.cancelActiveGizmoDrag();
     }
-    auto loaded = project::ProjectSerializer::deserializeFromString(json_text);
+    auto loaded = project::ProjectSerializer::deserializeFromBytes(bytes);
     if (!loaded) {
         core::Status st = loaded.error();
         recordStatus(st, {});
@@ -2934,12 +2936,12 @@ core::Status EditorController::importInlineProjectJson(std::string_view json_tex
     return core::Status::ok();
 }
 
-core::Status EditorController::saveBundleProject(
+core::Status EditorController::saveProjectFile(
     const std::filesystem::path& fe3d_path,
     platform::IFileSystem& file_system) {
     session_.syncDocumentState(selectedMaterial());
-    auto st = session_.saveProjectBundleToFile(fe3d_path, file_system);
-    recordStatus(st, "Exported .fe3d + .fe3dbin binary bundle");
+    auto st = session_.saveProjectToFile(fe3d_path, file_system);
+    recordStatus(st, "Saved .fe3d binary project container");
     return st;
 }
 

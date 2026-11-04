@@ -3,12 +3,15 @@
 
 #include "finaleffect/project/project.hpp"
 #include "finaleffect/project/binary_asset.hpp"
+#include "finaleffect/project/binary_project.hpp"
 #include "finaleffect/project/json.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <initializer_list>
 #include <limits>
+#include <optional>
+#include <span>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -194,19 +197,6 @@ JsonArray encodeUint32Array(std::span<const std::uint32_t> values) {
         arr.emplace_back(static_cast<std::uint64_t>(v));
     }
     return arr;
-}
-
-bool isSafeCompanionFilename(std::string_view uri) noexcept {
-    if (uri.empty() || uri == "." || uri == "..") {
-        return false;
-    }
-    if (uri.find('/') != std::string_view::npos ||
-        uri.find('\\') != std::string_view::npos ||
-        uri.find(':') != std::string_view::npos ||
-        uri.find("..") != std::string_view::npos) {
-        return false;
-    }
-    return true;
 }
 
 std::string_view editModeSlug(scene::EditMode mode) noexcept {
@@ -616,12 +606,13 @@ core::Status decodeLightLinking(
     return core::Status::ok();
 }
 
-core::Result<std::string> serializeDocumentImpl(
+// Geometry chunks travel inside the .fe3d / .fe3a container itself; the uri is informational only.
+constexpr std::string_view kInlineGeometryUri = "inline";
+
+core::Result<JsonValue> buildDocumentImpl(
     const ProjectDocument& document,
-    std::string_view binary_bundle_uri,
     BinaryAssetBuilder* binary_builder,
-    bool prefer_external_hdri_paths,
-    bool pretty) {
+    bool prefer_external_hdri_paths) {
     JsonValue root{JsonObject{}};
     root.setKey("format", std::string(ProjectSerializer::kFormatIdentifier));
 
@@ -697,7 +688,7 @@ core::Result<std::string> serializeDocumentImpl(
                 return hash_res.error();
             }
             JsonValue chunk_ref{JsonObject{}};
-            chunk_ref.setKey("uri", std::string(binary_bundle_uri));
+            chunk_ref.setKey("uri", std::string(kInlineGeometryUri));
             chunk_ref.setKey("content_hash", formatContentHashHex(hash_res.value()));
             mesh_obj.setKey("binary_chunk", std::move(chunk_ref));
         } else {
@@ -988,22 +979,17 @@ core::Result<std::string> serializeDocumentImpl(
 
     root.setKey(
         "workspace",
-        ProjectSerializer::encodeWorkspaceJson(document.workspace, document.preserved_fields.workspace_extra));
+        ProjectSerializer::encodeWorkspaceValue(document.workspace, document.preserved_fields.workspace_extra));
 
     appendExtraFields(root, document.preserved_fields.root_extra);
-    return writeJson(root, pretty);
+    return root;
 }
 
 core::Result<ProjectDocument> deserializeDocumentImpl(
-    std::string_view json_text,
+    const JsonValue& root,
+    const BinaryAssetArchive* embedded_geometry,
     const std::filesystem::path& base_dir,
     const platform::IFileSystem* file_system) {
-    auto parsed = parseJson(json_text);
-    if (!parsed) {
-        return parsed.error();
-    }
-
-    const JsonValue& root = parsed.value();
     if (!root.isObject()) {
         return core::Result<ProjectDocument>::fail(
             core::ErrorCode::ValidationError,
@@ -1185,9 +1171,6 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
         }
     }
 
-    // Cache decoded .fe3dbin archives per companion filename during load.
-    std::unordered_map<std::string, BinaryAssetArchive> archive_cache;
-
     // 2. Load and validate meshes (supporting both triangulated v1.0/v1.1 and editable_mesh v1.2).
     if (const JsonValue* meshes_val = scene_val->findKey("meshes"); meshes_val != nullptr) {
         if (!meshes_val->isArray()) {
@@ -1218,31 +1201,21 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
             if (const auto* chunk_val = m_json.findKey("binary_chunk");
                 chunk_val != nullptr && !chunk_val->isNull()) {
                 has_tri_payload = true;
-                if (file_system == nullptr) {
-                    return core::Result<ProjectDocument>::fail(
-                        core::ErrorCode::ValidationError,
-                        "Mesh references external 'binary_chunk' (.fe3dbin), which requires loadFromFile");
-                }
                 if (!chunk_val->isObject()) {
                     return core::Result<ProjectDocument>::fail(
                         core::ErrorCode::ValidationError,
                         "'mesh.binary_chunk' must be an object");
                 }
-                const auto* uri_val = chunk_val->findKey("uri");
                 const auto* hash_val = chunk_val->findKey("content_hash");
-                if (uri_val == nullptr || !uri_val->isString() ||
-                    hash_val == nullptr || !hash_val->isString()) {
+                if (hash_val == nullptr || !hash_val->isString()) {
                     return core::Result<ProjectDocument>::fail(
                         core::ErrorCode::ValidationError,
-                        "'mesh.binary_chunk' requires string 'uri' and 'content_hash'");
+                        "'mesh.binary_chunk' requires a string 'content_hash'");
                 }
-
-                const std::string& uri = uri_val->asString();
-                if (!isSafeCompanionFilename(uri)) {
+                if (embedded_geometry == nullptr) {
                     return core::Result<ProjectDocument>::fail(
                         core::ErrorCode::ValidationError,
-                        "Unsafe or non-local binary_chunk 'uri' rejected",
-                        uri);
+                        "Mesh references embedded geometry, but this project container carries no geometry archive");
                 }
 
                 auto hash_res = parseContentHashHex(hash_val->asString());
@@ -1250,18 +1223,7 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
                     return hash_res.error();
                 }
 
-                auto cache_it = archive_cache.find(uri);
-                if (cache_it == archive_cache.end()) {
-                    const std::filesystem::path bin_path =
-                        base_dir.empty() ? std::filesystem::path(uri) : (base_dir / uri);
-                    auto archive_res = BinaryAssetArchive::loadFromFile(bin_path, *file_system);
-                    if (!archive_res) {
-                        return archive_res.error();
-                    }
-                    cache_it = archive_cache.emplace(uri, std::move(archive_res.value())).first;
-                }
-
-                auto extracted = cache_it->second.extractMesh(hash_res.value());
+                auto extracted = embedded_geometry->extractMesh(hash_res.value());
                 if (!extracted) {
                     return extracted.error();
                 }
@@ -2144,7 +2106,7 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
 
     // 5. Decode optional Stage 4 workspace state.
     if (const JsonValue* ws_val = root.findKey("workspace"); ws_val != nullptr && !ws_val->isNull()) {
-        auto ws_res = ProjectSerializer::decodeWorkspaceJson(
+        auto ws_res = ProjectSerializer::decodeWorkspaceValue(
             *ws_val,
             &doc.preserved_fields.workspace_extra,
             &doc.load_warnings);
@@ -2159,7 +2121,7 @@ core::Result<ProjectDocument> deserializeDocumentImpl(
 
 } // namespace
 
-JsonValue ProjectSerializer::encodeWorkspaceJson(
+JsonValue ProjectSerializer::encodeWorkspaceValue(
     const WorkspaceState& state,
     const JsonObject& extra_fields) {
     JsonValue ws{JsonObject{}};
@@ -2184,7 +2146,7 @@ JsonValue ProjectSerializer::encodeWorkspaceJson(
     return ws;
 }
 
-core::Result<WorkspaceState> ProjectSerializer::decodeWorkspaceJson(
+core::Result<WorkspaceState> ProjectSerializer::decodeWorkspaceValue(
     const JsonValue& json,
     JsonObject* out_extra_fields,
     std::vector<std::string>* out_warnings) {
@@ -2301,57 +2263,108 @@ core::Result<WorkspaceState> ProjectSerializer::decodeWorkspaceJson(
     return core::Result<WorkspaceState>::ok(std::move(ws));
 }
 
-core::Result<std::string> ProjectSerializer::serializeToString(const ProjectDocument& document, bool pretty) {
-    return serializeDocumentImpl(document, {}, nullptr, false, pretty);
+namespace {
+
+// Decodes one .fe3d / .fe3a container into a project document, validating the embedded geometry
+// archive first so corrupted chunks fail with a clear error instead of a partial load.
+core::Result<ProjectDocument> decodeProjectContainer(
+    std::span<const std::uint8_t> bytes,
+    const std::filesystem::path& base_dir,
+    const platform::IFileSystem* file_system) {
+    auto decoded = BinaryProjectCodec::decode(bytes);
+    if (!decoded) {
+        return decoded.error();
+    }
+
+    std::optional<BinaryAssetArchive> embedded_geometry;
+    if (!decoded.value().geometry_archive.empty()) {
+        auto archive_res = BinaryAssetArchive::decode(decoded.value().geometry_archive);
+        if (!archive_res) {
+            return archive_res.error();
+        }
+        embedded_geometry.emplace(std::move(archive_res).value());
+    }
+
+    return deserializeDocumentImpl(
+        decoded.value().document,
+        embedded_geometry.has_value() ? &*embedded_geometry : nullptr,
+        base_dir,
+        file_system);
 }
 
-core::Result<ProjectDocument> ProjectSerializer::deserializeFromString(std::string_view json_text) {
-    return deserializeDocumentImpl(json_text, {}, nullptr);
+} // namespace
+
+core::Result<std::vector<std::uint8_t>> ProjectSerializer::serializeToBytes(const ProjectDocument& document) {
+    BinaryAssetBuilder builder;
+    BinaryProjectImage image{};
+    auto document_result = buildDocumentImpl(document, &builder, true);
+    if (!document_result) {
+        return document_result.error();
+    }
+    image.document = std::move(document_result).value();
+    image.geometry_archive = builder.encode();
+    return BinaryProjectCodec::encode(image);
+}
+
+core::Result<ProjectDocument> ProjectSerializer::deserializeFromBytes(std::span<const std::uint8_t> bytes) {
+    return decodeProjectContainer(bytes, {}, nullptr);
 }
 
 core::Status ProjectSerializer::saveToFile(
     const ProjectDocument& document,
     const std::filesystem::path& path,
     platform::IFileSystem& file_system) {
-    auto json_res = serializeDocumentImpl(document, {}, nullptr, true, true);
-    if (!json_res) {
-        return json_res.error();
+    auto bytes_res = serializeToBytes(document);
+    if (!bytes_res) {
+        return bytes_res.error();
     }
-    return file_system.writeTextFile(path, json_res.value());
-}
-
-core::Status ProjectSerializer::saveBundleToFile(
-    const ProjectDocument& document,
-    const std::filesystem::path& fe3d_path,
-    platform::IFileSystem& file_system) {
-    const std::string stem = fe3d_path.stem().string();
-    const std::string bin_filename = (stem.empty() ? std::string("project") : stem) + ".fe3dbin";
-    const std::filesystem::path bin_path = fe3d_path.parent_path().empty()
-                                               ? std::filesystem::path(bin_filename)
-                                               : (fe3d_path.parent_path() / bin_filename);
-
-    BinaryAssetBuilder builder;
-    auto json_res = serializeDocumentImpl(document, bin_filename, &builder, true, true);
-    if (!json_res) {
-        return json_res.error();
-    }
-
-    auto bin_status = builder.saveToFile(bin_path, file_system);
-    if (!bin_status) {
-        return bin_status.error();
-    }
-
-    return file_system.writeTextFile(fe3d_path, json_res.value());
+    return file_system.writeBinaryFile(path, bytes_res.value());
 }
 
 core::Result<ProjectDocument> ProjectSerializer::loadFromFile(
     const std::filesystem::path& path,
     const platform::IFileSystem& file_system) {
-    auto text_res = file_system.readTextFile(path);
-    if (!text_res) {
-        return text_res.error();
+    auto bytes_res = file_system.readBinaryFile(path);
+    if (!bytes_res) {
+        return bytes_res.error();
     }
-    return deserializeDocumentImpl(text_res.value(), path.parent_path(), &file_system);
+    return decodeProjectContainer(bytes_res.value(), path.parent_path(), &file_system);
+}
+
+core::Result<std::vector<std::uint8_t>> ProjectSerializer::serializeWorkspaceToBytes(
+    const WorkspaceState& state,
+    const JsonObject& extra_fields) {
+    JsonValue root{JsonObject{}};
+    root.setKey("format", std::string(kWorkspaceFormatIdentifier));
+    root.setKey("version", static_cast<std::uint64_t>(1));
+    root.setKey("workspace", ProjectSerializer::encodeWorkspaceValue(state, extra_fields));
+
+    BinaryProjectImage image{};
+    image.document = std::move(root);
+    return BinaryProjectCodec::encode(image);
+}
+
+core::Result<WorkspaceState> ProjectSerializer::deserializeWorkspaceFromBytes(
+    std::span<const std::uint8_t> bytes,
+    JsonObject* out_extra_fields,
+    std::vector<std::string>* out_warnings) {
+    auto decoded = BinaryProjectCodec::decode(bytes);
+    if (!decoded) {
+        return decoded.error();
+    }
+
+    const JsonValue& root = decoded.value().document;
+    if (!root.isObject()) {
+        return core::Result<WorkspaceState>::fail(
+            core::ErrorCode::ValidationError,
+            "Workspace layout root must be an object");
+    }
+
+    const JsonValue* ws_node = root.findKey("workspace");
+    if (ws_node == nullptr) {
+        ws_node = &root;
+    }
+    return ProjectSerializer::decodeWorkspaceValue(*ws_node, out_extra_fields, out_warnings);
 }
 
 } // namespace finaleffect::project

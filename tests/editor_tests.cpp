@@ -8,6 +8,7 @@
 #include "finaleffect/core/engine.hpp"
 #include "finaleffect/platform/file_system.hpp"
 #include "finaleffect/platform/window.hpp"
+#include "finaleffect/project/binary_project.hpp"
 #include "finaleffect/project/json.hpp"
 #include "finaleffect/rendering/software_render_device.hpp"
 
@@ -151,40 +152,45 @@ FE_TEST(Editor, InlineJsonAndBinaryBundleProjectRoundTrip) {
         added_light.value(),
         scene::DirectionalLightComponent{.color = {0.8f, 0.9f, 1.0f}, .intensity = 2.25f}).hasValue());
 
-    // Export inline JSON (v1.3), verify backward-compatible v1.0, v1.1, and v1.2 schema loads as well as v1.3 load.
-    const auto inline_json_res = rig.editor->exportInlineProjectJson();
-    FE_REQUIRE_TRUE(inline_json_res.hasValue());
+    // Export the binary container (schema v1.3) and confirm v1.0 / v1.1 / v1.2 documents still load.
+    const auto container_res = rig.editor->exportInlineProjectBinary();
+    FE_REQUIRE_TRUE(container_res.hasValue());
+    FE_REQUIRE_TRUE(project::BinaryProjectCodec::isBinaryProjectImage(container_res.value()));
 
-    std::string legacy_v10_json = inline_json_res.value();
-    const auto minor_pos = legacy_v10_json.find("\"minor\": 3");
-    FE_REQUIRE_TRUE(minor_pos != std::string::npos);
-    std::string legacy_v11_json = legacy_v10_json;
-    std::string legacy_v12_json = legacy_v10_json;
-    legacy_v10_json.replace(minor_pos, 10, "\"minor\": 0");
-    legacy_v11_json.replace(minor_pos, 10, "\"minor\": 1");
-    legacy_v12_json.replace(minor_pos, 10, "\"minor\": 2");
+    // Rewrites the document's schema minor version inside the container (no JSON text involved).
+    const auto with_schema_minor = [](std::span<const std::uint8_t> bytes, std::uint64_t minor) {
+        auto image = project::BinaryProjectCodec::decode(bytes).value();
+        for (auto& entry : image.document.asObject()) {
+            if (entry.first == "schema_version") {
+                entry.second.setKey("minor", minor);
+            }
+        }
+        return project::BinaryProjectCodec::encode(image).value();
+    };
+    const auto legacy_v10 = with_schema_minor(container_res.value(), 0);
+    const auto legacy_v11 = with_schema_minor(container_res.value(), 1);
+    const auto legacy_v12 = with_schema_minor(container_res.value(), 2);
 
     FE_REQUIRE_TRUE(rig.editor->newStarterProject().hasValue());
     FE_EXPECT_EQ(rig.session->document().metadata.project_name, std::string("Final Effect 3D Starter Project"));
     FE_EXPECT_EQ(rig.session->document().scene.objectCount(), static_cast<std::size_t>(5));
 
-    FE_REQUIRE_TRUE(rig.editor->importInlineProjectJson(legacy_v12_json).hasValue());
-    FE_REQUIRE_TRUE(rig.editor->importInlineProjectJson(legacy_v11_json).hasValue());
-    FE_REQUIRE_TRUE(rig.editor->importInlineProjectJson(legacy_v10_json).hasValue());
+    FE_REQUIRE_TRUE(rig.editor->importInlineProjectBinary(legacy_v12).hasValue());
+    FE_REQUIRE_TRUE(rig.editor->importInlineProjectBinary(legacy_v11).hasValue());
+    FE_REQUIRE_TRUE(rig.editor->importInlineProjectBinary(legacy_v10).hasValue());
     FE_EXPECT_EQ(rig.session->document().metadata.project_name, std::string("Studio Stage 3 Test"));
     FE_EXPECT_EQ(rig.session->document().scene.name(), std::string("AuthoredScene"));
     FE_EXPECT_EQ(rig.session->document().scene.objectCount(), static_cast<std::size_t>(6));
 
-    // Export v1.1 + .fe3dbin bundle to disk and reload via EditorController.
+    // Save one self-contained .fe3d container to disk and reload it through EditorController.
     const auto tmp_dir = std::filesystem::temp_directory_path() / "fe3d_editor_bundle_test";
     std::error_code ec;
     std::filesystem::remove_all(tmp_dir, ec);
     const auto bundle_fe3d = tmp_dir / "stage3_studio.fe3d";
-    const auto bundle_bin = tmp_dir / "stage3_studio.fe3dbin";
 
-    FE_REQUIRE_TRUE(rig.editor->saveBundleProject(bundle_fe3d, rig.fs).hasValue());
+    FE_REQUIRE_TRUE(rig.editor->saveProjectFile(bundle_fe3d, rig.fs).hasValue());
     FE_EXPECT_TRUE(rig.fs.exists(bundle_fe3d));
-    FE_EXPECT_TRUE(rig.fs.exists(bundle_bin));
+    FE_REQUIRE_TRUE(project::BinaryProjectCodec::isBinaryProjectImage(rig.fs.readBinaryFile(bundle_fe3d).value()));
 
     FE_REQUIRE_TRUE(rig.editor->newStarterProject().hasValue());
     FE_REQUIRE_TRUE(rig.editor->loadProjectFile(bundle_fe3d, rig.fs).hasValue());
@@ -259,11 +265,11 @@ FE_TEST(Editor, Stage4MeshEditingMaterialsLivePreviewAndWorkspaceRoundTrip) {
     FE_REQUIRE_TRUE(rig.editor->executeActionJson(R"({"action":"set_gizmo_mode","mode":"rotate"})").hasValue());
     FE_REQUIRE_TRUE(rig.editor->executeActionJson(R"({"action":"set_gizmo_space","space":"local"})").hasValue());
 
-    const auto saved_v12 = rig.editor->exportInlineProjectJson();
+    const auto saved_v12 = rig.editor->exportInlineProjectBinary();
     FE_REQUIRE_TRUE(saved_v12.hasValue());
 
     FE_REQUIRE_TRUE(rig.editor->newStarterProject().hasValue());
-    FE_REQUIRE_TRUE(rig.editor->importInlineProjectJson(saved_v12.value()).hasValue());
+    FE_REQUIRE_TRUE(rig.editor->importInlineProjectBinary(saved_v12.value()).hasValue());
 
     FE_EXPECT_EQ(rig.session->editorMode(), scene::EditMode::Face);
     FE_EXPECT_EQ(rig.session->gizmo().mode(), app::GizmoMode::Rotate);

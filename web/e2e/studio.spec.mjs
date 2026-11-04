@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Final Effect 3D — Stage 5 (v0.5.0) Real-Browser WebAssembly + WebGL 2.0 Multi-Device E2E Suite
 // Validates Splash -> Home / 6-Studio Selector -> 3D Studio Project Launcher -> 12 Workspaces ->
-// 3D Viewport, Gizmos, Mesh Modeling, PBR Materials, .fe3d/.fe3dbin Serialization, Touch Gestures,
+// 3D Viewport, Gizmos, Mesh Modeling, PBR Materials, .fe3d/.fe3a binary container serialization, Touch Gestures,
 // Mobile Portrait, Mobile Landscape, Tablet, Desktop, and iPhone Safari "Request Desktop Website".
 
 import { test, expect } from "@playwright/test";
@@ -343,7 +343,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await page.getByTestId("ws-tab-layout").click();
   });
 
-  test("4. Core 3D Studio authoring: WebGL2 rasterization, raycast pick, RMB orbit, focus guard, cycle-safe parenting, camera/light live shading, and .fe3d + .fe3dbin round-trip", async ({
+  test("4. Core 3D Studio authoring: WebGL2 rasterization, raycast pick, RMB orbit, focus guard, cycle-safe parenting, camera/light live shading, and .fe3d binary container round-trip", async ({
     page,
   }) => {
     await bootDirectStudioReady(page);
@@ -423,7 +423,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
       .poll(async () => (await sampleViewportPixels(page)).hash)
       .not.toBe(afterCam.hash);
 
-    // Export .fe3d + .fe3dbin bundle, reset via File menu, and reload bundle
+    // Export the self-contained .fe3d binary container, reset via File menu, and reload it
     await setControlValueAndCommit(page.getByTestId("meta-project-name"), "Stage5BundleTrip");
     await page.getByTestId("btn-add-sphere").click();
     await expect(page.getByTestId("stat-objects-meshes")).toHaveText("8 / 3");
@@ -433,7 +433,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     const onDl = (dl) => bundleDownloads.push(dl);
     page.on("download", onDl);
     await page.getByTestId("btn-export-bundle").click();
-    await expect.poll(() => bundleDownloads.length, { timeout: 10_000 }).toBe(2);
+    await expect.poll(() => bundleDownloads.length, { timeout: 10_000 }).toBe(1);
     page.off("download", onDl);
 
     const savedPaths = [];
@@ -1058,7 +1058,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await context.close();
   });
 
-  test("8. Stage 5.2 Camera & Directional Light viewport visibility, viewport picking, Move/Rotate/Scale gizmo transforms, multi-camera & multi-light independence, Undo/Redo, .fe3d/.fe3dbin persistence, and viewport screenshots", async ({
+  test("8. Stage 5.2 Camera & Directional Light viewport visibility, viewport picking, Move/Rotate/Scale gizmo transforms, multi-camera & multi-light independence, Undo/Redo, .fe3d binary container persistence, and viewport screenshots", async ({
     browser,
   }) => {
     const outDir = path.resolve(
@@ -1357,7 +1357,7 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
       )
       .not.toBe(heroPatchDark.hash);
 
-    // 5, 7, & 8. Multiple independent Cameras & Lights + Rename + Delete + Undo/Redo + .fe3d/.fe3dbin persistence without duplication
+    // 5, 7, & 8. Multiple independent Cameras & Lights + Rename + Delete + Undo/Redo + .fe3d binary container persistence without duplication
     await page.getByTestId("btn-add-camera").click();
     await expect(page.getByTestId("stat-objects-meshes")).toHaveText("6 / 2");
     await setControlValueAndCommit(page.getByTestId("insp-name"), "KeyShotCam");
@@ -1382,13 +1382,13 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await expect(page.getByTestId("stat-objects-meshes")).toHaveText("7 / 2");
     await expect(page.getByTestId("outliner-item-RimLight")).toBeVisible();
 
-    // Save/Export .fe3d + .fe3dbin bundle, reset to New Project, and reopen -> ZERO duplicate cameras/lights!
+    // Save the .fe3d binary container, reset to New Project, and reopen -> ZERO duplicate cameras/lights!
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "fe3d-s52-"));
     const downloads = [];
     const onDl = (dl) => downloads.push(dl);
     page.on("download", onDl);
     await page.getByTestId("btn-export-bundle").click();
-    await expect.poll(() => downloads.length, { timeout: 10_000 }).toBe(2);
+    await expect.poll(() => downloads.length, { timeout: 10_000 }).toBe(1);
     page.off("download", onDl);
 
     const bundlePaths = [];
@@ -1969,11 +1969,9 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     });
     expect(finalRenderNonClear).toBe(0);
 
-    const exportedEmptyJson = JSON.parse(
-      await page.evaluate(() => window.__FE3D_STUDIO__.exportInlineProject())
-    );
-    expect(exportedEmptyJson.scene.meshes).toHaveLength(0);
-    expect(exportedEmptyJson.scene.objects).toHaveLength(2);
+    const exportedEmptyState = await page.evaluate(() => window.__FE3D_STUDIO__.getState());
+    expect(exportedEmptyState.stats.mesh_count).toBe(0);
+    expect(exportedEmptyState.stats.object_count).toBe(2);
 
     // (6) & (7): Grid follows camera navigation, zoom-adaptive LOD, and Perspective + Orthographic views!
     await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
@@ -2031,9 +2029,9 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     expect(planeOnlyStats.hash).not.toBe(withGridAndPlane.hash);
     expect(planeOnlyStats.gridPx).toBeGreaterThan(80); // Real Plane object still renders!
 
-    // Save inline .fe3d with user Plane + re-import -> user Plane preserved untouched!
-    const savedPlaneProject = await page.evaluate(() => window.__FE3D_STUDIO__.exportInlineProject());
-    await page.evaluate((json) => window.__FE3D_STUDIO__.importInlineProject(json), savedPlaneProject);
+    // Save the binary .fe3d container with the user Plane + re-import -> Plane preserved untouched!
+    const savedPlaneProject = await page.evaluate(() => window.__FE3D_STUDIO__.exportProjectBase64());
+    await page.evaluate((b64) => window.__FE3D_STUDIO__.importProjectBase64(b64), savedPlaneProject);
     await expect(page.getByTestId("outliner-item-Plane")).toBeVisible();
     await expect(page.getByTestId("stat-objects-meshes")).toHaveText("3 / 1");
 
@@ -2720,12 +2718,13 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
       path: path.join(outDir, "10-stage54-hdri-ibl-and-light-linking-1920x1080.png"),
     });
 
-    const exportedV13 = await page.evaluate(() => window.__FE3D_STUDIO__.exportInlineProject());
-    const parsedV13 = JSON.parse(exportedV13);
-    expect(parsedV13.schema_version.major).toBe(1);
-    expect(parsedV13.schema_version.minor).toBe(3);
+    const exportedV13 = await page.evaluate(() => window.__FE3D_STUDIO__.exportProjectBase64());
+    const containerV13 = await page.evaluate(() => window.__FE3D_STUDIO__.projectContainerInfo());
+    expect(containerV13.magic_ok).toBe(true);
+    expect(containerV13.major).toBe(1);
+    expect(containerV13.minor).toBe(3);
 
-    // Load a genuine legacy v1.2 .fe3d document (no environment, no light shadow/linking keys) -> Item (18)
+    // Legacy JSON project text is intentionally no longer loadable (binary-only format) -> Item (18)
     const legacyV12Json = JSON.stringify({
       format: "finaleffect.project",
       schema_version: { major: 1, minor: 2 },
@@ -2767,16 +2766,16 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
         ],
       },
     });
-    const okV12 = await page.evaluate(
-      (json) => window.__FE3D_STUDIO__.importInlineProject(json),
+    const legacyAccepted = await page.evaluate(
+      (json) => window.__FE3D_STUDIO__.importProjectBase64(window.btoa(json)),
       legacyV12Json
     );
-    expect(okV12).toBe(true);
-    await expect(page.getByTestId("outliner-item-LegacySun")).toContainText("SUN");
+    expect(legacyAccepted).toBe(false);
 
-    // Re-import exported v1.3 project and verify all 4 light types, Light Linking, and HDRI restore cleanly!
+    // Re-import the exported binary v1.3 container and verify all 4 light types, Light Linking and
+    // HDRI restore cleanly!
     const okV13 = await page.evaluate(
-      (json) => window.__FE3D_STUDIO__.importInlineProject(json),
+      (b64) => window.__FE3D_STUDIO__.importProjectBase64(b64),
       exportedV13
     );
     expect(okV13).toBe(true);
@@ -3072,15 +3071,19 @@ test.describe("Final Effect 3D Stage 5 Complete Creative Studio Suite", () => {
     await page.getByTestId("layer-mode-layer1").click();
     await expect(page.getByTestId("layer-mode-layer1")).toHaveText("R");
 
-    // Verify .fe3d v1.3 export & re-import preserves Display Layers, Channel Locks & Custom Attributes cleanly
-    const exportedJson = await page.evaluate(() => window.__FE3D_STUDIO__.exportInlineProject());
-    expect(exportedJson).toContain('"display_layers"');
-    expect(exportedJson).toContain('"rigBlend"');
+    // Verify the binary .fe3d container export & re-import preserves Display Layers, Channel Locks
+    // & Custom Attributes cleanly
+    const exportedContainer = await page.evaluate(() => window.__FE3D_STUDIO__.exportProjectBase64());
+    expect(typeof exportedContainer).toBe("string");
+    expect(exportedContainer.length).toBeGreaterThan(256);
+    const containerInfo = await page.evaluate(() => window.__FE3D_STUDIO__.projectContainerInfo());
+    expect(containerInfo.magic_ok).toBe(true);
+    expect(containerInfo.minor).toBe(3);
 
     await page.evaluate(() => window.__FE3D_STUDIO__.dispatch({ action: "new_starter_project" }));
     await expect(page.getByTestId("display-layer-row-layer1")).toHaveCount(0);
 
-    await page.evaluate((txt) => window.__FE3D_STUDIO__.importInlineProject(txt), exportedJson);
+    await page.evaluate((b64) => window.__FE3D_STUDIO__.importProjectBase64(b64), exportedContainer);
     await expect(page.getByTestId("display-layer-row-layer1")).toBeVisible();
     await page.getByTestId("outliner-item-HeroCube").click();
     await expect(page.getByTestId("cb-custom-rigBlend")).toHaveValue("0.650");

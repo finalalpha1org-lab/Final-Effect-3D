@@ -329,7 +329,8 @@
     },
   ];
 
-  // Real Recent Projects & Preferences Store (IndexedDB payload + localStorage metadata).
+  // Real Recent Projects & Preferences Store (binary .fe3d / .fe3a container payloads in IndexedDB
+  // plus lightweight localStorage metadata and preferences).
   const RECENT_META_KEY = "fe3d.recent_projects.v2";
   const PREFS_KEY = "fe3d.app_preferences.v2";
   const SAVED_LAYOUT_KEY = "fe3d.saved_workspace_layout.v2";
@@ -363,14 +364,14 @@
     });
   }
 
-  async function saveProjectPayload(id, fe3dJson) {
-    memoryPayloadFallback.set(id, fe3dJson);
+  async function saveProjectPayload(id, projectBytes) {
+    memoryPayloadFallback.set(id, projectBytes);
     const db = await openPayloadDb();
     if (!db) return;
     await new Promise((resolve) => {
       try {
         const tx = db.transaction(IDB_STORE, "readwrite");
-        tx.objectStore(IDB_STORE).put(fe3dJson, id);
+        tx.objectStore(IDB_STORE).put(projectBytes, id);
         tx.oncomplete = () => resolve();
         tx.onerror = () => resolve();
       } catch (_) {
@@ -430,7 +431,7 @@
     } catch (_) {}
   }
 
-  async function recordRecentProject(entry, fe3dJson) {
+  async function recordRecentProject(entry, projectBytes) {
     const list = listRecentProjects();
     const id = entry.id || "proj_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7);
     const record = {
@@ -448,8 +449,8 @@
     const filtered = list.filter((item) => item.id !== id && item.name !== record.name);
     filtered.unshift(record);
     writeRecentProjects(filtered);
-    if (fe3dJson) {
-      await saveProjectPayload(id, fe3dJson);
+    if (projectBytes) {
+      await saveProjectPayload(id, projectBytes);
     }
     return record;
   }
@@ -482,9 +483,9 @@
     } catch (_) {}
   }
 
-  function saveCustomWorkspaceLayout(jsonStr) {
+  function saveCustomWorkspaceLayout(layoutPayload) {
     try {
-      window.localStorage.setItem(SAVED_LAYOUT_KEY, jsonStr);
+      window.localStorage.setItem(SAVED_LAYOUT_KEY, layoutPayload);
       return true;
     } catch (_) {
       return false;

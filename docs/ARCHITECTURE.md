@@ -27,7 +27,7 @@ finaleffect::math       (Vec2..4, Quat, Mat4, Transform, Ray, AABB, Intersection
 finaleffect::scene      (Scene, EditableMesh, PbrMaterial, Camera, Light, RaycastPicking, CommandStack)
        ╱ ╲
       ▼   ▼
-project   rendering     (.fe3d v1.2 + .fe3dbin v1.0)    (Renderer, IRenderDevice, Software, MaterialPreview)
+project   rendering     (.fe3d / .fe3a binary container)    (Renderer, IRenderDevice, Software, MaterialPreview)
       ╲   ╱                                                 ├──► finaleffect::rendering_opengl33
        ▼ ▼                                                  └──► finaleffect::rendering_webgl2
 finaleffect::app        (TransformGizmo, WorkspaceManager, OrbitCameraController, StudioSession, EditorController)
@@ -97,11 +97,12 @@ finaleffect::app        (TransformGizmo, WorkspaceManager, OrbitCameraController
 
 ---
 
-## 5. Project Format (`.fe3d` Schema `1.2`) & Binary Asset Container (`.fe3dbin` `1.0`)
+## 5. Project Format (`.fe3d` / `.fe3a` Binary Container `1.0`) & Geometry Archive (`.fe3dbin` `1.0`)
 
-* **Schema Version**: `{ "major": 1, "minor": 2 }` while maintaining full backward compatibility when loading `.fe3d` `1.0` and `1.1` files and `.fe3dbin` `1.0` binary geometry bundles.
+* **Binary Container**: `.fe3d` (scene save) and `.fe3a` (portable export) are the same container: 32-byte header (magic `F E 3 D P R J 0x1A`, container version, chunk count, directory offset + CRC-32, flags), 8-byte-aligned payload chunks and a 40-byte-per-entry directory (FNV-1a-64 content hash, type, offset, length, CRC-32). Chunk 1 is an interned-symbol node stream holding the document, chunk 2 the embedded geometry archive. Nothing is stored as JSON text, and legacy JSON project files are refused by the loader.
+* **Document Schema**: `{ "major": 1, "minor": 3 }` inside the container, while documents saved with schema `1.0`, `1.1` and `1.2` still load losslessly (schema validation runs on the decoded document tree).ometry bundles.
 * **Stage 4 Persisted Data**: Full `materials` table, per-object `material_id`, polygon `editable_mesh` topology (`positions`, n-gon `faces`, corner `uvs`/`colors`, per-face `material_id`), `editor_state` (`edit_mode`, `gizmo_tool`, `gizmo_space`, `selected_object_id`, `active_material_id`, `mesh_selection`), and `workspace` layout state.
-* **Lossless Forward/Unknown Field Preservation**: Unknown top-level, scene-level, object-level, mesh-level, and material-level JSON properties are captured in `ProjectDocument::preserved_fields` (`ProjectPreservedFields`) alongside structured `load_warnings`, ensuring future or external extensions are never silently discarded during load/save round-trips.
+* **Lossless Forward/Unknown Field Preservation**: Unknown top-level, scene-level, object-level, mesh-level, and material-level document properties are captured in `ProjectDocument::preserved_fields` (`ProjectPreservedFields`) alongside structured `load_warnings`, ensuring future or external extensions are never silently discarded during load/save round-trips.
 
 ---
 

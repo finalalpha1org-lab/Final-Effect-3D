@@ -296,13 +296,14 @@ FE_TEST(MayaStage1, TimelineKeyframeInterpolationPlaybackAndV13Serialization) {
     FE_EXPECT_TRUE(!rig.editor->executeCommandLine("eval(window.alert(1))").hasValue());
     FE_EXPECT_TRUE(rig.editor->lastStatusIsError());
 
-    // .fe3d v1.3 round-trip preserves Display Layers, Keyframes, Timeline & Custom Attributes with 0 warnings!
-    const auto exported = rig.editor->exportInlineProjectJson();
+    // .fe3d binary container round-trip preserves Display Layers, Keyframes, Timeline & Custom
+    // Attributes with 0 warnings!
+    const auto exported = rig.editor->exportInlineProjectBinary();
     FE_REQUIRE_TRUE(exported.hasValue());
     FE_REQUIRE_TRUE(rig.editor->newStarterProject().hasValue());
     FE_EXPECT_EQ(sc.displayLayers().size(), std::size_t{0});
 
-    FE_REQUIRE_TRUE(rig.editor->importInlineProjectJson(exported.value()).hasValue());
+    FE_REQUIRE_TRUE(rig.editor->importInlineProjectBinary(exported.value()).hasValue());
     FE_EXPECT_EQ(rig.session->document().load_warnings.size(), std::size_t{0});
     FE_EXPECT_EQ(sc.displayLayers().size(), std::size_t{1});
     FE_EXPECT_EQ(sc.displayLayers()[0].name, std::string("anim_L"));

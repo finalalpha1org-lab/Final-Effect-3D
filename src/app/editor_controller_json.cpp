@@ -6,6 +6,8 @@
 #include "finaleffect/project/json.hpp"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <cmath>
 #include <limits>
 #include <optional>
@@ -18,6 +20,39 @@
 namespace finaleffect::app {
 
 namespace {
+
+// Decodes a base64 payload (padding optional, whitespace ignored) into raw container bytes.
+[[nodiscard]] bool decodeBase64Bytes(std::string_view encoded, std::vector<std::uint8_t>& out) {
+    auto valueOf = [](char c) -> int {
+        if (c >= 'A' && c <= 'Z') return c - 'A';
+        if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+        if (c >= '0' && c <= '9') return c - '0' + 52;
+        if (c == '+') return 62;
+        if (c == '/') return 63;
+        return -1;
+    };
+    out.clear();
+    out.reserve(encoded.size() / 4u * 3u + 3u);
+    std::uint32_t buffer = 0;
+    int bits = 0;
+    std::size_t padding = 0;
+    for (const char ch : encoded) {
+        if (ch == '=') {
+            padding += 1;
+            continue;
+        }
+        if (ch == '\n' || ch == '\r' || ch == ' ' || ch == '\t') continue;
+        const int value = valueOf(ch);
+        if (value < 0) return false;
+        buffer = (buffer << 6u) | static_cast<std::uint32_t>(value);
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out.push_back(static_cast<std::uint8_t>((buffer >> static_cast<std::uint32_t>(bits)) & 0xFFu));
+        }
+    }
+    return padding <= 2;
+}
 
 project::JsonValue vec3ToJson(const math::Vec3& v) {
     return project::JsonArray{
@@ -1169,14 +1204,20 @@ core::Status EditorController::executeActionJson(std::string_view action_json) {
         return core::Status::ok();
     }
 
-    if (action == "import_workspace_json") {
-        const auto* jv = cmd.findKey("json_text");
+    if (action == "import_workspace_binary" || action == "import_workspace_json") {
+        const auto* jv = cmd.findKey("container_base64");
         if (jv == nullptr || !jv->isString()) {
-            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing string 'json_text'");
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing string 'container_base64'");
             recordStatus(st, {});
             return st;
         }
-        return importWorkspaceLayoutJson(jv->asString());
+        std::vector<std::uint8_t> bytes;
+        if (!decodeBase64Bytes(jv->asString(), bytes)) {
+            auto st = core::Status::fail(core::ErrorCode::ParseError, "Invalid base64 payload 'container_base64'");
+            recordStatus(st, {});
+            return st;
+        }
+        return importWorkspaceLayoutBinary(bytes);
     }
 
     if (action == "set_text_input_focused") {
@@ -1844,14 +1885,20 @@ core::Status EditorController::executeActionJson(std::string_view action_json) {
         return createNewProject(tmpl, std::move(pname), std::move(pauthor));
     }
 
-    if (action == "load_inline_json") {
-        const auto* jv = cmd.findKey("json_text");
+    if (action == "load_inline_binary" || action == "load_inline_json") {
+        const auto* jv = cmd.findKey("container_base64");
         if (jv == nullptr || !jv->isString()) {
-            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing string 'json_text'");
+            auto st = core::Status::fail(core::ErrorCode::InvalidArgument, "Missing string 'container_base64'");
             recordStatus(st, {});
             return st;
         }
-        return importInlineProjectJson(jv->asString());
+        std::vector<std::uint8_t> bytes;
+        if (!decodeBase64Bytes(jv->asString(), bytes)) {
+            auto st = core::Status::fail(core::ErrorCode::ParseError, "Invalid base64 payload 'container_base64'");
+            recordStatus(st, {});
+            return st;
+        }
+        return importInlineProjectBinary(bytes);
     }
 
     // =========================================================================
