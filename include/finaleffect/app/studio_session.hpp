@@ -80,6 +80,9 @@ struct StudioSessionConfig {
     float rig_angular_speed_radians{0.65f};
     float orbit_radians_per_pixel{0.005f};
     std::size_t command_history_max_bytes{16u * 1024u * 1024u};
+    bool poll_window_events_on_update{true};
+    bool consume_window_input_on_update{true};
+    bool swap_buffers_on_update{true};
 };
 
 // Application layer session connecting project/scene state, command stack, viewport camera,

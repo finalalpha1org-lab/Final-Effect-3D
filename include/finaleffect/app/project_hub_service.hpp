@@ -171,6 +171,13 @@ struct SystemInfoSummary {
     std::string platform_name;
     std::string graphics_backend;
     std::string graphics_device;
+    std::string graphics_vendor;
+    std::string graphics_api_version;
+    std::string shading_language_version;
+    std::string build_configuration;
+    std::uint32_t logical_cpu_threads{0};
+    std::uint32_t max_texture_dimension{0};
+    std::uint32_t max_viewport_dimension{0};
     std::string project_format{".fe3d JSON (v1.0-v1.3) + .fe3dbin Binary Archive (v1.0)"};
     std::string coordinate_system{"right-handed-y-up"};
     std::string license{"GNU GPL v3.0-or-later"};

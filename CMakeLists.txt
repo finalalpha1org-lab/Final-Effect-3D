@@ -24,6 +24,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # ------------------------------------------------------------------------------
 option(FINALEFFECT_BUILD_TESTS "Build Final Effect 3D automated unit and integration tests" ON)
 option(FINALEFFECT_BUILD_RENDERER_DESKTOP "Build desktop rendering backend and desktop host application" ON)
+option(FINALEFFECT_BUILD_NATIVE_UI "Build native desktop C++20 Home Hub UI module" ON)
 option(FINALEFFECT_BUILD_RENDERER_WEBGL2 "Build WebGL 2.0 / OpenGL ES 3.0 render device adapter" ON)
 option(FINALEFFECT_FETCH_GLFW "Fetch pinned GLFW 3.4 from GitHub if system GLFW is not installed" OFF)
 option(FINALEFFECT_REQUIRE_GLFW "Fail configuration if GLFW + system OpenGL are unavailable when desktop renderer is enabled" OFF)
@@ -208,6 +209,46 @@ target_link_libraries(finaleffect_app
 finaleffect_apply_compiler_settings(finaleffect_app)
 
 # ------------------------------------------------------------------------------
+# Native Desktop Home Hub UI Module (finaleffect_ui_native)
+# ------------------------------------------------------------------------------
+if(FINALEFFECT_HAS_NATIVE_UI)
+    add_library(finaleffect_ui_native STATIC
+        src/ui/png_encoder.cpp
+        src/ui/imgui_software_rasterizer.cpp
+        src/ui/native_home_theme.cpp
+        src/ui/native_file_dialog.cpp
+        src/ui/native_home_navigation.cpp
+        src/ui/native_project_browser.cpp
+        src/ui/native_template_browser.cpp
+        src/ui/native_project_creation.cpp
+        src/ui/native_project_open.cpp
+        src/ui/native_recovery_view.cpp
+        src/ui/native_preferences_view.cpp
+        src/ui/native_about_view.cpp
+        src/ui/native_home_hub.cpp
+    )
+    add_library(finaleffect::ui_native ALIAS finaleffect_ui_native)
+    target_include_directories(finaleffect_ui_native
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:include>
+    )
+    target_link_libraries(finaleffect_ui_native
+        PUBLIC
+            finaleffect::app
+            finaleffect::rendering
+            finaleffect::project
+            finaleffect::core
+            finaleffect::platform
+            finaleffect_thirdparty_imgui
+    )
+    if(WIN32)
+        target_link_libraries(finaleffect_ui_native PRIVATE ole32 shell32 uuid)
+    endif()
+    finaleffect_apply_compiler_settings(finaleffect_ui_native)
+endif()
+
+# ------------------------------------------------------------------------------
 # Optional Desktop Rendering & Host Targets (FINALEFFECT_BUILD_RENDERER_DESKTOP)
 # ------------------------------------------------------------------------------
 if(FINALEFFECT_BUILD_RENDERER_DESKTOP AND FINALEFFECT_PLATFORM_IS_DESKTOP)
@@ -235,6 +276,13 @@ if(FINALEFFECT_BUILD_RENDERER_DESKTOP AND FINALEFFECT_PLATFORM_IS_DESKTOP)
             finaleffect::app
             finaleffect::rendering_opengl33
     )
+    if(FINALEFFECT_HAS_NATIVE_UI)
+        target_compile_definitions(finaleffect_desktop PRIVATE FINALEFFECT_HAS_NATIVE_UI=1)
+        target_link_libraries(finaleffect_desktop PRIVATE finaleffect::ui_native)
+    endif()
+    if(FINALEFFECT_HAS_IMGUI_OPENGL_GLFW)
+        target_compile_definitions(finaleffect_desktop PRIVATE FINALEFFECT_HAS_IMGUI_OPENGL_GLFW=1)
+    endif()
     finaleffect_apply_compiler_settings(finaleffect_desktop)
 
     if(FINALEFFECT_HAS_GLFW)
@@ -433,6 +481,13 @@ if(FINALEFFECT_BUILD_TESTS)
     target_link_libraries(finaleffect_stage1_hub_tests PRIVATE finaleffect::app finaleffect::rendering)
     finaleffect_apply_compiler_settings(finaleffect_stage1_hub_tests)
     add_test(NAME finaleffect.stage1_hub_foundation COMMAND finaleffect_stage1_hub_tests)
+
+    if(FINALEFFECT_HAS_NATIVE_UI)
+        add_executable(finaleffect_native_home_hub_tests tests/native_home_hub_tests.cpp)
+        target_link_libraries(finaleffect_native_home_hub_tests PRIVATE finaleffect::ui_native finaleffect::app finaleffect::rendering)
+        finaleffect_apply_compiler_settings(finaleffect_native_home_hub_tests)
+        add_test(NAME finaleffect.native_home_hub COMMAND finaleffect_native_home_hub_tests)
+    endif()
 
     if(FINALEFFECT_BUILD_RENDERER_DESKTOP AND FINALEFFECT_PLATFORM_IS_DESKTOP)
         add_executable(finaleffect_opengl33_tests tests/opengl33_device_tests.cpp)

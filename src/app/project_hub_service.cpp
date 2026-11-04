@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <thread>
 
 namespace finaleffect::app {
 
@@ -690,12 +691,25 @@ SystemInfoSummary querySystemInfo(
     const StudioSession& session,
     RecoveryStorageState recovery_state) {
     const auto& caps = session.renderer().device().capabilities();
+#if defined(NDEBUG)
+    constexpr const char* kBuildCfg = "Release";
+#else
+    constexpr const char* kBuildCfg = "Debug";
+#endif
     return SystemInfoSummary{
         .application_name = "Final Effect 3D",
         .engine_version = std::string(core::engineVersionString()),
         .platform_name = std::string(platform::hostPlatformName()),
-        .graphics_backend = caps.backend_name,
-        .graphics_device = caps.device_name,
+        .graphics_backend = caps.backend_name.empty() ? std::string("Unavailable") : caps.backend_name,
+        .graphics_device = caps.device_name.empty() ? std::string("Unavailable") : caps.device_name,
+        .graphics_vendor = caps.vendor_name.empty() ? std::string("Unavailable") : caps.vendor_name,
+        .graphics_api_version = caps.api_version.empty() ? std::string("Unavailable") : caps.api_version,
+        .shading_language_version =
+            caps.shading_language_version.empty() ? std::string("Unavailable") : caps.shading_language_version,
+        .build_configuration = kBuildCfg,
+        .logical_cpu_threads = std::thread::hardware_concurrency(),
+        .max_texture_dimension = caps.max_texture_size,
+        .max_viewport_dimension = caps.max_viewport_dimension,
         .project_format = ".fe3d JSON (v1.0-v1.3) + .fe3dbin Binary Archive (v1.0)",
         .coordinate_system = std::string(project::ProjectSerializer::kCoordinateSystem),
         .license = "GNU GPL v3.0-or-later",
@@ -707,9 +721,18 @@ core::Result<std::string> serializeSystemInfoJson(const SystemInfoSummary& info,
     project::JsonValue root{project::JsonObject{}};
     root.setKey("application_name", info.application_name);
     root.setKey("engine_version", info.engine_version);
+    root.setKey("build_configuration", info.build_configuration.empty() ? std::string("Unavailable") : info.build_configuration);
     root.setKey("platform_name", info.platform_name);
+    root.setKey("logical_cpu_threads", static_cast<std::uint64_t>(info.logical_cpu_threads));
     root.setKey("graphics_backend", info.graphics_backend);
     root.setKey("graphics_device", info.graphics_device);
+    root.setKey("graphics_vendor", info.graphics_vendor.empty() ? std::string("Unavailable") : info.graphics_vendor);
+    root.setKey("graphics_api_version", info.graphics_api_version.empty() ? std::string("Unavailable") : info.graphics_api_version);
+    root.setKey(
+        "shading_language_version",
+        info.shading_language_version.empty() ? std::string("Unavailable") : info.shading_language_version);
+    root.setKey("max_texture_dimension", static_cast<std::uint64_t>(info.max_texture_dimension));
+    root.setKey("max_viewport_dimension", static_cast<std::uint64_t>(info.max_viewport_dimension));
     root.setKey("project_format", info.project_format);
     root.setKey("coordinate_system", info.coordinate_system);
     root.setKey("license", info.license);

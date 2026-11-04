@@ -107,11 +107,132 @@ jobs:
       - name: Smoke-Test Windowed OpenGL 3.3 Renderer & Binary Bundle Export under Xvfb
         run: |
           xvfb-run -a -s "-screen 0 1280x720x24" \
-            ./build/ci-desktop/finaleffect_desktop --frames 5 \
+            ./build/ci-desktop/finaleffect_desktop --frames 5
+          xvfb-run -a -s "-screen 0 1280x720x24" \
+            ./build/ci-desktop/finaleffect_desktop --start-in-studio --frames 5 \
             --export-project build/ci-desktop/ci_roundtrip.fe3d \
             --export-bundle build/ci-desktop/ci_bundle.fe3d
+          xvfb-run -a -s "-screen 0 1280x720x24" \
+            ./build/ci-desktop/finaleffect_desktop --system-info
           ./build/ci-desktop/finaleffect_desktop --headless --frames 2 --project build/ci-desktop/ci_roundtrip.fe3d
           ./build/ci-desktop/finaleffect_desktop --headless --frames 2 --project build/ci-desktop/ci_bundle.fe3d
+
+      - name: Capture & Verify Stage 1.1 Native Desktop Home Hub OpenGL 3.3 Screenshots (1920x1080, 2560x1440, 1366x768 @ 100%/125%)
+        run: |
+          mkdir -p build/ci-native-screenshots
+          xvfb-run -a -s "-screen 0 2880x1800x24" \
+            ./build/ci-desktop/finaleffect_desktop --width 1920 --height 1080 \
+            --config-dir build/ci-desktop/cfg_1080 \
+            --capture-hub-screenshots build/ci-native-screenshots/1920x1080_100pct
+          xvfb-run -a -s "-screen 0 2880x1800x24" \
+            ./build/ci-desktop/finaleffect_desktop --width 2560 --height 1440 \
+            --config-dir build/ci-desktop/cfg_1440 \
+            --capture-hub-screenshots build/ci-native-screenshots/2560x1440_100pct
+          xvfb-run -a -s "-screen 0 2880x1800x24" \
+            ./build/ci-desktop/finaleffect_desktop --width 1366 --height 768 \
+            --config-dir build/ci-desktop/cfg_768_100 \
+            --capture-hub-screenshots build/ci-native-screenshots/1366x768_100pct
+          xvfb-run -a -s "-screen 0 2880x1800x24" \
+            ./build/ci-desktop/finaleffect_desktop --width 1366 --height 768 \
+            --set-pref-scale 125 \
+            --config-dir build/ci-desktop/cfg_768_125 \
+            --capture-hub-screenshots build/ci-native-screenshots/1366x768_125pct
+
+          for stem in \
+            01_projects_start \
+            02_templates \
+            03_new_project \
+            04_open_project \
+            05_recovery_autosave \
+            06_preferences \
+            07_about_system_info \
+            08_home_to_studio_transition \
+            09_studio_to_home_populated; do
+            test -s "build/ci-native-screenshots/1920x1080_100pct/${stem}_1920x1080_100pct.png"
+            test -s "build/ci-native-screenshots/2560x1440_100pct/${stem}_2560x1440_100pct.png"
+            test -s "build/ci-native-screenshots/1366x768_100pct/${stem}_1366x768_100pct.png"
+            test -s "build/ci-native-screenshots/1366x768_125pct/${stem}_1366x768_125pct.png"
+          done
+
+      - name: Upload Stage 1.1 Native Desktop Home Hub OpenGL 3.3 Screenshots (All Resolutions & Scales)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-1-native-desktop-hub-screenshots
+          path: build/ci-native-screenshots/
+          if-no-files-found: error
+
+      - name: Upload Native Screenshot 1 - Projects & Start (1920x1080 OpenGL 3.3)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-1-native-01-projects-start.png
+          path: build/ci-native-screenshots/1920x1080_100pct/01_projects_start_1920x1080_100pct.png
+          if-no-files-found: error
+
+      - name: Upload Native Screenshot 2 - Templates (1920x1080 OpenGL 3.3)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-1-native-02-templates.png
+          path: build/ci-native-screenshots/1920x1080_100pct/02_templates_1920x1080_100pct.png
+          if-no-files-found: error
+
+      - name: Upload Native Screenshot 3 - New Project (1920x1080 OpenGL 3.3)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-1-native-03-new-project.png
+          path: build/ci-native-screenshots/1920x1080_100pct/03_new_project_1920x1080_100pct.png
+          if-no-files-found: error
+
+      - name: Upload Native Screenshot 4 - Open Project (1920x1080 OpenGL 3.3)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-1-native-04-open-project.png
+          path: build/ci-native-screenshots/1920x1080_100pct/04_open_project_1920x1080_100pct.png
+          if-no-files-found: error
+
+      - name: Upload Native Screenshot 5 - Recovery & Autosave (1920x1080 OpenGL 3.3)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-1-native-05-recovery-autosave.png
+          path: build/ci-native-screenshots/1920x1080_100pct/05_recovery_autosave_1920x1080_100pct.png
+          if-no-files-found: error
+
+      - name: Upload Native Screenshot 6 - Preferences (1920x1080 OpenGL 3.3)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-1-native-06-preferences.png
+          path: build/ci-native-screenshots/1920x1080_100pct/06_preferences_1920x1080_100pct.png
+          if-no-files-found: error
+
+      - name: Upload Native Screenshot 7 - About & System Info (1920x1080 OpenGL 3.3)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-1-native-07-about-system-info.png
+          path: build/ci-native-screenshots/1920x1080_100pct/07_about_system_info_1920x1080_100pct.png
+          if-no-files-found: error
+
+      - name: Upload Native Screenshot 8 - Home to 3D Studio Transition (1920x1080 OpenGL 3.3)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-1-native-08-home-to-studio-transition.png
+          path: build/ci-native-screenshots/1920x1080_100pct/08_home_to_studio_transition_1920x1080_100pct.png
+          if-no-files-found: error
+
+      - name: Upload Native Screenshot 9 - Studio to Home Populated (1920x1080 OpenGL 3.3)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-1-native-09-studio-to-home-populated.png
+          path: build/ci-native-screenshots/1920x1080_100pct/09_studio_to_home_populated_1920x1080_100pct.png
+          if-no-files-found: error
 
   web-wasm-emscripten:
     name: WebAssembly + WebGL2 Studio & Chromium E2E

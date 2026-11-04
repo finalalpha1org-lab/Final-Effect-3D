@@ -29,15 +29,22 @@ public:
 
     [[nodiscard]] bool shouldClose() const noexcept override;
     void requestClose() noexcept override;
+    void cancelCloseRequest() noexcept override;
+
+    void setTitle(std::string_view title) override;
+    void setSize(std::uint32_t width, std::uint32_t height) override;
 
     [[nodiscard]] FramebufferSize framebufferSize() const noexcept override;
+    [[nodiscard]] float contentScale() const noexcept override;
     void swapBuffers() override;
 
     [[nodiscard]] GlProcLoaderFn glProcLoader() const noexcept override;
+    [[nodiscard]] GLFWwindow* nativeHandle() const noexcept { return window_; }
 
 private:
     static void onFramebufferResize(GLFWwindow* handle, int width, int height) noexcept;
     static void onKey(GLFWwindow* handle, int key, int scancode, int action, int mods) noexcept;
+    static void onChar(GLFWwindow* handle, unsigned int codepoint) noexcept;
     static void onMouseButton(GLFWwindow* handle, int button, int action, int mods) noexcept;
     static void onCursorPos(GLFWwindow* handle, double xpos, double ypos) noexcept;
     static void onScroll(GLFWwindow* handle, double xoffset, double yoffset) noexcept;

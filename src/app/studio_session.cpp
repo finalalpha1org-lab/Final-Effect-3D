@@ -1739,7 +1739,9 @@ core::Status StudioSession::processInputEvent(const platform::InputEvent& event)
 }
 
 core::Status StudioSession::onUpdate(core::Engine&, const core::FrameTimings& timings) {
-    window_.pollEvents();
+    if (config_.poll_window_events_on_update) {
+        window_.pollEvents();
+    }
 
     const auto fb = window_.framebufferSize();
     const float content_scale = window_.contentScale();
@@ -1755,10 +1757,12 @@ core::Status StudioSession::onUpdate(core::Engine&, const core::FrameTimings& ti
         ++interaction_revision_;
     }
 
-    for (const auto& ev : window_.consumeInputEvents()) {
-        auto ev_st = processInputEvent(ev);
-        if (!ev_st) {
-            return ev_st;
+    if (config_.consume_window_input_on_update) {
+        for (const auto& ev : window_.consumeInputEvents()) {
+            auto ev_st = processInputEvent(ev);
+            if (!ev_st) {
+                return ev_st;
+            }
         }
     }
 
@@ -1944,7 +1948,9 @@ core::Status StudioSession::onUpdate(core::Engine&, const core::FrameTimings& ti
         return render_st;
     }
 
-    window_.swapBuffers();
+    if (config_.swap_buffers_on_update) {
+        window_.swapBuffers();
+    }
     return core::Status::ok();
 }
 

@@ -5,8 +5,10 @@
 #include "finaleffect/app/editor_controller.hpp"
 #include "finaleffect/app/project_hub_service.hpp"
 #include "finaleffect/app/studio_session.hpp"
+#include "finaleffect/core/application.hpp"
 #include "finaleffect/core/engine.hpp"
 #include "finaleffect/core/version.hpp"
+#include "finaleffect/platform/paths.hpp"
 #include "finaleffect/platform/window.hpp"
 #include "finaleffect/rendering/opengl33_render_device.hpp"
 #include "finaleffect/rendering/software_render_device.hpp"
@@ -15,22 +17,40 @@
 #include "finaleffect/platform/glfw_window.hpp"
 #endif
 
+#if defined(FINALEFFECT_HAS_NATIVE_UI)
+#include "finaleffect/ui/imgui_software_rasterizer.hpp"
+#include "finaleffect/ui/native_home_hub.hpp"
+#include "finaleffect/ui/png_encoder.hpp"
+#include <imgui.h>
+#endif
+
+#if defined(FINALEFFECT_HAS_IMGUI_OPENGL_GLFW)
+#include <backends/imgui_impl_glfw.h>
+#include <backends/imgui_impl_opengl3.h>
+#endif
+
+#include <algorithm>
 #include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_set>
+#include <vector>
 
 namespace {
 
 struct CliOptions {
     bool show_help{false};
     bool headless{false};
+    bool start_in_studio{false};
+    bool start_in_hub{false};
     bool list_templates{false};
     bool list_recent{false};
     bool list_recovery{false};
@@ -52,6 +72,7 @@ struct CliOptions {
     std::filesystem::path export_project;
     std::filesystem::path export_bundle;
     std::filesystem::path render_ppm;
+    std::filesystem::path capture_hub_screenshots_dir;
 };
 
 std::uint64_t nowEpochMillis() noexcept {
@@ -63,6 +84,9 @@ std::uint64_t nowEpochMillis() noexcept {
 std::uint64_t queryFileByteSize(
     const std::filesystem::path& path,
     const finaleffect::platform::IFileSystem& fs) {
+    if (auto bin = fs.readBinaryFile(path); bin) {
+        return static_cast<std::uint64_t>(bin.value().size());
+    }
     if (auto txt = fs.readTextFile(path); txt) {
         return static_cast<std::uint64_t>(txt.value().size());
     }
@@ -81,29 +105,32 @@ void printUsage() {
         << "Final Effect 3D Desktop Host (v" << finaleffect::core::engineVersionString() << ")\n"
         << "Usage: finaleffect_desktop [options]\n\n"
         << "Options:\n"
-        << "  --help                      Show this help message\n"
-        << "  --headless                  Run without a desktop window using the CPU reference renderer\n"
-        << "  --frames <N>                Run a bounded number of frames then exit cleanly\n"
-        << "  --width <px>                Initial framebuffer width (default: 1280)\n"
-        << "  --height <px>               Initial framebuffer height (default: 720)\n"
-        << "  --config-dir <dir>          Override application preferences/hub directory\n"
-        << "  --list-templates            List real C++ ProjectTemplate presets and exit\n"
-        << "  --list-recent               Print indexed recent projects JSON and exit\n"
-        << "  --list-recovery             Print recovery storage state and snapshots JSON and exit\n"
-        << "  --new-project <file.fe3d>   Initialize and save a new project from --template\n"
-        << "  --template <slug>           Template slug: starter | minimal_cube | empty_stage | shader_ball\n"
-        << "  --project-name <title>      Title for --new-project\n"
-        << "  --overwrite                 Confirm overwriting an existing --new-project path\n"
-        << "  --project <file.fe3d>       Load an existing Final Effect 3D project file\n"
-        << "  --capture-recovery          Save a recovery checkpoint for the loaded/active project\n"
-        << "  --recover-latest            Recover the most recent autosave snapshot into the session\n"
-        << "  --print-preferences         Print persisted application preferences JSON and exit\n"
-        << "  --set-pref-scale <pct>      Persist UI scale preference (85 | 100 | 115 | 125)\n"
-        << "  --set-pref-nav <profile>    Persist navigation profile (fe3d_hybrid | blender | maya)\n"
-        << "  --system-info               Print real platform/graphics/capability JSON and exit\n"
-        << "  --export-project <path>     Save the active scene to an inline .fe3d project file before exit\n"
-        << "  --export-bundle <path>      Save .fe3d metadata + deduplicated .fe3dbin binary mesh archive\n"
-        << "  --render-ppm <path.ppm>     In --headless mode, save the final rendered frame as PPM\n";
+        << "  --help                              Show this help message\n"
+        << "  --headless                          Run without a desktop window using the CPU reference renderer\n"
+        << "  --start-in-hub                      Force launch into the Native Desktop Home Hub\n"
+        << "  --start-in-studio                   Boot directly into the 3D Studio starter scene\n"
+        << "  --frames <N>                        Run a bounded number of frames then exit cleanly\n"
+        << "  --width <px>                        Initial framebuffer width (default: 1280)\n"
+        << "  --height <px>                       Initial framebuffer height (default: 720)\n"
+        << "  --config-dir <dir>                  Override application preferences/hub directory\n"
+        << "  --list-templates                    List real C++ ProjectTemplate presets and exit\n"
+        << "  --list-recent                       Print indexed recent projects JSON and exit\n"
+        << "  --list-recovery                     Print recovery storage state and snapshots JSON and exit\n"
+        << "  --new-project <file.fe3d>           Initialize and save a new project from --template\n"
+        << "  --template <slug>                   Template slug: starter | minimal_cube | empty_stage | shader_ball\n"
+        << "  --project-name <title>              Title for --new-project\n"
+        << "  --overwrite                         Confirm overwriting an existing --new-project path\n"
+        << "  --project <file.fe3d>               Load an existing Final Effect 3D project file\n"
+        << "  --capture-recovery                  Save a recovery checkpoint for the loaded/active project\n"
+        << "  --recover-latest                    Recover the most recent autosave snapshot into the session\n"
+        << "  --print-preferences                 Print persisted application preferences JSON and exit\n"
+        << "  --set-pref-scale <pct>              Persist UI scale preference (85 | 100 | 115 | 125)\n"
+        << "  --set-pref-nav <profile>            Persist navigation profile (fe3d_hybrid | blender | maya)\n"
+        << "  --system-info                       Print real platform/graphics/capability JSON and exit\n"
+        << "  --export-project <path>             Save the active scene to an inline .fe3d project file before exit\n"
+        << "  --export-bundle <path>              Save .fe3d metadata + deduplicated .fe3dbin binary mesh archive\n"
+        << "  --render-ppm <path.ppm>             In --headless mode, save the final rendered frame as PPM\n"
+        << "  --capture-hub-screenshots <dir>     Render and capture genuine PNG screenshots of all 7 Native Hub views\n";
 }
 
 bool parseCli(int argc, char** argv, CliOptions& opts) {
@@ -121,6 +148,10 @@ bool parseCli(int argc, char** argv, CliOptions& opts) {
             opts.show_help = true;
         } else if (arg == "--headless") {
             opts.headless = true;
+        } else if (arg == "--start-in-studio") {
+            opts.start_in_studio = true;
+        } else if (arg == "--start-in-hub") {
+            opts.start_in_hub = true;
         } else if (arg == "--list-templates") {
             opts.list_templates = true;
         } else if (arg == "--list-recent") {
@@ -205,6 +236,10 @@ bool parseCli(int argc, char** argv, CliOptions& opts) {
             auto val = nextValue(arg);
             if (!val) return false;
             opts.render_ppm = std::filesystem::path(*val);
+        } else if (arg == "--capture-hub-screenshots") {
+            auto val = nextValue(arg);
+            if (!val) return false;
+            opts.capture_hub_screenshots_dir = std::filesystem::path(*val);
         } else {
             std::cerr << "Error: Unknown option '" << arg << "'. Use --help for usage.\n";
             return false;
@@ -212,6 +247,301 @@ bool parseCli(int argc, char** argv, CliOptions& opts) {
     }
     return true;
 }
+
+#if defined(FINALEFFECT_HAS_NATIVE_UI)
+
+// Unified Stage 1.1 Desktop Application Host orchestrating the single window/GL context
+// across NativeHomeHub and the existing StudioSession without duplicating engine services.
+class DesktopApplicationHost final : public finaleffect::core::IApplication {
+public:
+    DesktopApplicationHost(
+        finaleffect::platform::IWindow& window,
+        finaleffect::app::StudioSession& session,
+        finaleffect::ui::NativeHomeHub& home_hub,
+        finaleffect::rendering::OpenGL33RenderDevice* opengl_device,
+        finaleffect::rendering::SoftwareRenderDevice* software_device,
+        bool use_opengl_imgui_backend)
+        : window_(window),
+          session_(session),
+          home_hub_(home_hub),
+          opengl_device_(opengl_device),
+          software_device_(software_device),
+          use_opengl_imgui_backend_(use_opengl_imgui_backend) {}
+
+    [[nodiscard]] finaleffect::core::Status onInitialize(finaleffect::core::Engine& engine) override {
+        return session_.onInitialize(engine);
+    }
+
+    [[nodiscard]] finaleffect::core::Status onUpdate(
+        finaleffect::core::Engine& engine,
+        const finaleffect::core::FrameTimings& timings) override {
+        window_.pollEvents();
+
+        const auto pending_events = window_.consumeInputEvents();
+        if (!use_opengl_imgui_backend_) {
+            home_hub_.feedHeadlessInputEvents(pending_events);
+        }
+
+        // Pre-NewFrame scale & TrueType font atlas check
+        const bool font_rebuilt = home_hub_.prepareFrameScale();
+#if defined(FINALEFFECT_HAS_IMGUI_OPENGL_GLFW)
+        if (use_opengl_imgui_backend_) {
+            if (font_rebuilt) {
+                ImGui_ImplOpenGL3_DestroyDeviceObjects();
+                ImGui_ImplOpenGL3_CreateDeviceObjects();
+            }
+            ImGui_ImplOpenGL3_NewFrame();
+            ImGui_ImplGlfw_NewFrame();
+        } else
+#endif
+        {
+            (void)font_rebuilt;
+            ImGuiIO& io = ImGui::GetIO();
+            const auto fb = window_.framebufferSize();
+            io.DisplaySize = ImVec2(
+                static_cast<float>(std::max(1u, fb.width)),
+                static_cast<float>(std::max(1u, fb.height)));
+            io.DeltaTime = std::max(1.0e-4f, static_cast<float>(timings.delta_seconds));
+        }
+
+        ImGui::NewFrame();
+        home_hub_.renderCurrentFrameContent();
+        ImGui::Render();
+
+        const auto fb = window_.framebufferSize();
+        auto& render_dev = session_.renderer().device();
+
+        if (home_hub_.mode() == finaleffect::ui::DesktopMode::HomeHub) {
+            auto rsz = render_dev.resize(std::max(1u, fb.width), std::max(1u, fb.height));
+            if (!rsz) return rsz;
+            // Clear to Stage 0 Obsidian Slate (#0F1115)
+            const finaleffect::rendering::FrameClearDesc clear{
+                .clear_color = finaleffect::math::Vec4{15.0f / 255.0f, 17.0f / 255.0f, 21.0f / 255.0f, 1.0f},
+                .clear_depth = 1.0f,
+            };
+            auto bf = render_dev.beginFrame(clear);
+            if (!bf) return bf;
+            auto ef = render_dev.endFrame();
+            if (!ef) return ef;
+        } else {
+            // Forward uncaptured input events to the 3D Studio viewport
+            const ImGuiIO& io = ImGui::GetIO();
+            for (const auto& ev : pending_events) {
+                const bool is_mouse = std::holds_alternative<finaleffect::platform::MouseButtonEvent>(ev) ||
+                                      std::holds_alternative<finaleffect::platform::CursorMoveEvent>(ev) ||
+                                      std::holds_alternative<finaleffect::platform::ScrollEvent>(ev);
+                const bool is_key = std::holds_alternative<finaleffect::platform::KeyEvent>(ev);
+                if (is_mouse && io.WantCaptureMouse) continue;
+                if (is_key && io.WantCaptureKeyboard) continue;
+                auto ev_st = session_.handleInputEvent(ev);
+                if (!ev_st) return ev_st;
+            }
+            auto st = session_.onUpdate(engine, timings);
+            if (!st) return st;
+        }
+
+        // Composite Native UI Draw Lists onto the active framebuffer
+#if defined(FINALEFFECT_HAS_IMGUI_OPENGL_GLFW)
+        if (use_opengl_imgui_backend_) {
+            ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        } else
+#endif
+        if (software_device_ != nullptr) {
+            compositeSoftwareUiFrame(*software_device_);
+        }
+
+        if (capture_next_frame_) {
+            capture_status_ = captureActiveFramebuffer(captured_rgba_, captured_w_, captured_h_);
+            capture_next_frame_ = false;
+        }
+
+        window_.swapBuffers();
+        return finaleffect::core::Status::ok();
+    }
+
+    void onShutdown(finaleffect::core::Engine& engine) noexcept override {
+        session_.onShutdown(engine);
+    }
+
+    void requestFramebufferCapture() noexcept {
+        capture_next_frame_ = true;
+        capture_status_ = finaleffect::core::Status::ok();
+    }
+
+    [[nodiscard]] const finaleffect::core::Status& lastCaptureStatus() const noexcept { return capture_status_; }
+    [[nodiscard]] const std::vector<std::uint8_t>& capturedRgba() const noexcept { return captured_rgba_; }
+    [[nodiscard]] std::uint32_t capturedWidth() const noexcept { return captured_w_; }
+    [[nodiscard]] std::uint32_t capturedHeight() const noexcept { return captured_h_; }
+
+private:
+    void compositeSoftwareUiFrame(finaleffect::rendering::SoftwareRenderDevice& sw) {
+        const std::uint32_t w = sw.width();
+        const std::uint32_t h = sw.height();
+        if (w == 0 || h == 0) return;
+
+        software_rgba_scratch_.resize(static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4u);
+        const auto& src = sw.colorBuffer();
+        for (std::size_t i = 0; i < src.size(); ++i) {
+            software_rgba_scratch_[i * 4u + 0u] = src[i].r;
+            software_rgba_scratch_[i * 4u + 1u] = src[i].g;
+            software_rgba_scratch_[i * 4u + 2u] = src[i].b;
+            software_rgba_scratch_[i * 4u + 3u] = src[i].a;
+        }
+
+        unsigned char* atlas_px = nullptr;
+        int atlas_w = 0;
+        int atlas_h = 0;
+        ImGui::GetIO().Fonts->GetTexDataAsRGBA32(&atlas_px, &atlas_w, &atlas_h);
+        finaleffect::ui::rasterizeImDrawDataToRgba8(
+            ImGui::GetDrawData(),
+            finaleffect::ui::FontAtlasRgbaView{atlas_px, atlas_w, atlas_h},
+            w,
+            h,
+            software_rgba_scratch_);
+    }
+
+    [[nodiscard]] finaleffect::core::Status captureActiveFramebuffer(
+        std::vector<std::uint8_t>& out_rgba,
+        std::uint32_t& out_w,
+        std::uint32_t& out_h) {
+        if (opengl_device_ != nullptr) {
+            return opengl_device_->readFramebufferRgba8(out_rgba, out_w, out_h);
+        }
+        if (software_device_ != nullptr) {
+            out_w = software_device_->width();
+            out_h = software_device_->height();
+            out_rgba = software_rgba_scratch_;
+            return finaleffect::core::Status::ok();
+        }
+        return finaleffect::core::Status::fail(
+            finaleffect::core::ErrorCode::InvalidState,
+            "No readable framebuffer device is active");
+    }
+
+    finaleffect::platform::IWindow& window_;
+    finaleffect::app::StudioSession& session_;
+    finaleffect::ui::NativeHomeHub& home_hub_;
+    finaleffect::rendering::OpenGL33RenderDevice* opengl_device_{nullptr};
+    finaleffect::rendering::SoftwareRenderDevice* software_device_{nullptr};
+    bool use_opengl_imgui_backend_{false};
+
+    bool capture_next_frame_{false};
+    finaleffect::core::Status capture_status_{finaleffect::core::Status::ok()};
+    std::vector<std::uint8_t> captured_rgba_{};
+    std::uint32_t captured_w_{0};
+    std::uint32_t captured_h_{0};
+    std::vector<std::uint8_t> software_rgba_scratch_{};
+};
+
+bool verifyNonUniformFrame(const std::vector<std::uint8_t>& rgba, std::uint32_t w, std::uint32_t h) {
+    if (w == 0 || h == 0 || rgba.size() < static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4u) {
+        return false;
+    }
+    std::unordered_set<std::uint32_t> distinct_colors;
+    const std::size_t stride = std::max<std::size_t>(1u, (static_cast<std::size_t>(w) * static_cast<std::size_t>(h)) / 20000u);
+    const std::size_t pixel_count = static_cast<std::size_t>(w) * static_cast<std::size_t>(h);
+    for (std::size_t p = 0; p < pixel_count && distinct_colors.size() < 24u; p += stride) {
+        const std::uint32_t packed =
+            (static_cast<std::uint32_t>(rgba[p * 4u + 0u]) << 16u) |
+            (static_cast<std::uint32_t>(rgba[p * 4u + 1u]) << 8u) |
+            static_cast<std::uint32_t>(rgba[p * 4u + 2u]);
+        distinct_colors.insert(packed);
+    }
+    return distinct_colors.size() >= 12u;
+}
+
+bool runScreenshotCaptureSuite(
+    finaleffect::core::Engine& engine,
+    DesktopApplicationHost& host,
+    finaleffect::ui::NativeHomeHub& hub,
+    std::uint32_t scale_pct,
+    const std::filesystem::path& out_dir) {
+    if (!engine.fileSystem().createDirectories(out_dir)) {
+        std::cerr << "Failed to create screenshot output directory: " << out_dir << '\n';
+        return false;
+    }
+
+    auto stepAndWritePng = [&](const std::string& base_name) -> bool {
+        if (!engine.runFrames(2)) {
+            return false;
+        }
+        host.requestFramebufferCapture();
+        if (!engine.stepFrame()) {
+            return false;
+        }
+        if (!host.lastCaptureStatus()) {
+            std::cerr << "Framebuffer capture failed for " << base_name << ": "
+                      << host.lastCaptureStatus().error().format() << '\n';
+            return false;
+        }
+        const auto w = host.capturedWidth();
+        const auto h = host.capturedHeight();
+        if (!verifyNonUniformFrame(host.capturedRgba(), w, h)) {
+            std::cerr << "Captured frame for " << base_name
+                      << " failed non-uniform UI pixel verification (" << w << "x" << h << ")\n";
+            return false;
+        }
+        auto png_res = finaleffect::ui::encodeRgba8ToPng(w, h, host.capturedRgba());
+        if (!png_res) {
+            std::cerr << "PNG encoding failed for " << base_name << ": "
+                      << png_res.error().format() << '\n';
+            return false;
+        }
+        const std::string file_name =
+            base_name + "_" + std::to_string(w) + "x" + std::to_string(h) + "_" +
+            std::to_string(scale_pct) + "pct.png";
+        const auto out_path = out_dir / file_name;
+        auto wr = engine.fileSystem().writeBinaryFile(out_path, png_res.value());
+        if (!wr) {
+            std::cerr << "Failed to write screenshot PNG " << out_path << ": "
+                      << wr.error().format() << '\n';
+            return false;
+        }
+        std::cout << "[ScreenshotVerified] " << out_path.generic_string()
+                  << " (" << w << "x" << h << ", " << png_res.value().size() << " bytes)\n";
+        return true;
+    };
+
+    struct ViewShot {
+        finaleffect::ui::HomeHubViewId id;
+        const char* stem;
+    };
+    constexpr ViewShot kShots[7] = {
+        {finaleffect::ui::HomeHubViewId::ProjectsStart, "01_projects_start"},
+        {finaleffect::ui::HomeHubViewId::Templates, "02_templates"},
+        {finaleffect::ui::HomeHubViewId::NewProject, "03_new_project"},
+        {finaleffect::ui::HomeHubViewId::OpenProject, "04_open_project"},
+        {finaleffect::ui::HomeHubViewId::Recovery, "05_recovery_autosave"},
+        {finaleffect::ui::HomeHubViewId::Preferences, "06_preferences"},
+        {finaleffect::ui::HomeHubViewId::About, "07_about_system_info"},
+    };
+
+    for (const auto& shot : kShots) {
+        hub.navigateTo(shot.id);
+        if (!stepAndWritePng(shot.stem)) {
+            return false;
+        }
+    }
+
+    // Verify genuine Home Hub -> Create Starter Showcase -> 3D Studio graphical transition
+    if (!hub.executeQuickCreateTemplate(finaleffect::app::ProjectTemplate::StarterShowcase, true)) {
+        std::cerr << "Failed to create StarterShowcase project during screenshot suite\n";
+        return false;
+    }
+    if (!stepAndWritePng("08_home_to_studio_transition")) {
+        return false;
+    }
+
+    // Verify genuine 3D Studio -> Projects & Start populated return transition
+    hub.returnToHomeHub();
+    if (!stepAndWritePng("09_studio_to_home_populated")) {
+        return false;
+    }
+
+    return true;
+}
+
+#endif // FINALEFFECT_HAS_NATIVE_UI
 
 } // namespace
 
@@ -235,10 +565,21 @@ int main(int argc, char** argv) {
     engine_cfg.application_name = "Final Effect 3D Desktop";
     finaleffect::core::Engine engine(engine_cfg);
 
+    finaleffect::platform::AppPaths os_paths{};
+    if (auto queried_paths = finaleffect::platform::queryAppPaths("finaleffect3d"); queried_paths) {
+        os_paths = std::move(queried_paths).value();
+    } else {
+        os_paths.user_config_directory = std::filesystem::temp_directory_path() / "finaleffect3d" / "config";
+        os_paths.user_cache_directory = std::filesystem::temp_directory_path() / "finaleffect3d" / "cache";
+        os_paths.user_data_directory = std::filesystem::temp_directory_path() / "finaleffect3d" / "data";
+    }
+
     const std::filesystem::path hub_config_dir =
-        opts.config_dir.empty() ? engine.appPaths().user_config_directory : opts.config_dir;
+        opts.config_dir.empty() ? os_paths.user_config_directory : opts.config_dir;
     const std::filesystem::path hub_recovery_dir =
-        opts.config_dir.empty() ? (engine.appPaths().user_cache_directory / "recovery") : (opts.config_dir / "recovery");
+        opts.config_dir.empty() ? (os_paths.user_cache_directory / "recovery") : (opts.config_dir / "recovery");
+    const std::filesystem::path default_projects_dir =
+        opts.config_dir.empty() ? (os_paths.user_data_directory / "projects") : (opts.config_dir / "projects");
     const std::filesystem::path prefs_path = hub_config_dir / "preferences.json";
     const std::filesystem::path recents_path = hub_config_dir / "recent_projects.json";
 
@@ -324,19 +665,23 @@ int main(int argc, char** argv) {
     }
 
     finaleffect::platform::WindowDesc win_desc{
-        .title = "Final Effect 3D — Desktop Studio",
+        .title = "Final Effect 3D — Projects & Start",
         .width = opts.width,
         .height = opts.height,
         .resizable = true,
-        .vsync = true,
+        .vsync = opts.capture_hub_screenshots_dir.empty(),
     };
 
     std::unique_ptr<finaleffect::platform::IWindow> window;
     std::unique_ptr<finaleffect::rendering::IRenderDevice> render_device;
     finaleffect::rendering::SoftwareRenderDevice* software_device_ptr = nullptr;
+    finaleffect::rendering::OpenGL33RenderDevice* opengl_device_ptr = nullptr;
+#if defined(FINALEFFECT_HAS_GLFW_WINDOW)
+    finaleffect::platform::GlfwWindow* glfw_window_ptr = nullptr;
+#endif
 
     if (opts.headless) {
-        if (!opts.max_frames.has_value()) {
+        if (!opts.max_frames.has_value() && opts.capture_hub_screenshots_dir.empty()) {
             opts.max_frames = 3;
         }
         window = std::make_unique<finaleffect::platform::HeadlessWindow>();
@@ -354,14 +699,18 @@ int main(int argc, char** argv) {
             std::cerr << "Error: --render-ppm requires --headless mode.\n";
             return EXIT_FAILURE;
         }
-        window = std::make_unique<finaleffect::platform::GlfwWindow>();
-        auto init_win = window->initialize(win_desc);
+        auto glfw_win = std::make_unique<finaleffect::platform::GlfwWindow>();
+        auto init_win = glfw_win->initialize(win_desc);
         if (!init_win) {
             std::cerr << "Failed to open desktop OpenGL 3.3 window: " << init_win.error().format() << '\n';
             return EXIT_FAILURE;
         }
-        render_device = std::make_unique<finaleffect::rendering::OpenGL33RenderDevice>(
+        glfw_window_ptr = glfw_win.get();
+        window = std::move(glfw_win);
+        auto gl_dev = std::make_unique<finaleffect::rendering::OpenGL33RenderDevice>(
             window->glProcLoader());
+        opengl_device_ptr = gl_dev.get();
+        render_device = std::move(gl_dev);
 #else
         std::cerr
             << "[RenderInitFailed] Interactive desktop windowing is unavailable in this build because "
@@ -372,13 +721,103 @@ int main(int argc, char** argv) {
 #endif
     }
 
-    finaleffect::app::StudioSession session(*window, std::move(render_device));
+    finaleffect::app::StudioSessionConfig session_cfg{};
+#if defined(FINALEFFECT_HAS_NATIVE_UI)
+    session_cfg.poll_window_events_on_update = false;
+    session_cfg.consume_window_input_on_update = false;
+    session_cfg.swap_buffers_on_update = false;
+#endif
+
+    finaleffect::app::StudioSession session(*window, std::move(render_device), session_cfg);
     finaleffect::app::EditorController editor(session);
 
+    const bool explicit_scene_requested =
+        !opts.new_project_path.empty() ||
+        !opts.input_project.empty() ||
+        opts.recover_latest ||
+        opts.start_in_studio ||
+        !opts.render_ppm.empty();
+
+#if defined(FINALEFFECT_HAS_NATIVE_UI)
+    const finaleffect::ui::DesktopMode initial_mode =
+        opts.start_in_hub
+            ? finaleffect::ui::DesktopMode::HomeHub
+            : (explicit_scene_requested ||
+                       prefs.startup_environment == finaleffect::app::StartupEnvironment::DefaultScene
+                   ? finaleffect::ui::DesktopMode::Studio
+                   : finaleffect::ui::DesktopMode::HomeHub);
+
+    finaleffect::ui::NativeHomeHub home_hub(
+        *window,
+        engine.fileSystem(),
+        session,
+        editor,
+        prefs,
+        recent_index,
+        recovery_service,
+        finaleffect::ui::NativeHomeHubPaths{
+            .preferences_path = prefs_path,
+            .recent_projects_path = recents_path,
+            .recovery_directory = hub_recovery_dir,
+            .default_projects_directory = default_projects_dir,
+        });
+
+    auto hub_init_st = home_hub.initialize(initial_mode);
+    if (!hub_init_st) {
+        std::cerr << "Native Home Hub initialization failed: " << hub_init_st.error().format() << '\n';
+        window->shutdown();
+        return EXIT_FAILURE;
+    }
+
+    bool imgui_gl_backend_initialized = false;
+#if defined(FINALEFFECT_HAS_IMGUI_OPENGL_GLFW)
+    if (glfw_window_ptr != nullptr && glfw_window_ptr->nativeHandle() != nullptr) {
+        if (!ImGui_ImplGlfw_InitForOpenGL(glfw_window_ptr->nativeHandle(), true) ||
+            !ImGui_ImplOpenGL3_Init("#version 330 core")) {
+            std::cerr << "Failed to initialize OpenGL 3.3 / GLFW native UI backend\n";
+            home_hub.shutdown();
+            window->shutdown();
+            return EXIT_FAILURE;
+        }
+        imgui_gl_backend_initialized = true;
+    }
+#endif
+
+    DesktopApplicationHost app_host(
+        *window,
+        session,
+        home_hub,
+        opengl_device_ptr,
+        software_device_ptr,
+        imgui_gl_backend_initialized);
+
+    auto cleanupDesktop = [&]() noexcept {
+#if defined(FINALEFFECT_HAS_IMGUI_OPENGL_GLFW)
+        if (imgui_gl_backend_initialized) {
+            ImGui_ImplOpenGL3_Shutdown();
+            ImGui_ImplGlfw_Shutdown();
+            imgui_gl_backend_initialized = false;
+        }
+#endif
+        home_hub.shutdown();
+        engine.shutdown();
+        window->shutdown();
+    };
+
+    auto init_st = engine.initialize(&app_host);
+#else
+    (void)opengl_device_ptr;
+    (void)explicit_scene_requested;
+    auto cleanupDesktop = [&]() noexcept {
+        engine.shutdown();
+        window->shutdown();
+    };
     auto init_st = engine.initialize(&session);
+#endif
+
     if (!init_st) {
         std::cerr << "Engine initialization failed: " << init_st.error().format() << '\n';
-        window->shutdown();
+        cleanupDesktop();
         return EXIT_FAILURE;
     }
 
@@ -387,14 +826,12 @@ int main(int argc, char** argv) {
         auto json_res = finaleffect::app::serializeSystemInfoJson(sys_info, true);
         if (!json_res) {
             std::cerr << "Failed to serialize system info: " << json_res.error().format() << '\n';
-            engine.shutdown();
-            window->shutdown();
+            cleanupDesktop();
             return EXIT_FAILURE;
         }
         std::cout << json_res.value() << '\n';
         (void)recovery_service.markCleanShutdown(engine.fileSystem());
-        engine.shutdown();
-        window->shutdown();
+        cleanupDesktop();
         return EXIT_SUCCESS;
     }
 
@@ -402,8 +839,7 @@ int main(int argc, char** argv) {
         const auto parsed_tmpl = finaleffect::app::TemplateCatalog::parseSlug(opts.template_slug);
         if (!parsed_tmpl.has_value()) {
             std::cerr << "Error: Unknown project template '" << opts.template_slug << "'\n";
-            engine.shutdown();
-            window->shutdown();
+            cleanupDesktop();
             return EXIT_FAILURE;
         }
         const std::string resolved_title = opts.new_project_name.empty()
@@ -419,8 +855,7 @@ int main(int argc, char** argv) {
             engine.fileSystem());
         if (!create_st) {
             std::cerr << "Failed to create project: " << create_st.error().format() << '\n';
-            engine.shutdown();
-            window->shutdown();
+            cleanupDesktop();
             return EXIT_FAILURE;
         }
         recent_index.recordProject(
@@ -430,14 +865,16 @@ int main(int argc, char** argv) {
             nowEpochMillis(),
             prefs.recent_projects_limit);
         (void)recent_index.saveToFile(recents_path, engine.fileSystem());
+#if defined(FINALEFFECT_HAS_NATIVE_UI)
+        home_hub.enterStudioMode();
+#endif
     }
 
     if (!opts.input_project.empty()) {
         auto load_st = editor.loadProjectFile(opts.input_project, engine.fileSystem());
         if (!load_st) {
             std::cerr << "Failed to load project: " << load_st.error().format() << '\n';
-            engine.shutdown();
-            window->shutdown();
+            cleanupDesktop();
             return EXIT_FAILURE;
         }
         recent_index.recordProject(
@@ -447,30 +884,33 @@ int main(int argc, char** argv) {
             nowEpochMillis(),
             prefs.recent_projects_limit);
         (void)recent_index.saveToFile(recents_path, engine.fileSystem());
+#if defined(FINALEFFECT_HAS_NATIVE_UI)
+        home_hub.enterStudioMode();
+#endif
     }
 
     if (opts.recover_latest) {
         auto recovered = recovery_service.recoverSnapshot("latest", engine.fileSystem());
         if (!recovered) {
             std::cerr << "Failed to recover latest snapshot: " << recovered.error().format() << '\n';
-            engine.shutdown();
-            window->shutdown();
+            cleanupDesktop();
             return EXIT_FAILURE;
         }
         auto serialized = finaleffect::project::ProjectSerializer::serializeToString(recovered.value(), false);
         if (!serialized) {
             std::cerr << "Failed to restore recovered snapshot: " << serialized.error().format() << '\n';
-            engine.shutdown();
-            window->shutdown();
+            cleanupDesktop();
             return EXIT_FAILURE;
         }
         auto imp_st = editor.importInlineProjectJson(serialized.value());
         if (!imp_st) {
             std::cerr << "Failed to activate recovered snapshot: " << imp_st.error().format() << '\n';
-            engine.shutdown();
-            window->shutdown();
+            cleanupDesktop();
             return EXIT_FAILURE;
         }
+#if defined(FINALEFFECT_HAS_NATIVE_UI)
+        home_hub.enterStudioMode();
+#endif
     }
 
     if (opts.capture_recovery) {
@@ -483,20 +923,44 @@ int main(int argc, char** argv) {
             engine.fileSystem());
         if (!snap_res) {
             std::cerr << "Failed to capture recovery snapshot: " << snap_res.error().format() << '\n';
-            engine.shutdown();
-            window->shutdown();
+            cleanupDesktop();
             return EXIT_FAILURE;
         }
     }
 
-    int exit_code = EXIT_SUCCESS;
-    std::uint64_t last_autosave_ms = nowEpochMillis();
-    std::uint64_t last_autosave_token = session.commandStack().currentStateToken();
+#if defined(FINALEFFECT_HAS_NATIVE_UI)
+    if (!opts.capture_hub_screenshots_dir.empty()) {
+        const bool ok = runScreenshotCaptureSuite(
+            engine,
+            app_host,
+            home_hub,
+            prefs.ui_scale_percent,
+            opts.capture_hub_screenshots_dir);
+        if (ok) {
+            (void)recovery_service.markCleanShutdown(engine.fileSystem());
+        }
+        cleanupDesktop();
+        return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+#endif
 
-    while (!window->shouldClose()) {
+    int exit_code = EXIT_SUCCESS;
+    while (true) {
         if (opts.max_frames.has_value() && engine.frameCount() >= opts.max_frames.value()) {
             break;
         }
+        if (window->shouldClose()) {
+#if defined(FINALEFFECT_HAS_NATIVE_UI)
+            if (!opts.max_frames.has_value() && home_hub.interceptWindowCloseIfDirty()) {
+                // Keep running so the Unsaved Changes Exit Confirmation Modal is displayed
+            } else {
+                break;
+            }
+#else
+            break;
+#endif
+        }
+
         auto step_st = engine.stepFrame();
         if (!step_st) {
             std::cerr << "Runtime frame error: " << step_st.error().format() << '\n';
@@ -504,26 +968,9 @@ int main(int argc, char** argv) {
             break;
         }
 
-        if (prefs.autosave_enabled &&
-            recovery_service.storageState() == finaleffect::app::RecoveryStorageState::Available &&
-            editor.isDocumentDirty()) {
-            const std::uint64_t now_ms = nowEpochMillis();
-            const std::uint64_t interval_ms =
-                static_cast<std::uint64_t>(prefs.autosave_interval_seconds) * 1000ULL;
-            const std::uint64_t cur_tok = session.commandStack().currentStateToken();
-            if (cur_tok != last_autosave_token && (now_ms - last_autosave_ms) >= interval_ms) {
-                session.syncDocumentState(editor.selectedMaterial());
-                if (recovery_service.captureSnapshot(
-                        session.document(),
-                        editor.activeProjectPath(),
-                        "Periodic Autosave",
-                        now_ms,
-                        engine.fileSystem())) {
-                    last_autosave_ms = now_ms;
-                    last_autosave_token = cur_tok;
-                }
-            }
-        }
+#if defined(FINALEFFECT_HAS_NATIVE_UI)
+        home_hub.tickPeriodicAutosave(nowEpochMillis());
+#endif
     }
 
     if (exit_code == EXIT_SUCCESS && !opts.export_project.empty()) {
@@ -572,7 +1019,6 @@ int main(int argc, char** argv) {
     if (exit_code == EXIT_SUCCESS) {
         (void)recovery_service.markCleanShutdown(engine.fileSystem());
     }
-    engine.shutdown();
-    window->shutdown();
+    cleanupDesktop();
     return exit_code;
 }

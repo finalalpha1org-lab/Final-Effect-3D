@@ -36,12 +36,29 @@ KeyCode translateGlfwKey(int key) noexcept {
     switch (key) {
         case GLFW_KEY_ESCAPE:
             return KeyCode::Escape;
+        case GLFW_KEY_ENTER:
+        case GLFW_KEY_KP_ENTER:
+            return KeyCode::Enter;
         case GLFW_KEY_DELETE:
             return KeyCode::Delete;
         case GLFW_KEY_BACKSPACE:
             return KeyCode::Backspace;
         case GLFW_KEY_SPACE:
             return KeyCode::Space;
+        case GLFW_KEY_UP:
+            return KeyCode::Up;
+        case GLFW_KEY_DOWN:
+            return KeyCode::Down;
+        case GLFW_KEY_LEFT:
+            return KeyCode::Left;
+        case GLFW_KEY_RIGHT:
+            return KeyCode::Right;
+        case GLFW_KEY_HOME:
+            return KeyCode::Home;
+        case GLFW_KEY_END:
+            return KeyCode::End;
+        case GLFW_KEY_Q:
+            return KeyCode::Q;
         case GLFW_KEY_F:
             return KeyCode::F;
         case GLFW_KEY_Z:
@@ -54,12 +71,32 @@ KeyCode translateGlfwKey(int key) noexcept {
             return KeyCode::E;
         case GLFW_KEY_R:
             return KeyCode::R;
+        case GLFW_KEY_T:
+            return KeyCode::T;
         case GLFW_KEY_A:
             return KeyCode::A;
         case GLFW_KEY_S:
             return KeyCode::S;
         case GLFW_KEY_D:
             return KeyCode::D;
+        case GLFW_KEY_G:
+            return KeyCode::G;
+        case GLFW_KEY_P:
+            return KeyCode::P;
+        case GLFW_KEY_H:
+            return KeyCode::H;
+        case GLFW_KEY_X:
+            return KeyCode::X;
+        case GLFW_KEY_C:
+            return KeyCode::C;
+        case GLFW_KEY_V:
+            return KeyCode::V;
+        case GLFW_KEY_K:
+            return KeyCode::K;
+        case GLFW_KEY_N:
+            return KeyCode::N;
+        case GLFW_KEY_O:
+            return KeyCode::O;
         case GLFW_KEY_TAB:
             return KeyCode::Tab;
         case GLFW_KEY_1:
@@ -70,6 +107,28 @@ KeyCode translateGlfwKey(int key) noexcept {
             return KeyCode::Digit3;
         case GLFW_KEY_4:
             return KeyCode::Digit4;
+        case GLFW_KEY_5:
+            return KeyCode::Digit5;
+        case GLFW_KEY_6:
+            return KeyCode::Digit6;
+        case GLFW_KEY_7:
+            return KeyCode::Digit7;
+        case GLFW_KEY_F1:
+            return KeyCode::F1;
+        case GLFW_KEY_F2:
+            return KeyCode::F2;
+        case GLFW_KEY_F3:
+            return KeyCode::F3;
+        case GLFW_KEY_F8:
+            return KeyCode::F8;
+        case GLFW_KEY_F9:
+            return KeyCode::F9;
+        case GLFW_KEY_F10:
+            return KeyCode::F10;
+        case GLFW_KEY_F11:
+            return KeyCode::F11;
+        case GLFW_KEY_F12:
+            return KeyCode::F12;
         case GLFW_KEY_LEFT_SHIFT:
             return KeyCode::LeftShift;
         case GLFW_KEY_LEFT_CONTROL:
@@ -120,6 +179,13 @@ void GlfwWindow::onKey(GLFWwindow* handle, int key, int /*scancode*/, int action
             .action = translateGlfwAction(action),
             .mods = translateGlfwMods(mods),
         });
+    }
+}
+
+void GlfwWindow::onChar(GLFWwindow* handle, unsigned int codepoint) noexcept {
+    auto* self = static_cast<GlfwWindow*>(glfwGetWindowUserPointer(handle));
+    if (self != nullptr && codepoint != 0u) {
+        self->pending_events_.emplace_back(TextInputEvent{.codepoint = static_cast<std::uint32_t>(codepoint)});
     }
 }
 
@@ -227,6 +293,7 @@ core::Status GlfwWindow::initialize(const WindowDesc& desc) {
     glfwSetWindowUserPointer(window_, this);
     glfwSetFramebufferSizeCallback(window_, &GlfwWindow::onFramebufferResize);
     glfwSetKeyCallback(window_, &GlfwWindow::onKey);
+    glfwSetCharCallback(window_, &GlfwWindow::onChar);
     glfwSetMouseButtonCallback(window_, &GlfwWindow::onMouseButton);
     glfwSetCursorPosCallback(window_, &GlfwWindow::onCursorPos);
     glfwSetScrollCallback(window_, &GlfwWindow::onScroll);
@@ -279,8 +346,49 @@ void GlfwWindow::requestClose() noexcept {
     }
 }
 
+void GlfwWindow::cancelCloseRequest() noexcept {
+    if (window_ != nullptr) {
+        glfwSetWindowShouldClose(window_, GLFW_FALSE);
+    }
+}
+
+void GlfwWindow::setTitle(std::string_view title) {
+    if (window_ != nullptr) {
+        const std::string title_str(title);
+        glfwSetWindowTitle(window_, title_str.c_str());
+    }
+}
+
+void GlfwWindow::setSize(std::uint32_t width, std::uint32_t height) {
+    if (window_ != nullptr && width > 0 && height > 0) {
+        glfwSetWindowSize(window_, static_cast<int>(width), static_cast<int>(height));
+        glfwPollEvents();
+        int fb_w = 0;
+        int fb_h = 0;
+        glfwGetFramebufferSize(window_, &fb_w, &fb_h);
+        if (fb_w > 0 && fb_h > 0) {
+            fb_size_.width = static_cast<std::uint32_t>(fb_w);
+            fb_size_.height = static_cast<std::uint32_t>(fb_h);
+        } else {
+            fb_size_.width = width;
+            fb_size_.height = height;
+        }
+    }
+}
+
 FramebufferSize GlfwWindow::framebufferSize() const noexcept {
     return fb_size_;
+}
+
+float GlfwWindow::contentScale() const noexcept {
+    if (window_ == nullptr) {
+        return 1.0f;
+    }
+    float xscale = 1.0f;
+    float yscale = 1.0f;
+    glfwGetWindowContentScale(window_, &xscale, &yscale);
+    const float s = (xscale > yscale) ? xscale : yscale;
+    return (s > 0.1f) ? s : 1.0f;
 }
 
 void GlfwWindow::swapBuffers() {
