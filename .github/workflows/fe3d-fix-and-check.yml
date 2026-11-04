@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Temporary integration helper: applies tools/fe3d-fix.json to the working tree, commits the
+# result, then syntax-checks every core source file with the repository warning set so the
+# integration problems of the .fe3d / .fe3a binary container change are visible immediately.
+name: FE3D fix and check
+
+on:
+  push:
+    branches: ["arena/fe3d-binary-project-container"]
+    paths: ["tools/fe3d-fix.json"]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    name: Apply fixes and syntax-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: arena/fe3d-binary-project-container
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Apply fixes
+        run: node tools/apply-fe3d-fixes.mjs
+      - name: Commit and push
+        run: |
+          git config user.name "fe3d-binary-format-bot"
+          git config user.email "fe3d-binary-format-bot@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "nothing to commit"
+          else
+            git commit -m "Apply binary container integration fixes"
+            git push origin HEAD:arena/fe3d-binary-project-container
+          fi
+      - name: Syntax-check core sources (host clang, repository warning set)
+        run: |
+          set +e
+          FLAGS="-std=c++20 -fsyntax-only -Iinclude -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wnon-virtual-dtor -Wold-style-cast -Woverloaded-virtual -Wnull-dereference -Wformat=2 -Werror"
+          fail=0
+          checked=0
+          for f in $(git ls-files 'src/**/*.cpp' 'tests/*.cpp'); do
+            case "$f" in
+              src/rendering/opengl33_render_device.cpp|src/rendering/webgl2_render_device.cpp|src/platform/glfw_window.cpp) continue;;
+            esac
+            checked=$((checked + 1))
+            if ! clang++ $FLAGS "$f" 2>/tmp/err.txt; then
+              fail=1
+              echo "::error file=$f::syntax check failed"
+              echo "----- $f -----"
+              head -40 /tmp/err.txt
+            fi
+          done
+          echo "checked $checked translation units"
+          exit $fail
