@@ -609,7 +609,7 @@ core::Status decodeLightLinking(
 // Geometry chunks travel inside the .fe3d / .fe3a container itself; the uri is informational only.
 constexpr std::string_view kInlineGeometryUri = "inline";
 
-JsonValue buildDocumentImpl(
+core::Result<JsonValue> buildDocumentImpl(
     const ProjectDocument& document,
     BinaryAssetBuilder* binary_builder,
     bool prefer_external_hdri_paths) {
@@ -2297,7 +2297,11 @@ core::Result<ProjectDocument> decodeProjectContainer(
 core::Result<std::vector<std::uint8_t>> ProjectSerializer::serializeToBytes(const ProjectDocument& document) {
     BinaryAssetBuilder builder;
     BinaryProjectImage image{};
-    image.document = buildDocumentImpl(document, &builder, true);
+    auto document_result = buildDocumentImpl(document, &builder, true);
+    if (!document_result) {
+        return document_result.error();
+    }
+    image.document = std::move(document_result).value();
     image.geometry_archive = builder.encode();
     return BinaryProjectCodec::encode(image);
 }
