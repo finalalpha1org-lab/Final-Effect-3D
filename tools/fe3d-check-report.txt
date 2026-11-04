@@ -1,0 +1,64 @@
+syntax check: e57e4e55ecb066517271438db1ccfdaa42d48f53
+
+=== FAILED: tests/project_tests.cpp ===
+tests/project_tests.cpp:380:18: error: use of undeclared identifier 'json_a'; did you mean 'json_b'?
+  380 |     FE_EXPECT_EQ(json_a, json_b);
+      |                  ^~~~~~
+      |                  json_b
+tests/test_harness.hpp:165:87: note: expanded from macro 'FE_EXPECT_EQ'
+  165 |     ::finaleffect::testing::checkEqual(fe_ctx, __FILE__, __LINE__, #Lhs " == " #Rhs, (Lhs), (Rhs))
+      |                                                                                       ^
+tests/project_tests.cpp:379:16: note: 'json_b' declared here
+  379 |     const auto json_b = ProjectSerializer::serializeToBytes(loaded).value();
+      |                ^
+tests/project_tests.cpp:408:69: error: no viable conversion from 'const char *' to 'std::span<const std::uint8_t>' (aka 'span<const unsigned char>')
+  408 |     const auto loaded_res = ProjectSerializer::deserializeFromBytes(legacy_v10_with_extensions);
+      |                                                                     ^~~~~~~~~~~~~~~~~~~~~~~~~~
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/span:248:7: note: candidate constructor not viable: no known conversion from 'const char *' to 'const span<const unsigned char> &' for 1st argument
+  248 |       span(const span&) noexcept = default;
+      |       ^    ~~~~~~~~~~~
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/span:203:2: note: candidate template ignored: could not match 'unsigned char[_ArrayExtent]' against 'const char *'
+  203 |         span(type_identity_t<element_type> (&__arr)[_ArrayExtent]) noexcept
+      |         ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/span:210:2: note: candidate template ignored: could not match 'array<_Tp, _ArrayExtent>' against 'const char *'
+  210 |         span(array<_Tp, _ArrayExtent>& __arr) noexcept
+      |         ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/span:217:2: note: candidate template ignored: could not match 'array<_Tp, _ArrayExtent>' against 'const char *'
+  217 |         span(const array<_Tp, _ArrayExtent>& __arr) noexcept
+      |         ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/span:229:2: note: candidate template ignored: constraints not satisfied [with _Range = const char *&]
+  229 |         span(_Range&& __range)
+      |         ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/span:225:7: note: because 'const char *&' does not satisfy 'contiguous_range'
+  225 |           && ranges::contiguous_range<_Range> && ranges::sized_range<_Range>
+      |              ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/ranges_base.h:625:9: note: because 'const char *&' does not satisfy 'random_access_range'
+  625 |       = random_access_range<_Tp> && contiguous_iterator<iterator_t<_Tp>>
+      |         ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/ranges_base.h:620:9: note: because 'const char *&' does not satisfy 'bidirectional_range'
+  620 |       = bidirectional_range<_Tp> && random_access_iterator<iterator_t<_Tp>>;
+      |         ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/ranges_base.h:615:9: note: because 'const char *&' does not satisfy 'forward_range'
+  615 |       = forward_range<_Tp> && bidirectional_iterator<iterator_t<_Tp>>;
+      |         ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/ranges_base.h:610:9: note: because 'const char *&' does not satisfy 'input_range'
+  610 |       = input_range<_Tp> && forward_iterator<iterator_t<_Tp>>;
+      |         ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/ranges_base.h:605:27: note: because 'const char *&' does not satisfy 'range'
+  605 |     concept input_range = range<_Tp> && input_iterator<iterator_t<_Tp>>;
+      |                           ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/ranges_base.h:516:2: note: because 'ranges::begin(__t)' would be invalid: no matching function for call to object of type 'const ranges::__access::_Begin'
+  516 |         ranges::begin(__t);
+      |         ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/span:256:2: note: candidate template ignored: could not match 'span<_OType, _OExtent>' against 'const char *'
+  256 |         span(const span<_OType, _OExtent>& __s) noexcept
+      |         ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/span:470:7: note: explicit constructor is not a candidate
+  470 |       span(_SizedPtr __ptr) noexcept
+      |       ^
+include/finaleffect/project/project.hpp:66:107: note: passing argument to parameter 'bytes' here
+   66 |     [[nodiscard]] static core::Result<ProjectDocument> deserializeFromBytes(std::span<const std::uint8_t> bytes);
+      |                                                                                                           ^
+2 errors generated.
+
+checked 55 translation units, 1 failed
