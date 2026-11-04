@@ -53,9 +53,9 @@ void printUsage() {
         << "  --frames <N>             Run a bounded number of frames then exit cleanly\n"
         << "  --width <px>             Initial framebuffer width (default: 1280)\n"
         << "  --height <px>            Initial framebuffer height (default: 720)\n"
-        << "  --project <file.fe3d>    Load an existing Final Effect 3D project file\n"
-        << "  --export-project <path>  Save the active scene to an inline .fe3d project file before exit\n"
-        << "  --export-bundle <path>   Save .fe3d metadata + deduplicated .fe3dbin binary mesh archive\n"
+        << "  --project <file.fe3d>    Load an existing Final Effect 3D binary project (.fe3d / .fe3a)\n"
+        << "  --export-project <path>  Save the active scene to a .fe3d / .fe3a binary project before exit\n"
+        << "  --export-bundle <path>   Save the same self-contained binary container (geometry embedded)\n"
         << "  --render-ppm <path.ppm>  In --headless mode, save the final rendered frame as PPM\n";
 }
 
@@ -227,7 +227,7 @@ int main(int argc, char** argv) {
     }
 
     if (exit_code == EXIT_SUCCESS && !opts.export_bundle.empty()) {
-        auto bundle_st = session.saveProjectBundleToFile(opts.export_bundle, engine.fileSystem());
+        auto bundle_st = session.saveProjectToFile(opts.export_bundle, engine.fileSystem());
         if (!bundle_st) {
             std::cerr << "Failed to export project bundle: " << bundle_st.error().format() << '\n';
             exit_code = EXIT_FAILURE;
