@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Temporary helper workflow: applies ./tools/apply-binary-format-edits.mjs to the two large web
+# client files and commits the result to this branch. Removed again in a follow-up commit.
+name: Apply binary format client edits
+
+on:
+  push:
+    branches: ["arena/fe3d-binary-project-container"]
+    paths: ["tools/apply-binary-format-edits.mjs"]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    name: Apply web client edits
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: arena/fe3d-binary-project-container
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Apply edits
+        run: node tools/apply-binary-format-edits.mjs
+      - name: Commit and push
+        run: |
+          git config user.name "fe3d-binary-format-bot"
+          git config user.email "fe3d-binary-format-bot@users.noreply.github.com"
+          git add web/editor.js web/e2e/studio.spec.mjs
+          if git diff --cached --quiet; then
+            echo "nothing to commit"
+            exit 0
+          fi
+          git commit -m "Apply .fe3d/.fe3a binary container edits to web client and e2e suite"
+          git push origin HEAD:arena/fe3d-binary-project-container
