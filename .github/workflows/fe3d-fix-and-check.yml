@@ -1,13 +1,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Temporary integration helper: applies tools/fe3d-fix.json to the working tree, commits the
-# result, then syntax-checks every core source file with the repository warning set so the
-# integration problems of the .fe3d / .fe3a binary container change are visible immediately.
+# result, then syntax-checks every core source file with the repository warning set and writes
+# the diagnostics to tools/fe3d-check-report.txt (temporary). Removed again before the PR is
+# declared ready.
 name: FE3D fix and check
 
 on:
   push:
     branches: ["arena/fe3d-binary-project-container"]
-    paths: ["tools/fe3d-fix.json"]
+    paths: ["tools/fe3d-fix.json", "tools/fe3d-recheck.txt"]
 
 permissions:
   contents: write
@@ -25,20 +26,12 @@ jobs:
           node-version: 20
       - name: Apply fixes
         run: node tools/apply-fe3d-fixes.mjs
-      - name: Commit and push
-        run: |
-          git config user.name "fe3d-binary-format-bot"
-          git config user.email "fe3d-binary-format-bot@users.noreply.github.com"
-          git add -A
-          if git diff --cached --quiet; then
-            echo "nothing to commit"
-          else
-            git commit -m "Apply binary container integration fixes"
-            git push origin HEAD:arena/fe3d-binary-project-container
-          fi
-      - name: Syntax-check core sources (host clang, repository warning set)
+      - name: Syntax-check core sources
         run: |
           set +e
+          REPORT=tools/fe3d-check-report.txt
+          : > "$REPORT"
+          echo "syntax check: $(git rev-parse HEAD)" >> "$REPORT"
           FLAGS="-std=c++20 -fsyntax-only -Iinclude -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wnon-virtual-dtor -Wold-style-cast -Woverloaded-virtual -Wnull-dereference -Wformat=2 -Werror"
           fail=0
           checked=0
@@ -48,11 +41,24 @@ jobs:
             esac
             checked=$((checked + 1))
             if ! clang++ $FLAGS "$f" 2>/tmp/err.txt; then
-              fail=1
-              echo "::error file=$f::syntax check failed"
-              echo "----- $f -----"
-              head -40 /tmp/err.txt
+              fail=$((fail + 1))
+              echo "" >> "$REPORT"
+              echo "=== FAILED: $f ===" >> "$REPORT"
+              head -60 /tmp/err.txt >> "$REPORT"
             fi
           done
-          echo "checked $checked translation units"
-          exit $fail
+          echo "" >> "$REPORT"
+          echo "checked $checked translation units, $fail failed" >> "$REPORT"
+          echo "checked $checked translation units, $fail failed"
+          exit 0
+      - name: Commit fixes and report
+        run: |
+          git config user.name "fe3d-binary-format-bot"
+          git config user.email "fe3d-binary-format-bot@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "nothing to commit"
+            exit 0
+          fi
+          git commit -m "Apply binary container integration fixes and refresh syntax-check report"
+          git push origin HEAD:arena/fe3d-binary-project-container
