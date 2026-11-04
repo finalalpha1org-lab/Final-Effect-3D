@@ -10,7 +10,7 @@
 <body data-app-view="splash" data-layout-mode="desktop" data-ui-density="comfortable">
 
   <!-- Hidden global file inputs shared by Project Launcher, 3D Studio File menu & HDRI Environment loader -->
-  <input type="file" id="file-open-input" data-testid="file-open-input" accept=".fe3d,.fe3dbin,.json" multiple hidden />
+  <input type="file" id="file-open-input" data-testid="file-open-input" accept=".fe3d,.fe3a" multiple hidden />
   <input type="file" id="file-open-hdri" data-testid="file-open-hdri" accept=".hdr,.pfm" hidden />
 
   <!-- ===================================================================== -->
@@ -98,7 +98,7 @@
         <div class="home-rail-footer">
           <div class="rail-arch-note">
             <strong>Unified C++20 Architecture</strong>
-            <span>Studios share <code>finaleffect::scene</code>, PBR renderer &amp; <code>.fe3d</code> v1.3 serializer.</span>
+            <span>Studios share <code>finaleffect::scene</code>, PBR renderer &amp; the <code>.fe3d</code> / <code>.fe3a</code> binary serializer.</span>
           </div>
         </div>
       </aside>
@@ -116,7 +116,7 @@
             <div class="launcher-hero-actions">
               <button type="button" class="pro-btn" id="btn-launcher-open" data-testid="btn-launcher-open">
                 <span class="btn-ic" data-icon="folder"></span>
-                <span>Open Project (.fe3d / .fe3dbin)…</span>
+                <span>Open Project (.fe3d / .fe3a)…</span>
               </button>
             </div>
           </div>
@@ -216,9 +216,9 @@
                 <button type="button" data-menu-cmd="new_cube">New General Cube Scene</button>
                 <button type="button" data-menu-cmd="new_empty">New Empty Scene</button>
                 <div class="menu-sep"></div>
-                <button type="button" data-menu-cmd="open_file">Open Scene (.fe3d)…</button>
+                <button type="button" data-menu-cmd="open_file">Open Scene (.fe3d / .fe3a)…</button>
                 <button type="button" data-menu-cmd="save_fe3d">Save Scene (.fe3d) <kbd>Ctrl+S</kbd></button>
-                <button type="button" data-menu-cmd="export_bundle">Export Binary Bundle (.fe3dbin)</button>
+                <button type="button" data-menu-cmd="export_bundle">Export Portable Project (.fe3a)</button>
                 <div class="menu-sep"></div>
                 <button type="button" data-menu-cmd="load_hdri_dialog">Import HDRI Environment (.hdr)…</button>
                 <div class="menu-sep"></div>
@@ -433,9 +433,9 @@
 
         <!-- File & Undo/Redo Quick Icons -->
         <div class="statusline-group" aria-label="Scene File and History">
-          <button type="button" class="tb-btn" id="btn-open-project" data-testid="btn-open-project" data-help="Open a portable .fe3d scene or .fe3dbin bundle" title="Open Scene (.fe3d)"><span class="btn-ic" data-icon="folder"></span><span class="tb-txt">Open</span></button>
-          <button type="button" class="tb-btn" id="btn-export-fe3d" data-testid="btn-export-fe3d" data-help="Save portable .fe3d v1.3 project file (Ctrl+S)" title="Save Scene (.fe3d)"><span class="btn-ic" data-icon="save"></span><span class="tb-txt">Save</span></button>
-          <button type="button" class="tb-btn hide-xs" id="btn-export-bundle" data-testid="btn-export-bundle" data-help="Export .fe3d + binary .fe3dbin mesh archive" title="Export Binary Bundle">Bundle</button>
+          <button type="button" class="tb-btn" id="btn-open-project" data-testid="btn-open-project" data-help="Open a .fe3d / .fe3a binary project container from disk" title="Open Project"><span class="btn-ic" data-icon="folder"></span><span class="tb-txt">Open</span></button>
+          <button type="button" class="tb-btn" id="btn-export-fe3d" data-testid="btn-export-fe3d" data-help="Save the scene as a binary .fe3d project container (Ctrl+S)" title="Save .fe3d"><span class="btn-ic" data-icon="save"></span><span class="tb-txt">Save</span></button>
+          <button type="button" class="tb-btn hide-xs" id="btn-export-bundle" data-testid="btn-export-bundle" data-help="Export the same binary container as a portable .fe3a project file" title="Export .fe3a">Bundle</button>
           <button type="button" class="tb-btn" id="btn-undo" data-testid="btn-undo" disabled data-help="Undo last scene command (Ctrl+Z)" title="Undo (Ctrl+Z)"><span class="btn-ic" data-icon="undo"></span><span class="tb-txt">Undo</span></button>
           <button type="button" class="tb-btn" id="btn-redo" data-testid="btn-redo" disabled data-help="Redo undone command (Ctrl+Y)" title="Redo (Ctrl+Y)"><span class="btn-ic" data-icon="redo"></span><span class="tb-txt">Redo</span></button>
         </div>
