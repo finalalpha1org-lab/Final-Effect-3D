@@ -376,8 +376,8 @@ FE_TEST(Project, Stage4EditableMeshMaterialsEditorStateAndWorkspaceRoundTrip) {
     FE_EXPECT_EQ(loaded.workspace.focused_panel, WorkspacePanelId::MaterialEditor);
     FE_EXPECT_TRUE(loaded.workspace.panels[static_cast<std::size_t>(WorkspacePanelId::Timeline)].visible);
 
-    const auto json_b = ProjectSerializer::serializeToBytes(loaded).value();
-    FE_EXPECT_EQ(json_a, json_b);
+    const auto container_b = ProjectSerializer::serializeToBytes(loaded).value();
+    FE_EXPECT_EQ(container_a, container_b);
 }
 
 FE_TEST(Project, BackwardCompatibilityV10V11AndLosslessUnknownFieldPreservation) {
@@ -405,7 +405,7 @@ FE_TEST(Project, BackwardCompatibilityV10V11AndLosslessUnknownFieldPreservation)
         "custom_plugin_data": { "version": 3, "enabled": true }
     })";
 
-    const auto loaded_res = ProjectSerializer::deserializeFromBytes(legacy_v10_with_extensions);
+    const auto loaded_res = ProjectSerializer::deserializeFromBytes(containerFromJsonText(legacy_v10_with_extensions));
     FE_REQUIRE_TRUE(loaded_res.hasValue());
     const auto& loaded = loaded_res.value();
 
@@ -414,8 +414,8 @@ FE_TEST(Project, BackwardCompatibilityV10V11AndLosslessUnknownFieldPreservation)
     // Unknown extension fields are explicitly flagged in load_warnings AND preserved on re-save!
     FE_EXPECT_TRUE(loaded.load_warnings.size() >= std::size_t{4});
 
-    const auto saved_text = ProjectSerializer::serializeToBytes(loaded).value();
-    const auto reparsed = parseJson(saved_text).value();
+    const auto saved_container = ProjectSerializer::serializeToBytes(loaded).value();
+    const auto reparsed = BinaryProjectCodec::decode(saved_container).value().document;
     FE_REQUIRE_TRUE(reparsed.findKey("custom_plugin_data") != nullptr);
     FE_EXPECT_EQ(reparsed.findKey("custom_plugin_data")->findKey("enabled")->asBool(), true);
     FE_EXPECT_EQ(
