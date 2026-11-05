@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace finaleffect::platform {
@@ -42,6 +43,15 @@ public:
 
     [[nodiscard]] virtual bool shouldClose() const noexcept = 0;
     virtual void requestClose() noexcept = 0;
+    virtual void cancelCloseRequest() noexcept {}
+
+    virtual void setTitle(std::string_view title) {
+        (void)title;
+    }
+    virtual void setSize(std::uint32_t width, std::uint32_t height) {
+        (void)width;
+        (void)height;
+    }
 
     [[nodiscard]] virtual FramebufferSize framebufferSize() const noexcept = 0;
     [[nodiscard]] virtual float contentScale() const noexcept {
@@ -65,6 +75,11 @@ public:
 
     [[nodiscard]] bool shouldClose() const noexcept override;
     void requestClose() noexcept override;
+    void cancelCloseRequest() noexcept override;
+
+    void setTitle(std::string_view title) override;
+    void setSize(std::uint32_t width, std::uint32_t height) override;
+    [[nodiscard]] const std::string& title() const noexcept { return title_; }
 
     [[nodiscard]] FramebufferSize framebufferSize() const noexcept override;
     [[nodiscard]] float contentScale() const noexcept override {
@@ -85,6 +100,7 @@ public:
 private:
     bool initialized_{false};
     bool should_close_{false};
+    std::string title_{"Final Effect 3D"};
     FramebufferSize size_{0, 0};
     float content_scale_{1.0f};
     std::uint64_t swapped_frames_{0};

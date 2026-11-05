@@ -38,6 +38,10 @@ struct DeviceCapabilities {
     std::string device_name{"Headless Validation Device"};
     math::ClipSpaceDepth clip_space_depth{math::ClipSpaceDepth::NegativeOneToOne};
     std::uint32_t max_viewport_dimension{8192};
+    std::string vendor_name{};
+    std::string api_version{};
+    std::string shading_language_version{};
+    std::uint32_t max_texture_size{0};
 };
 
 struct FrameClearDesc {

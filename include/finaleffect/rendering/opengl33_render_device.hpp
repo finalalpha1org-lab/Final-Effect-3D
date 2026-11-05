@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
+#include <vector>
 
 namespace finaleffect::rendering {
 
@@ -58,6 +59,12 @@ public:
     [[nodiscard]] std::size_t bufferUpdateCount() const noexcept override { return buffer_updates_; }
     [[nodiscard]] std::size_t liveShadowBytes() const noexcept override { return shadow_gpu_bytes_; }
     [[nodiscard]] std::size_t liveEnvironmentBytes() const noexcept override { return environment_gpu_bytes_; }
+
+    // Reads the active OpenGL default framebuffer into a top-down tightly packed RGBA8 buffer.
+    [[nodiscard]] core::Status readFramebufferRgba8(
+        std::vector<std::uint8_t>& out_rgba_top_down,
+        std::uint32_t& out_width,
+        std::uint32_t& out_height) const;
 
 private:
     struct GlDispatchTable;

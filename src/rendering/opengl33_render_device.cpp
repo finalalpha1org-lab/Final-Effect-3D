@@ -50,6 +50,8 @@ constexpr GLenum kGlCullFace = 0x0B44u;
 constexpr GLenum kGlDepthTest = 0x0B71u;
 constexpr GLenum kGlBlend = 0x0BE2u;
 constexpr GLenum kGlScissorTest = 0x0C11u;
+constexpr GLenum kGlPackAlignment = 0x0D05u;
+constexpr GLenum kGlMaxTextureSize = 0x0D33u;
 constexpr GLenum kGlMaxViewportDims = 0x0D3Au;
 constexpr GLenum kGlTexture2D = 0x0DE1u;
 constexpr GLenum kGlUnsignedByte = 0x1401u;
@@ -58,7 +60,10 @@ constexpr GLenum kGlFloat = 0x1406u;
 constexpr GLenum kGlHalfFloat = 0x140Bu;
 constexpr GLenum kGlDepthComponent = 0x1902u;
 constexpr GLenum kGlRgba = 0x1908u;
+constexpr GLenum kGlVendor = 0x1F00u;
 constexpr GLenum kGlRenderer = 0x1F01u;
+constexpr GLenum kGlVersion = 0x1F02u;
+constexpr GLenum kGlShadingLanguageVersion = 0x8B8Cu;
 constexpr GLenum kGlNearest = 0x2600u;
 constexpr GLenum kGlLinear = 0x2601u;
 constexpr GLenum kGlLinearMipmapLinear = 0x2703u;
@@ -906,6 +911,8 @@ struct OpenGL33RenderDevice::GlDispatchTable {
     GLenum (FE_GL_APIENTRY* CheckFramebufferStatus)(GLenum) = nullptr;
     void (FE_GL_APIENTRY* DrawBuffer)(GLenum) = nullptr;
     void (FE_GL_APIENTRY* ReadBuffer)(GLenum) = nullptr;
+    void (FE_GL_APIENTRY* PixelStorei)(GLenum, GLint) = nullptr;
+    void (FE_GL_APIENTRY* ReadPixels)(GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void*) = nullptr;
 };
 
 OpenGL33RenderDevice::OpenGL33RenderDevice(platform::GlProcLoaderFn proc_loader)
@@ -1023,11 +1030,28 @@ core::Status OpenGL33RenderDevice::initialize(std::uint32_t width, std::uint32_t
     loadOptSym(gl_->CheckFramebufferStatus, "glCheckFramebufferStatus");
     loadOptSym(gl_->DrawBuffer, "glDrawBuffer");
     loadOptSym(gl_->ReadBuffer, "glReadBuffer");
+    loadOptSym(gl_->PixelStorei, "glPixelStorei");
+    loadOptSym(gl_->ReadPixels, "glReadPixels");
 
     if (const GLubyte* renderer_str = gl_->GetString(kGlRenderer); renderer_str != nullptr) {
         capabilities_.device_name = reinterpret_cast<const char*>(renderer_str);
     } else {
         capabilities_.device_name = "OpenGL 3.3 Core Device";
+    }
+    if (const GLubyte* vendor_str = gl_->GetString(kGlVendor); vendor_str != nullptr) {
+        capabilities_.vendor_name = reinterpret_cast<const char*>(vendor_str);
+    }
+    if (const GLubyte* version_str = gl_->GetString(kGlVersion); version_str != nullptr) {
+        capabilities_.api_version = reinterpret_cast<const char*>(version_str);
+    }
+    if (const GLubyte* glsl_str = gl_->GetString(kGlShadingLanguageVersion); glsl_str != nullptr) {
+        capabilities_.shading_language_version = reinterpret_cast<const char*>(glsl_str);
+    }
+
+    GLint max_tex_dim = 0;
+    gl_->GetIntegerv(kGlMaxTextureSize, &max_tex_dim);
+    if (max_tex_dim > 0) {
+        capabilities_.max_texture_size = static_cast<std::uint32_t>(max_tex_dim);
     }
 
     GLint viewport_dims[2] = {8192, 8192};
@@ -2224,6 +2248,59 @@ core::Status OpenGL33RenderDevice::endFrame() {
     gl_->UseProgram(0);
     uploaded_scene_lighting_ = nullptr;
     in_frame_ = false;
+    return core::Status::ok();
+}
+
+core::Status OpenGL33RenderDevice::readFramebufferRgba8(
+    std::vector<std::uint8_t>& out_rgba_top_down,
+    std::uint32_t& out_width,
+    std::uint32_t& out_height) const {
+    if (!initialized_ || width_ == 0 || height_ == 0) {
+        return core::Status::fail(
+            core::ErrorCode::InvalidState,
+            "OpenGL33RenderDevice must be initialized with non-zero dimensions before readback");
+    }
+    if (gl_->ReadPixels == nullptr) {
+        return core::Status::fail(
+            core::ErrorCode::RenderInitFailed,
+            "glReadPixels entry point is unavailable on active OpenGL context");
+    }
+    if (gl_->BindFramebuffer != nullptr) {
+        gl_->BindFramebuffer(kGlFramebuffer, 0);
+    }
+    if (gl_->PixelStorei != nullptr) {
+        gl_->PixelStorei(kGlPackAlignment, 1);
+    }
+
+    const std::size_t row_bytes = static_cast<std::size_t>(width_) * 4u;
+    const std::size_t total_bytes = row_bytes * static_cast<std::size_t>(height_);
+    std::vector<std::uint8_t> bottom_up(total_bytes, 0u);
+    while (gl_->GetError != nullptr && gl_->GetError() != kGlNone) {}
+    gl_->ReadPixels(
+        0,
+        0,
+        static_cast<GLsizei>(width_),
+        static_cast<GLsizei>(height_),
+        kGlRgba,
+        kGlUnsignedByte,
+        bottom_up.data());
+    if (gl_->GetError != nullptr) {
+        const GLenum err = gl_->GetError();
+        if (err != kGlNone) {
+            return core::Status::fail(
+                core::ErrorCode::IoError,
+                "OpenGL glReadPixels reported an error during framebuffer capture");
+        }
+    }
+
+    out_rgba_top_down.resize(total_bytes);
+    for (std::uint32_t y = 0; y < height_; ++y) {
+        const std::size_t src_off = static_cast<std::size_t>(height_ - 1u - y) * row_bytes;
+        const std::size_t dst_off = static_cast<std::size_t>(y) * row_bytes;
+        std::memcpy(out_rgba_top_down.data() + dst_off, bottom_up.data() + src_off, row_bytes);
+    }
+    out_width = width_;
+    out_height = height_;
     return core::Status::ok();
 }
 

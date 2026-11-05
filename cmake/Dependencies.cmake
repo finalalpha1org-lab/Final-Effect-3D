@@ -67,3 +67,94 @@ if(FINALEFFECT_BUILD_RENDERER_DESKTOP AND FINALEFFECT_PLATFORM_IS_DESKTOP)
             "Building OpenGL 3.3 device module + headless/software desktop runner without GLFW windowing.")
     endif()
 endif()
+
+set(FINALEFFECT_HAS_NATIVE_UI OFF)
+set(FINALEFFECT_HAS_IMGUI_OPENGL_GLFW OFF)
+
+if(FINALEFFECT_BUILD_NATIVE_UI AND FINALEFFECT_PLATFORM_IS_DESKTOP)
+    include(FetchContent)
+    message(STATUS "Final Effect 3D: Fetching pinned Dear ImGui v1.91.8 for Native Desktop Home Hub")
+    FetchContent_Declare(
+        imgui
+        GIT_REPOSITORY https://github.com/ocornut/imgui.git
+        GIT_TAG        v1.91.8
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(imgui)
+
+    set(FINALEFFECT_IMGUI_SOURCES
+        "${imgui_SOURCE_DIR}/imgui.cpp"
+        "${imgui_SOURCE_DIR}/imgui_draw.cpp"
+        "${imgui_SOURCE_DIR}/imgui_tables.cpp"
+        "${imgui_SOURCE_DIR}/imgui_widgets.cpp"
+        "${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp"
+    )
+
+    if(FINALEFFECT_HAS_GLFW)
+        list(APPEND FINALEFFECT_IMGUI_SOURCES
+            "${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp"
+            "${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp"
+        )
+        set(FINALEFFECT_HAS_IMGUI_OPENGL_GLFW ON)
+    endif()
+
+    add_library(finaleffect_thirdparty_imgui STATIC ${FINALEFFECT_IMGUI_SOURCES})
+    set_target_properties(finaleffect_thirdparty_imgui PROPERTIES
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+        POSITION_INDEPENDENT_CODE ON
+    )
+    target_include_directories(finaleffect_thirdparty_imgui SYSTEM
+        PUBLIC
+            "${imgui_SOURCE_DIR}"
+            "${imgui_SOURCE_DIR}/backends"
+            "${imgui_SOURCE_DIR}/misc/cpp"
+    )
+    if(MSVC)
+        target_compile_options(finaleffect_thirdparty_imgui PRIVATE /w /EHsc /utf-8)
+        target_compile_definitions(finaleffect_thirdparty_imgui PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX WIN32_LEAN_AND_MEAN)
+    elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+        target_compile_options(finaleffect_thirdparty_imgui PRIVATE -w)
+    endif()
+
+    if(FINALEFFECT_HAS_GLFW)
+        target_link_libraries(finaleffect_thirdparty_imgui PUBLIC glfw OpenGL::GL)
+    endif()
+
+    # Generate embedded TrueType font byte arrays from ImGui's bundled SIL OFL / Apache-2.0 fonts
+    # so NativeHomeTheme always renders crisp anti-aliased typography across Windows, macOS, and Linux
+    # without external runtime file-path dependencies or binary blobs in Git.
+    set(FINALEFFECT_GENERATED_FONT_HEADER "${CMAKE_BINARY_DIR}/generated/finaleffect_embedded_fonts.hpp")
+    if(NOT EXISTS "${FINALEFFECT_GENERATED_FONT_HEADER}")
+        file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/generated")
+        file(READ "${imgui_SOURCE_DIR}/misc/fonts/Karla-Regular.ttf" _fe_karla_hex HEX)
+        string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," _fe_karla_bytes "${_fe_karla_hex}")
+        file(READ "${imgui_SOURCE_DIR}/misc/fonts/Roboto-Medium.ttf" _fe_roboto_hex HEX)
+        string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," _fe_roboto_bytes "${_fe_roboto_hex}")
+        file(READ "${imgui_SOURCE_DIR}/misc/fonts/Cousine-Regular.ttf" _fe_cousine_hex HEX)
+        string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," _fe_cousine_bytes "${_fe_cousine_hex}")
+
+        file(WRITE "${FINALEFFECT_GENERATED_FONT_HEADER}"
+"// Auto-generated at CMake configure time from Dear ImGui misc/fonts (Karla SIL OFL, Roboto & Cousine Apache-2.0).\n"
+"#pragma once\n"
+"#include <cstddef>\n\n"
+"namespace finaleffect::ui::embedded_fonts {\n"
+"inline constexpr unsigned char kKarlaRegularTtf[] = { ${_fe_karla_bytes} };\n"
+"inline constexpr std::size_t kKarlaRegularTtfSize = sizeof(kKarlaRegularTtf);\n"
+"inline constexpr unsigned char kRobotoMediumTtf[] = { ${_fe_roboto_bytes} };\n"
+"inline constexpr std::size_t kRobotoMediumTtfSize = sizeof(kRobotoMediumTtf);\n"
+"inline constexpr unsigned char kCousineRegularTtf[] = { ${_fe_cousine_bytes} };\n"
+"inline constexpr std::size_t kCousineRegularTtfSize = sizeof(kCousineRegularTtf);\n"
+"} // namespace finaleffect::ui::embedded_fonts\n")
+        unset(_fe_karla_hex)
+        unset(_fe_karla_bytes)
+        unset(_fe_roboto_hex)
+        unset(_fe_roboto_bytes)
+        unset(_fe_cousine_hex)
+        unset(_fe_cousine_bytes)
+    endif()
+
+    target_include_directories(finaleffect_thirdparty_imgui SYSTEM PUBLIC "${CMAKE_BINARY_DIR}/generated")
+    set(FINALEFFECT_HAS_NATIVE_UI ON)
+endif()

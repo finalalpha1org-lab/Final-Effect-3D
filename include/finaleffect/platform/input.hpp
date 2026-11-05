@@ -11,9 +11,16 @@ namespace finaleffect::platform {
 enum class KeyCode : std::uint16_t {
     Unknown = 0,
     Escape,
+    Enter,
     Delete,
     Backspace,
     Space,
+    Up,
+    Down,
+    Left,
+    Right,
+    Home,
+    End,
     Q,
     F,
     Z,
@@ -31,6 +38,9 @@ enum class KeyCode : std::uint16_t {
     X,
     C,
     V,
+    K,
+    N,
+    O,
     Tab,
     Digit1,
     Digit2,
@@ -39,6 +49,9 @@ enum class KeyCode : std::uint16_t {
     Digit5,
     Digit6,
     Digit7,
+    F1,
+    F2,
+    F3,
     F8,
     F9,
     F10,
@@ -93,6 +106,10 @@ struct ScrollEvent {
     KeyModifiers mods{};
 };
 
-using InputEvent = std::variant<KeyEvent, MouseButtonEvent, CursorMoveEvent, ScrollEvent>;
+struct TextInputEvent {
+    std::uint32_t codepoint{0};
+};
+
+using InputEvent = std::variant<KeyEvent, MouseButtonEvent, CursorMoveEvent, ScrollEvent, TextInputEvent>;
 
 } // namespace finaleffect::platform
