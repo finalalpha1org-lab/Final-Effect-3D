@@ -18,6 +18,10 @@ add_library(finaleffect_blenlib STATIC
 )
 add_library(finaleffect::blenlib ALIAS finaleffect_blenlib)
 
+# Blender 5.x blenlib requires C++20 (std::numbers, std::bit_cast, concepts/requires).
+# PUBLIC so that consumers including the blenlib headers also compile as C++20.
+target_compile_features(finaleffect_blenlib PUBLIC cxx_std_20)
+
 set_target_properties(finaleffect_blenlib PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # Blender's own configuration switch: builds the blenlib math library without Eigen,
