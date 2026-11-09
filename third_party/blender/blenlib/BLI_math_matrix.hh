@@ -1371,5 +1371,455 @@ inline void to_loc_rot_scale(const MatBase<T, 3, 3> &mat,
 template<bool AllowNegativeScale, typename T, typename RotationT>
 inline void to_rot_scale(const MatBase<T, 3, 3> &mat,
                          RotationT &r_rotation,
+                         VecBase<T, 3> &r_scale)
+{
+  MatBase<T, 3, 3> normalized_mat = normalize_and_get_size(mat, r_scale);
+  if constexpr (AllowNegativeScale) {
+    if (UNLIKELY(is_negative(normalized_mat))) {
+      normalized_mat = -normalized_mat;
+      r_scale = -r_scale;
+    }
+  }
+  detail::to_rotation<T>(normalized_mat, r_rotation);
+}
 
-[Showing lines 1-1373 of 1826. Use offset=1374 to continue.]
+template<bool AllowNegativeScale, typename T, typename RotationT>
+inline void to_loc_rot_scale(const MatBase<T, 4, 4> &mat,
+                             VecBase<T, 3> &r_location,
+                             RotationT &r_rotation,
+                             VecBase<T, 3> &r_scale)
+{
+  r_location = mat.location();
+  to_rot_scale<AllowNegativeScale>(MatBase<T, 3, 3>(mat), r_rotation, r_scale);
+}
+
+/**
+ * Same as #to_loc_rot_scale but is handles matrices that are not only location, rotation and scale
+ * more gracefully, e.g. when the matrix has skew.
+ */
+template<bool AllowNegativeScale, typename T, typename RotationT>
+inline void to_loc_rot_scale_safe(const MatBase<T, 4, 4> &mat,
+                                  VecBase<T, 3> &r_location,
+                                  RotationT &r_rotation,
+                                  VecBase<T, 3> &r_scale)
+{
+  EulerXYZBase<T> euler_rotation;
+  to_loc_rot_scale<AllowNegativeScale>(mat, r_location, euler_rotation, r_scale);
+  if constexpr (std::is_same_v<std::decay_t<RotationT>, QuaternionBase<T>>) {
+    r_rotation = to_quaternion(euler_rotation);
+  }
+  else {
+    r_rotation = RotationT(euler_rotation);
+  }
+}
+
+template<typename MatT> [[nodiscard]] MatT from_location(const typename MatT::loc_type &location)
+{
+  MatT mat = MatT::identity();
+  mat.location() = location;
+  return mat;
+}
+
+template<typename MatT, int ScaleDim>
+[[nodiscard]] MatT from_scale(const VecBase<typename MatT::base_type, ScaleDim> &scale)
+{
+  BLI_STATIC_ASSERT(ScaleDim <= MatT::min_dim,
+                    "Scale dimension should fit the matrix diagonal length.");
+  MatT result{};
+  unroll<MatT::min_dim>(
+      [&](auto i) { result[i][i] = (i < ScaleDim) ? scale[i] : typename MatT::base_type(1); });
+  return result;
+}
+
+template<typename MatT, typename RotationT>
+[[nodiscard]] MatT from_rotation(const RotationT &rotation)
+{
+  return detail::from_rotation<typename MatT::base_type, MatT::col_len, MatT::row_len>(rotation);
+}
+
+template<typename MatT, typename RotationT, typename VectorT>
+[[nodiscard]] MatT from_rot_scale(const RotationT &rotation, const VectorT &scale)
+{
+  return from_rotation<MatT>(rotation) * from_scale<MatT>(scale);
+}
+
+template<typename MatT, typename RotationT, int ScaleDim>
+[[nodiscard]] MatT from_loc_rot_scale(const typename MatT::loc_type &location,
+                                      const RotationT &rotation,
+                                      const VecBase<typename MatT::base_type, ScaleDim> &scale)
+{
+  using MatRotT =
+      MatBase<typename MatT::base_type, MatT::loc_type::type_length, MatT::loc_type::type_length>;
+  MatT mat = MatT(from_rot_scale<MatRotT>(rotation, scale));
+  mat.location() = location;
+  return mat;
+}
+
+template<typename MatT, typename RotationT>
+[[nodiscard]] MatT from_loc_rot(const typename MatT::loc_type &location, const RotationT &rotation)
+{
+  using MatRotT =
+      MatBase<typename MatT::base_type, MatT::loc_type::type_length, MatT::loc_type::type_length>;
+  MatT mat = MatT(from_rotation<MatRotT>(rotation));
+  mat.location() = location;
+  return mat;
+}
+
+template<typename MatT, int ScaleDim>
+[[nodiscard]] MatT from_loc_scale(const typename MatT::loc_type &location,
+                                  const VecBase<typename MatT::base_type, ScaleDim> &scale)
+{
+  MatT mat = MatT(from_scale<MatT>(scale));
+  mat.location() = location;
+  return mat;
+}
+
+template<typename T> MatBase<T, 2, 2> from_direction(const VecBase<T, 2> &direction)
+{
+  BLI_assert(is_unit_scale(direction));
+  return MatBase<T, 2, 2>(direction,
+                          VecBase<T, 2>(direction.y, direction.x) * VecBase<T, 2>(-1, 1));
+}
+
+template<typename MatT, typename VectorT>
+[[nodiscard]] MatT from_orthonormal_axes(const VectorT forward, const VectorT up)
+{
+  BLI_assert(is_unit_scale(forward));
+  BLI_assert(is_unit_scale(up));
+
+  /* TODO(fclem): This is wrong. Forward is Y. */
+  MatT matrix;
+  matrix.x_axis() = forward;
+  /* Beware of handedness! Blender uses right-handedness.
+   * Resulting matrix should have determinant of 1. */
+  matrix.y_axis() = math::cross(up, forward);
+  matrix.z_axis() = up;
+  return matrix;
+}
+
+template<typename MatT, typename VectorT>
+[[nodiscard]] MatT from_orthonormal_axes(const VectorT location,
+                                         const VectorT forward,
+                                         const VectorT up)
+{
+  using Mat3x3 = MatBase<typename MatT::base_type, 3, 3>;
+  MatT matrix = MatT(from_orthonormal_axes<Mat3x3>(forward, up));
+  matrix.location() = location;
+  return matrix;
+}
+
+template<typename MatT, typename VectorT> [[nodiscard]] MatT from_up_axis(const VectorT up)
+{
+  BLI_assert(is_unit_scale(up));
+  using T = typename MatT::base_type;
+  using Vec3T = VecBase<T, 3>;
+  /* Duff, Tom, et al. "Building an orthonormal basis, revisited." JCGT 6.1 (2017). */
+  T sign = up.z >= T(0) ? T(1) : T(-1);
+  T a = T(-1) / (sign + up.z);
+  T b = up.x * up.y * a;
+
+  MatBase<T, 3, 3> basis;
+  basis.x_axis() = Vec3T(1.0f + sign * square(up.x) * a, sign * b, -sign * up.x);
+  basis.y_axis() = Vec3T(b, sign + square(up.y) * a, -up.y);
+  basis.z_axis() = up;
+  return MatT(basis);
+}
+
+template<typename MatT> [[nodiscard]] MatT orthogonalize(const MatT &mat, const Axis axis)
+{
+  using T = typename MatT::base_type;
+  using Vec3T = VecBase<T, 3>;
+  Vec3T scale;
+  MatBase<T, 3, 3> R;
+  R.x = normalize_and_get_length(mat.x_axis(), scale.x);
+  R.y = normalize_and_get_length(mat.y_axis(), scale.y);
+  R.z = normalize_and_get_length(mat.z_axis(), scale.z);
+  /* NOTE(fclem) This is a direct port from `orthogonalize_m4()`.
+   * To select the secondary axis, it checks if the candidate axis is not colinear.
+   * The issue is that the candidate axes are not normalized so this dot product
+   * check is kind of pointless.
+   * Because of this, the target axis could still be colinear but pass the check. */
+#if 1 /* Reproduce C API behavior. Do not normalize other axes. */
+  switch (axis) {
+    case Axis::X:
+      R.y = mat.y_axis();
+      R.z = mat.z_axis();
+      break;
+    case Axis::Y:
+      R.x = mat.x_axis();
+      R.z = mat.z_axis();
+      break;
+    case Axis::Z:
+      R.x = mat.x_axis();
+      R.y = mat.y_axis();
+      break;
+  }
+#endif
+
+  /**
+   * The secondary axis is chosen as follow (X->Y, Y->X, Z->X).
+   * If this axis is co-planar try the third axis.
+   * If also co-planar, make up an axis by shuffling the primary axis coordinates (XYZ > YZX).
+   */
+  switch (axis) {
+    case Axis::X:
+      if (dot(R.x, R.y) < T(1)) {
+        R.z = normalize(cross(R.x, R.y));
+        R.y = cross(R.z, R.x);
+      }
+      else if (dot(R.x, R.z) < T(1)) {
+        R.y = normalize(cross(R.z, R.x));
+        R.z = cross(R.x, R.y);
+      }
+      else {
+        R.z = normalize(cross(R.x, Vec3T(R.x.y, R.x.z, R.x.x)));
+        R.y = cross(R.z, R.x);
+      }
+      break;
+    case Axis::Y:
+      if (dot(R.y, R.x) < T(1)) {
+        R.z = normalize(cross(R.x, R.y));
+        R.x = cross(R.y, R.z);
+      }
+      /* FIXME(fclem): THIS IS WRONG. Should be dot(R.y, R.z). Following C code for now... */
+      else if (dot(R.x, R.z) < T(1)) {
+        R.x = normalize(cross(R.y, R.z));
+        R.z = cross(R.x, R.y);
+      }
+      else {
+        R.x = normalize(cross(R.y, Vec3T(R.y.y, R.y.z, R.y.x)));
+        R.z = cross(R.x, R.y);
+      }
+      break;
+    case Axis::Z:
+      if (dot(R.z, R.x) < T(1)) {
+        R.y = normalize(cross(R.z, R.x));
+        R.x = cross(R.y, R.z);
+      }
+      else if (dot(R.z, R.y) < T(1)) {
+        R.x = normalize(cross(R.y, R.z));
+        R.y = cross(R.z, R.x);
+      }
+      else {
+        R.x = normalize(cross(Vec3T(R.z.y, R.z.z, R.z.x), R.z));
+        R.y = cross(R.z, R.x);
+      }
+      break;
+    default:
+      BLI_assert_unreachable();
+      break;
+  }
+  /* Reapply the lost scale. */
+  R.x *= scale.x;
+  R.y *= scale.y;
+  R.z *= scale.z;
+
+  MatT result(R);
+  result.location() = mat.location();
+  return result;
+}
+
+template<typename MatT, typename VectorT>
+[[nodiscard]] MatT from_origin_transform(const MatT &transform, const VectorT origin)
+{
+  return from_location<MatT>(origin) * transform * from_location<MatT>(-origin);
+}
+
+template<typename T>
+VecBase<T, 2> transform_point(const MatBase<T, 2, 2> &mat, const VecBase<T, 2> &point)
+{
+  return mat * point;
+}
+
+template<typename T>
+VecBase<T, 2> transform_point(const MatBase<T, 3, 3> &mat, const VecBase<T, 2> &point)
+{
+  return mat.template view<2, 2>() * point + mat.location();
+}
+
+template<typename T>
+VecBase<T, 3> transform_point(const MatBase<T, 3, 3> &mat, const VecBase<T, 3> &point)
+{
+  return mat * point;
+}
+
+template<typename T>
+VecBase<T, 3> transform_point(const MatBase<T, 4, 4> &mat, const VecBase<T, 3> &point)
+{
+  return mat.template view<3, 3>() * point + mat.location();
+}
+
+template<typename T>
+VecBase<T, 3> transform_direction(const MatBase<T, 3, 3> &mat, const VecBase<T, 3> &direction)
+{
+  return mat * direction;
+}
+
+template<typename T>
+VecBase<T, 3> transform_direction(const MatBase<T, 4, 4> &mat, const VecBase<T, 3> &direction)
+{
+  return mat.template view<3, 3>() * direction;
+}
+
+template<typename T, int N, int NumRow>
+VecBase<T, N> project_point(const MatBase<T, N + 1, NumRow> &mat, const VecBase<T, N> &point)
+{
+  VecBase<T, N + 1> tmp(point, T(1));
+  tmp = mat * tmp;
+  /* Absolute value to not flip the frustum upside down behind the camera. */
+  return VecBase<T, N>(tmp) / math::abs(tmp[N]);
+}
+
+extern template float3 transform_point(const float3x3 &mat, const float3 &point);
+extern template float3 transform_point(const float4x4 &mat, const float3 &point);
+extern template float3 transform_direction(const float3x3 &mat, const float3 &direction);
+extern template float3 transform_direction(const float4x4 &mat, const float3 &direction);
+extern template float3 project_point(const float4x4 &mat, const float3 &point);
+extern template float2 project_point(const float3x3 &mat, const float2 &point);
+
+namespace projection {
+
+template<typename T>
+MatBase<T, 4, 4> orthographic(T left, T right, T bottom, T top, T near_clip, T far_clip)
+{
+  const T x_delta = right - left;
+  const T y_delta = top - bottom;
+  const T z_delta = far_clip - near_clip;
+
+  MatBase<T, 4, 4> mat = MatBase<T, 4, 4>::identity();
+  if (x_delta != 0 && y_delta != 0 && z_delta != 0) {
+    mat[0][0] = T(2.0) / x_delta;
+    mat[3][0] = -(right + left) / x_delta;
+    mat[1][1] = T(2.0) / y_delta;
+    mat[3][1] = -(top + bottom) / y_delta;
+    mat[2][2] = -T(2.0) / z_delta; /* NOTE: negate Z. */
+    mat[3][2] = -(far_clip + near_clip) / z_delta;
+  }
+  return mat;
+}
+
+template<typename T>
+MatBase<T, 4, 4> orthographic_infinite(T left, T right, T bottom, T top, T near_clip)
+{
+  const T x_delta = right - left;
+  const T y_delta = top - bottom;
+
+  MatBase<T, 4, 4> mat = MatBase<T, 4, 4>::identity();
+  if (x_delta != 0 && y_delta != 0) {
+    mat[0][0] = T(2.0) / x_delta;
+    mat[3][0] = -(right + left) / x_delta;
+    mat[1][1] = T(2.0) / y_delta;
+    mat[3][1] = -(top + bottom) / y_delta;
+    /* Page 17. Choosing an epsilon for 32 bit floating-point precision. */
+    constexpr float eps = 2.4e-7f;
+    /* From "Projection Matrix Tricks" by Eric Lengyel GDC 2007.
+     * Following same procedure as the reference but for orthographic matrix.
+     * This avoids degenerate matrix (0 determinant). */
+    mat[2][2] = -eps;
+    mat[3][2] = -1.0f - eps * near_clip;
+  }
+  return mat;
+}
+
+template<typename T>
+MatBase<T, 4, 4> perspective(T left, T right, T bottom, T top, T near_clip, T far_clip)
+{
+  const T x_delta = right - left;
+  const T y_delta = top - bottom;
+  const T z_delta = far_clip - near_clip;
+
+  MatBase<T, 4, 4> mat = MatBase<T, 4, 4>::identity();
+  if (x_delta != 0 && y_delta != 0 && z_delta != 0) {
+    mat[0][0] = near_clip * T(2.0) / x_delta;
+    mat[1][1] = near_clip * T(2.0) / y_delta;
+    mat[2][0] = (right + left) / x_delta; /* NOTE: negate Z. */
+    mat[2][1] = (top + bottom) / y_delta;
+    mat[2][2] = -(far_clip + near_clip) / z_delta;
+    mat[2][3] = -1.0f;
+    mat[3][2] = (-2.0f * near_clip * far_clip) / z_delta;
+    mat[3][3] = 0.0f;
+  }
+  return mat;
+}
+
+template<typename T>
+MatBase<T, 4, 4> perspective_infinite(T left, T right, T bottom, T top, T near_clip)
+{
+  const T x_delta = right - left;
+  const T y_delta = top - bottom;
+
+  /* From "Projection Matrix Tricks" by Eric Lengyel GDC 2007. */
+  MatBase<T, 4, 4> mat = MatBase<T, 4, 4>::identity();
+  if (x_delta != 0 && y_delta != 0) {
+    mat[0][0] = near_clip * T(2.0) / x_delta;
+    mat[1][1] = near_clip * T(2.0) / y_delta;
+    mat[2][0] = (right + left) / x_delta; /* NOTE: negate Z. */
+    mat[2][1] = (top + bottom) / y_delta;
+    /* Page 17. Choosing an epsilon for 32 bit floating-point precision. */
+    constexpr float eps = 2.4e-7f;
+    mat[2][2] = -1.0f;
+    mat[2][3] = (eps - 1.0f);
+    mat[3][2] = (eps - 2.0f) * near_clip;
+    mat[3][3] = 0.0f;
+  }
+  return mat;
+}
+
+template<typename T>
+[[nodiscard]] MatBase<T, 4, 4> perspective_fov(
+    T angle_left, T angle_right, T angle_bottom, T angle_top, T near_clip, T far_clip)
+{
+  MatBase<T, 4, 4> mat = perspective(math::tan(angle_left),
+                                     math::tan(angle_right),
+                                     math::tan(angle_bottom),
+                                     math::tan(angle_top),
+                                     near_clip,
+                                     far_clip);
+  mat[0][0] /= near_clip;
+  mat[1][1] /= near_clip;
+  return mat;
+}
+
+template<typename T>
+[[nodiscard]] MatBase<T, 4, 4> translate(const MatBase<T, 4, 4> &mat, const VecBase<T, 2> &offset)
+{
+  MatBase<T, 4, 4> result = mat;
+  const bool is_perspective = mat[2][3] == -1.0f;
+  const bool is_perspective_infinite = mat[2][2] == -1.0f;
+  if (is_perspective || is_perspective_infinite) {
+    result[2][0] -= mat[0][0] * offset.x / math::length(float3(mat[0][0], mat[1][0], mat[2][0]));
+    result[2][1] -= mat[1][1] * offset.y / math::length(float3(mat[0][1], mat[1][1], mat[2][1]));
+  }
+  else {
+    result[3][0] += offset.x;
+    result[3][1] += offset.y;
+  }
+  return result;
+}
+
+extern template float4x4 orthographic(
+    float left, float right, float bottom, float top, float near_clip, float far_clip);
+extern template float4x4 perspective(
+    float left, float right, float bottom, float top, float near_clip, float far_clip);
+
+}  // namespace projection
+
+/** \} */
+
+/**
+ * Transform normal vectors, maintaining their unit length status, but implementing some
+ * optimizations for identity matrix and uniform scaling.
+ */
+void transform_normals(const float3x3 &transform, MutableSpan<float3> normals);
+void transform_normals(Span<float3> src, const float3x3 &transform, MutableSpan<float3> dst);
+
+/** Transform point vectors with matrix multiplication, optionally using multi-threading. */
+void transform_points(const float4x4 &transform,
+                      MutableSpan<float3> points,
+                      bool use_threading = true);
+void transform_points(Span<float3> src,
+                      const float4x4 &transform,
+                      MutableSpan<float3> dst,
+                      bool use_threading = true);
+
+}  // namespace blender::math
