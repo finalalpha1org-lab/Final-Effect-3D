@@ -50,6 +50,9 @@ elseif(FINALEFFECT_PLATFORM_NAME STREQUAL "macOS")
     set(FINALEFFECT_PLATFORM_PATHS_SRC "${CMAKE_CURRENT_SOURCE_DIR}/platform/macos/platform_paths_macos.cpp")
 endif()
 
+# Vendored third-party libraries (Blender's blenlib math subset).
+add_subdirectory(third_party/blender)
+
 add_library(finaleffect_platform STATIC
     src/platform/local_file_system.cpp
     src/platform/steady_clock.cpp
@@ -103,6 +106,7 @@ target_include_directories(finaleffect_math
         $<INSTALL_INTERFACE:include>
 )
 finaleffect_apply_compiler_settings(finaleffect_math)
+target_link_libraries(finaleffect_math PUBLIC finaleffect::blenlib)
 
 # ------------------------------------------------------------------------------
 # Scene Module (finaleffect_scene)
@@ -406,6 +410,11 @@ if(FINALEFFECT_BUILD_TESTS)
     target_link_libraries(finaleffect_math_tests PRIVATE finaleffect::math)
     finaleffect_apply_compiler_settings(finaleffect_math_tests)
     add_test(NAME finaleffect.math COMMAND finaleffect_math_tests)
+
+    add_executable(finaleffect_blender_blenlib_tests tests/blender_blenlib_tests.cpp)
+    target_link_libraries(finaleffect_blender_blenlib_tests PRIVATE finaleffect::blenlib)
+    finaleffect_apply_compiler_settings(finaleffect_blender_blenlib_tests)
+    add_test(NAME finaleffect.blender_blenlib COMMAND finaleffect_blender_blenlib_tests)
 
     add_executable(finaleffect_scene_tests tests/scene_tests.cpp)
     target_link_libraries(finaleffect_scene_tests PRIVATE finaleffect::scene)

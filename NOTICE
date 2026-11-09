@@ -1,1 +1,9 @@
 Final Effect 3D — release.
+
+Third-party components:
+
+Blender blenlib math subset (third_party/blender):
+  Source: Blender v5.2.3 (https://projects.blender.org/blender/blender)
+  License: GPL-2.0-or-later. See third_party/blender/README.md for the full file list,
+  the patches applied to individual files and the compatibility adapters that are not
+  upstream Blender code.
