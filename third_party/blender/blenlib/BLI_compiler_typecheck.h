@@ -640,5 +640,43 @@
   w1, x1, y1, z1, a2, b2, c2, d2, e2, f2) \
   a0: r, b0: r, c0: r, d0: r, e0: r, f0: r, g0: r, h0: r, i0: r, j0: r, k0: r, l0: r, m0: r, n0: r, o0: r, p0: r, \
   q0: r, r0: r, s0: r, t0: r, u0: r, v0: r, w0: r, x0: r, y0: r, z0: r, a1: r, b1: r, c1: r, d1: r, e1: r, f1: r, \
+  g1: r, h1: r, i1: r, j1: r, k1: r, l1: r, m1: r, n1: r, o1: r, p1: r, q1: r, r1: r, s1: r, t1: r, u1: r, v1: r, \
+  w1: r, x1: r, y1: r, z1: r, a2: r, b2: r, c2: r, d2: r, e2: r, f2: r
+#define _VA_GENERIC_TYPE_ANY60(r, a0, b0, c0, d0, e0, f0, g0, h0, i0, j0, k0, l0, m0, n0, o0, p0, q0, r0, s0, t0, \
+  u0, v0, w0, x0, y0, z0, a1, b1, c1, d1, e1, f1, g1, h1, i1, j1, k1, l1, m1, n1, o1, p1, q1, r1, s1, t1, u1, v1, \
+  w1, x1, y1, z1, a2, b2, c2, d2, e2, f2, g2) \
+  a0: r, b0: r, c0: r, d0: r, e0: r, f0: r, g0: r, h0: r, i0: r, j0: r, k0: r, l0: r, m0: r, n0: r, o0: r, p0: r, \
+  q0: r, r0: r, s0: r, t0: r, u0: r, v0: r, w0: r, x0: r, y0: r, z0: r, a1: r, b1: r, c1: r, d1: r, e1: r, f1: r, \
+  g1: r, h1: r, i1: r, j1: r, k1: r, l1: r, m1: r, n1: r, o1: r, p1: r, q1: r, r1: r, s1: r, t1: r, u1: r, v1: r, \
+  w1: r, x1: r, y1: r, z1: r, a2: r, b2: r, c2: r, d2: r, e2: r, f2: r, g2: r
+#define _VA_GENERIC_TYPE_ANY61(r, a0, b0, c0, d0, e0, f0, g0, h0, i0, j0, k0, l0, m0, n0, o0, p0, q0, r0, s0, t0, \
+  u0, v0, w0, x0, y0, z0, a1, b1, c1, d1, e1, f1, g1, h1, i1, j1, k1, l1, m1, n1, o1, p1, q1, r1, s1, t1, u1, v1, \
+  w1, x1, y1, z1, a2, b2, c2, d2, e2, f2, g2, h2) \
+  a0: r, b0: r, c0: r, d0: r, e0: r, f0: r, g0: r, h0: r, i0: r, j0: r, k0: r, l0: r, m0: r, n0: r, o0: r, p0: r, \
+  q0: r, r0: r, s0: r, t0: r, u0: r, v0: r, w0: r, x0: r, y0: r, z0: r, a1: r, b1: r, c1: r, d1: r, e1: r, f1: r, \
+  g1: r, h1: r, i1: r, j1: r, k1: r, l1: r, m1: r, n1: r, o1: r, p1: r, q1: r, r1: r, s1: r, t1: r, u1: r, v1: r, \
+  w1: r, x1: r, y1: r, z1: r, a2: r, b2: r, c2: r, d2: r, e2: r, f2: r, g2: r, h2: r
+#define _VA_GENERIC_TYPE_ANY62(r, a0, b0, c0, d0, e0, f0, g0, h0, i0, j0, k0, l0, m0, n0, o0, p0, q0, r0, s0, t0, \
+  u0, v0, w0, x0, y0, z0, a1, b1, c1, d1, e1, f1, g1, h1, i1, j1, k1, l1, m1, n1, o1, p1, q1, r1, s1, t1, u1, v1, \
+  w1, x1, y1, z1, a2, b2, c2, d2, e2, f2, g2, h2, i2) \
+  a0: r, b0: r, c0: r, d0: r, e0: r, f0: r, g0: r, h0: r, i0: r, j0: r, k0: r, l0: r, m0: r, n0: r, o0: r, p0: r, \
+  q0: r, r0: r, s0: r, t0: r, u0: r, v0: r, w0: r, x0: r, y0: r, z0: r, a1: r, b1: r, c1: r, d1: r, e1: r, f1: r, \
+  g1: r, h1: r, i1: r, j1: r, k1: r, l1: r, m1: r, n1: r, o1: r, p1: r, q1: r, r1: r, s1: r, t1: r, u1: r, v1: r, \
+  w1: r, x1: r, y1: r, z1: r, a2: r, b2: r, c2: r, d2: r, e2: r, f2: r, g2: r, h2: r, i2: r
+#define _VA_GENERIC_TYPE_ANY63(r, a0, b0, c0, d0, e0, f0, g0, h0, i0, j0, k0, l0, m0, n0, o0, p0, q0, r0, s0, t0, \
+  u0, v0, w0, x0, y0, z0, a1, b1, c1, d1, e1, f1, g1, h1, i1, j1, k1, l1, m1, n1, o1, p1, q1, r1, s1, t1, u1, v1, \
+  w1, x1, y1, z1, a2, b2, c2, d2, e2, f2, g2, h2, i2, j2) \
+  a0: r, b0: r, c0: r, d0: r, e0: r, f0: r, g0: r, h0: r, i0: r, j0: r, k0: r, l0: r, m0: r, n0: r, o0: r, p0: r, \
+  q0: r, r0: r, s0: r, t0: r, u0: r, v0: r, w0: r, x0: r, y0: r, z0: r, a1: r, b1: r, c1: r, d1: r, e1: r, f1: r, \
+  g1: r, h1: r, i1: r, j1: r, k1: r, l1: r, m1: r, n1: r, o1: r, p1: r, q1: r, r1: r, s1: r, t1: r, u1: r, v1: r, \
+  w1: r, x1: r, y1: r, z1: r, a2: r, b2: r, c2: r, d2: r, e2: r, f2: r, g2: r, h2: r, i2: r, j2: r
+#define _VA_GENERIC_TYPE_ANY64(r, a0, b0, c0, d0, e0, f0, g0, h0, i0, j0, k0, l0, m0, n0, o0, p0, q0, r0, s0, t0, \
+  u0, v0, w0, x0, y0, z0, a1, b1, c1, d1, e1, f1, g1, h1, i1, j1, k1, l1, m1, n1, o1, p1, q1, r1, s1, t1, u1, v1, \
+  w1, x1, y1, z1, a2, b2, c2, d2, e2, f2, g2, h2, i2, j2, k2) \
+  a0: r, b0: r, c0: r, d0: r, e0: r, f0: r, g0: r, h0: r, i0: r, j0: r, k0: r, l0: r, m0: r, n0: r, o0: r, p0: r, \
+  q0: r, r0: r, s0: r, t0: r, u0: r, v0: r, w0: r, x0: r, y0: r, z0: r, a1: r, b1: r, c1: r, d1: r, e1: r, f1: r, \
+  g1: r, h1: r, i1: r, j1: r, k1: r, l1: r, m1: r, n1: r, o1: r, p1: r, q1: r, r1: r, s1: r, t1: r, u1: r, v1: r, \
+  w1: r, x1: r, y1: r, z1: r, a2: r, b2: r, c2: r, d2: r, e2: r, f2: r, g2: r, h2: r, i2: r, j2: r, k2: r
+/* clang-format on */
 
-[Showing lines 1-642 of 683. Use offset=643 to continue.]
+#define GENERIC_TYPE_ANY(...) VA_NARGS_CALL_OVERLOAD(_VA_GENERIC_TYPE_ANY, __VA_ARGS__)
