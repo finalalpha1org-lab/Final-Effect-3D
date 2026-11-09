@@ -1321,5 +1321,91 @@ MINLINE int axis_dominant_v3_single(const float vec[3]);
  */
 MINLINE int axis_dominant_v3_ortho_single(const float vec[3]);
 
+MINLINE int max_axis_v3(const float vec[3]);
+MINLINE int min_axis_v3(const float vec[3]);
 
-[Showing lines 1-1323 of 1412. Use offset=1324 to continue.]
+/**
+ * Simple function to either:
+ * - Calculate how many triangles needed from the total number of polygons + loops.
+ * - Calculate the first triangle index from the polygon index & that polygons loop-start.
+ *
+ * \param poly_count: The number of polygons or polygon-index
+ * (3+ sided faces, 1-2 sided give incorrect results).
+ * \param corner_count: The number of corners (also called loop-index).
+ */
+MINLINE int poly_to_tri_count(int poly_count, int corner_count);
+
+/**
+ * Useful to calculate an even width shell, by taking the angle between 2 planes.
+ * The return value is a scale on the offset.
+ * no angle between planes is 1.0, as the angle between the 2 planes approaches 180d
+ * the distance gets very high, 180d would be inf, but this case isn't valid.
+ */
+MINLINE float shell_angle_to_dist(float angle);
+/**
+ * Equivalent to `shell_angle_to_dist(angle_normalized_v3v3(a, b))`.
+ */
+MINLINE float shell_v3v3_normalized_to_dist(const float a[3], const float b[3]);
+/**
+ * Equivalent to `shell_angle_to_dist(angle_normalized_v2v2(a, b))`.
+ */
+MINLINE float shell_v2v2_normalized_to_dist(const float a[2], const float b[2]);
+/**
+ * Equivalent to `shell_angle_to_dist(angle_normalized_v3v3(a, b) / 2)`.
+ */
+MINLINE float shell_v3v3_mid_normalized_to_dist(const float a[3], const float b[3]);
+/**
+ * Equivalent to `shell_angle_to_dist(angle_normalized_v2v2(a, b) / 2)`.
+ */
+MINLINE float shell_v2v2_mid_normalized_to_dist(const float a[2], const float b[2]);
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Cubic (Bezier)
+ * \{ */
+
+/**
+ * Return the value which the distance between points will need to be scaled by,
+ * to define a handle, given both points are on a perfect circle.
+ *
+ * Use when we want a bezier curve to match a circle as closely as possible.
+ *
+ * \note the return value will need to be divided by 0.75 for correct results.
+ */
+float cubic_tangent_factor_circle_v3(const float tan_l[3], const float tan_r[3]);
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Geodesics
+ * \{ */
+
+/**
+ * Utility for computing approximate geodesic distances on triangle meshes.
+ *
+ * Given triangle with vertex coordinates v0, v1, v2, and known geodesic distances
+ * dist1 and dist2 at v1 and v2, estimate a geodesic distance at vertex v0.
+ *
+ * From "Dart Throwing on Surfaces", EGSR 2009. Section 7, Geodesic Dart Throwing.
+ */
+float geodesic_distance_propagate_across_triangle(
+    const float v0[3], const float v1[3], const float v2[3], float dist1, float dist2);
+
+/** \} */
+
+}  // namespace blender
+
+/* -------------------------------------------------------------------- */
+/** \name Inline Definitions
+ * \{ */
+
+#if BLI_MATH_DO_INLINE
+#  include "intern/math_geom_inline.cc"  // IWYU pragma: export
+#endif
+
+#ifdef BLI_MATH_GCC_WARN_PRAGMA
+#  pragma GCC diagnostic pop
+#endif
+
+/** \} */
