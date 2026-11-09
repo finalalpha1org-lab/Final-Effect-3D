@@ -4,6 +4,10 @@
 #include "finaleffect/math/mat4.hpp"
 
 #include <cmath>
+#include <cstring>
+
+// Vendored Blender blenlib (GPL-2.0-or-later): blender::determinant_m4 / blender::invert_m4_m4
+#include "BLI_math_matrix.h"
 
 namespace finaleffect::math {
 
@@ -205,81 +209,51 @@ Mat4 Mat4::transposed() const noexcept {
 }
 
 namespace {
-std::array<float, 16> computeAdjugateColumnMajor(const std::array<float, 16>& m) noexcept {
-    std::array<float, 16> inv{};
 
-    inv[0] = m[5] * m[10] * m[15] - m[5] * m[11] * m[14] - m[9] * m[6] * m[15] +
-             m[9] * m[7] * m[14] + m[13] * m[6] * m[11] - m[13] * m[7] * m[10];
-
-    inv[4] = -m[4] * m[10] * m[15] + m[4] * m[11] * m[14] + m[8] * m[6] * m[15] -
-             m[8] * m[7] * m[14] - m[12] * m[6] * m[11] + m[12] * m[7] * m[10];
-
-    inv[8] = m[4] * m[9] * m[15] - m[4] * m[11] * m[13] - m[8] * m[5] * m[15] +
-             m[8] * m[7] * m[13] + m[12] * m[5] * m[11] - m[12] * m[7] * m[9];
-
-    inv[12] = -m[4] * m[9] * m[14] + m[4] * m[10] * m[13] + m[8] * m[5] * m[14] -
-              m[8] * m[6] * m[13] - m[12] * m[5] * m[10] + m[12] * m[6] * m[9];
-
-    inv[1] = -m[1] * m[10] * m[15] + m[1] * m[11] * m[14] + m[9] * m[2] * m[15] -
-             m[9] * m[3] * m[14] - m[13] * m[2] * m[11] + m[13] * m[3] * m[10];
-
-    inv[5] = m[0] * m[10] * m[15] - m[0] * m[11] * m[14] - m[8] * m[2] * m[15] +
-             m[8] * m[3] * m[14] + m[12] * m[2] * m[11] - m[12] * m[3] * m[10];
-
-    inv[9] = -m[0] * m[9] * m[15] + m[0] * m[11] * m[13] + m[8] * m[1] * m[15] -
-             m[8] * m[3] * m[13] - m[12] * m[1] * m[11] + m[12] * m[3] * m[9];
-
-    inv[13] = m[0] * m[9] * m[14] - m[0] * m[10] * m[13] - m[8] * m[1] * m[14] +
-              m[8] * m[2] * m[13] + m[12] * m[1] * m[10] - m[12] * m[2] * m[9];
-
-    inv[2] = m[1] * m[6] * m[15] - m[1] * m[7] * m[14] - m[5] * m[2] * m[15] +
-             m[5] * m[3] * m[14] + m[13] * m[2] * m[7] - m[13] * m[3] * m[6];
-
-    inv[6] = -m[0] * m[6] * m[15] + m[0] * m[7] * m[14] + m[4] * m[2] * m[15] -
-             m[4] * m[3] * m[14] - m[12] * m[2] * m[7] + m[12] * m[3] * m[6];
-
-    inv[10] = m[0] * m[5] * m[15] - m[0] * m[7] * m[13] - m[4] * m[1] * m[15] +
-              m[4] * m[3] * m[13] + m[12] * m[1] * m[7] - m[12] * m[3] * m[5];
-
-    inv[14] = -m[0] * m[5] * m[14] + m[0] * m[6] * m[13] + m[4] * m[1] * m[14] -
-              m[4] * m[2] * m[13] - m[12] * m[1] * m[6] + m[12] * m[2] * m[5];
-
-    inv[3] = -m[1] * m[6] * m[11] + m[1] * m[7] * m[10] + m[5] * m[2] * m[11] -
-             m[5] * m[3] * m[10] - m[9] * m[2] * m[7] + m[9] * m[3] * m[6];
-
-    inv[7] = m[0] * m[6] * m[11] - m[0] * m[7] * m[10] - m[4] * m[2] * m[11] +
-             m[4] * m[3] * m[10] + m[8] * m[2] * m[7] - m[8] * m[3] * m[6];
-
-    inv[11] = -m[0] * m[5] * m[11] + m[0] * m[7] * m[9] + m[4] * m[1] * m[11] -
-              m[4] * m[3] * m[9] - m[8] * m[1] * m[7] + m[8] * m[3] * m[5];
-
-    inv[15] = m[0] * m[5] * m[10] - m[0] * m[6] * m[9] - m[4] * m[1] * m[10] +
-              m[4] * m[2] * m[9] + m[8] * m[1] * m[6] - m[8] * m[2] * m[5];
-
-    return inv;
+// Final Effect 3D stores column-major (element (row, col) lives at data[col * 4 + row]);
+// Blender's blenlib uses float[4][4] with the translation in row 3. The two conventions
+// are exact transposes of one another while sharing the same linear float order, so a
+// plain 16-float copy hands blenlib the transposed matrix and copying its result back
+// yields the inverse in this module's convention: ((A^T)^-1)^T == A^-1, and the
+// determinant is transpose-invariant. Blender therefore owns the singularity test and
+// the elimination itself; only the layout bridge lives here.
+void toBlenlib(const std::array<float, 16>& src, float dst[4][4]) noexcept {
+    std::memcpy(dst, src.data(), sizeof(float) * 16);
 }
+
+void fromBlenlib(const float src[4][4], std::array<float, 16>& dst) noexcept {
+    std::memcpy(dst.data(), src, sizeof(float) * 16);
+}
+
 } // namespace
 
 float Mat4::determinant() const noexcept {
-    const auto adj = computeAdjugateColumnMajor(data);
-    return data[0] * adj[0] + data[1] * adj[4] + data[2] * adj[8] + data[3] * adj[12];
+    float mat[4][4];
+    toBlenlib(data, mat);
+    return blender::determinant_m4(mat);
 }
 
 std::optional<Mat4> Mat4::inverted(float min_determinant) const noexcept {
-    const auto adj = computeAdjugateColumnMajor(data);
-    const float det = data[0] * adj[0] + data[1] * adj[4] + data[2] * adj[8] + data[3] * adj[12];
+    float mat[4][4];
+    toBlenlib(data, mat);
+
+    const float det = blender::determinant_m4(mat);
     if (!math::isFinite(det) || std::fabs(det) <= min_determinant) {
         return std::nullopt;
     }
 
-    const float inv_det = 1.0f / det;
+    float inverse[4][4];
+    if (!blender::invert_m4_m4(inverse, mat)) {
+        return std::nullopt;
+    }
+
     Mat4 result{};
-    for (std::size_t i = 0; i < 16; ++i) {
-        result.data[i] = adj[i] * inv_det;
+    fromBlenlib(inverse, result.data);
+    if (!result.isFinite()) {
+        return std::nullopt;
     }
     return result;
 }
-
 bool Mat4::isFinite() const noexcept {
     for (const float v : data) {
         if (!math::isFinite(v)) {
